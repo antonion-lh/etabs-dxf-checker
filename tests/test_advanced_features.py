@@ -143,3 +143,47 @@ def test_pdf_and_html_generation_under_load():
         except: pass
         try: os.unlink(html_path)
         except: pass
+
+
+def test_kpi_strip_safety_on_empty_or_corrupt_dataframe():
+    """Verify _kpi_strip never raises KeyError on empty or column-less DataFrames."""
+    import pandas as pd
+    from streamlit_app import _kpi_strip
+
+    # Empty DataFrame
+    df_empty = pd.DataFrame()
+    _kpi_strip(df_empty, is_pdf_mode=True, etabs_data={})
+    _kpi_strip(df_empty, is_pdf_mode=False, etabs_data={})
+
+    # DataFrame with missing columns
+    df_missing = pd.DataFrame([{"foo": "bar"}])
+    _kpi_strip(df_missing, is_pdf_mode=True, etabs_data={})
+    _kpi_strip(df_missing, is_pdf_mode=False, etabs_data={})
+
+
+def test_e2k_positional_and_assigns_blocks():
+    """Verify e2k parser handles positional coordinates and separate ASSIGN blocks."""
+    import io
+    from phase1_e2k import parse_e2k
+
+    e2k_sample = """
+$ POINT COORDINATES
+  POINT "P1" 0.0 0.0 0.0
+  POINT "P2" 0.0 0.0 3.5
+
+$ LINE OBJECT CONNECTIVITY
+  LINE "C1" "P1" "P2"
+
+$ LINE ASSIGNS
+  LINE "C1" SECTION "COL_40x40"
+
+$ FRAME SECTIONS
+  FRAME "COL_40x40" SHAPE "RECTANGULAR" T3 0.40 T2 0.40
+"""
+    etabs = parse_e2k(io.StringIO(e2k_sample))
+    cols = etabs["columns"]
+    assert len(cols) == 1
+    assert cols.iloc[0]["name"] == "C1"
+    assert cols.iloc[0]["section"] == "COL_40x40"
+    assert cols.iloc[0]["height_mm"] == 400.0
+

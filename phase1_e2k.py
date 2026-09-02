@@ -72,6 +72,33 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     log.info("Parsing ETABS .e2k file (%d lines)...", len(lines))
 
     points: dict[str, tuple[float, float, float]] = {}
+
+    def _save_pt(name: str, coords: tuple[float, float, float]):
+        points[name] = coords
+        s = str(name).strip().strip('"').strip("'")
+        points[s] = coords
+        try:
+            ival = str(int(float(s)))
+            points[ival] = coords
+        except (ValueError, TypeError):
+            pass
+
+    def _get_pt(name: str):
+        if not name:
+            return None
+        if name in points:
+            return points[name]
+        s = str(name).strip().strip('"').strip("'")
+        if s in points:
+            return points[s]
+        try:
+            ival = str(int(float(s)))
+            if ival in points:
+                return points[ival]
+        except (ValueError, TypeError):
+            pass
+        return None
+
     materials_dict: dict[str, dict] = {}
     frame_sections: dict[str, dict] = {}
     area_sections: dict[str, dict] = {}
@@ -82,6 +109,8 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     raw_area_loads: list[dict] = []
     raw_frame_loads: list[dict] = []
     raw_hinges: list[dict] = []
+    line_assigns: dict[str, str] = {}
+    area_assigns: dict[str, str] = {}
 
     current_block = ""
 
@@ -98,22 +127,25 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         if not tokens:
             continue
 
-        # 1. POINT COORDINATES
-        if "POINT" in current_block and "COORD" in current_block:
-            p_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() == "POINT" else tokens[0]
+        # 1. POINT / JOINT COORDINATES
+        if ("POINT" in current_block or "JOINT" in current_block) and not ("ASSIGN" in current_block or "LOAD" in current_block or "PAT" in current_block):
+            p_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("POINT", "JOINT") else tokens[0]
             x_str = _get_kw_val(tokens, "X")
             y_str = _get_kw_val(tokens, "Y")
             z_str = _get_kw_val(tokens, "Z")
             if x_str and y_str and z_str:
                 try:
-                    points[p_name] = (float(x_str), float(y_str), float(z_str))
+                    _save_pt(p_name, (float(x_str), float(y_str), float(z_str)))
                 except ValueError:
                     pass
-            elif len(tokens) >= 4:
-                try:
-                    points[p_name] = (float(tokens[1]), float(tokens[2]), float(tokens[3]))
-                except ValueError:
-                    pass
+            else:
+                # Positional coordinates: POINT "1" 10.0 5.0 3.0 or "1" 10.0 5.0 3.0
+                start_idx = 2 if tokens[0].upper() in ("POINT", "JOINT") else 1
+                if len(tokens) >= start_idx + 3:
+                    try:
+                        _save_pt(p_name, (float(tokens[start_idx]), float(tokens[start_idx + 1]), float(tokens[start_idx + 2])))
+                    except ValueError:
+                        pass
 
         # 2. MATERIAL PROPERTIES
         elif "MATERIAL" in current_block:
@@ -255,12 +287,19 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 }
 
         # 5. LINE CONNECTIVITIES (FRAMES)
-        elif ("LINE" in current_block or "FRAME" in current_block) and "CONNECT" in current_block:
+        elif ("LINE" in current_block or "FRAME" in current_block) and ("CONNECT" in current_block or ("OBJECT" in current_block and "LOAD" not in current_block and "HINGE" not in current_block and "ASSIGN" not in current_block)):
             f_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("LINE", "FRAME") else tokens[0]
-            i_pt = _get_kw_val(tokens, "I")
-            j_pt = _get_kw_val(tokens, "J")
-            prop = _get_kw_val(tokens, "PROP")
+            i_pt = _get_kw_val(tokens, "I") or _get_kw_val(tokens, "J1") or _get_kw_val(tokens, "NODE1") or _get_kw_val(tokens, "POINT1")
+            j_pt = _get_kw_val(tokens, "J") or _get_kw_val(tokens, "J2") or _get_kw_val(tokens, "NODE2") or _get_kw_val(tokens, "POINT2")
+            prop = _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "SEC")
             type_hint = _get_kw_val(tokens, "TYPE").lower()
+
+            if not (i_pt and j_pt):
+                # Positional tokens: LINE "1" "1" "2" [PROP "SEC"]
+                start_i = 2 if tokens[0].upper() in ("LINE", "FRAME") else 1
+                if len(tokens) >= start_i + 2:
+                    i_pt = tokens[start_i]
+                    j_pt = tokens[start_i + 1]
 
             if f_name and i_pt and j_pt:
                 raw_frames.append({
@@ -271,18 +310,34 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "type_hint": type_hint,
                 })
 
+        # 5b. LINE ASSIGNMENTS
+        elif ("LINE" in current_block or "FRAME" in current_block) and "ASSIGN" in current_block and "HINGE" not in current_block and "LOAD" not in current_block:
+            f_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("LINE", "FRAME") else tokens[0]
+            sec = _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SEC")
+            if f_name and sec:
+                line_assigns[f_name] = sec
+
         # 6. AREA CONNECTIVITIES (WALLS & SLABS)
-        elif "AREA" in current_block and "CONNECT" in current_block:
-            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() == "AREA" else tokens[0]
-            prop = _get_kw_val(tokens, "PROP")
+        elif ("AREA" in current_block or "SHELL" in current_block) and ("CONNECT" in current_block or ("OBJECT" in current_block and "LOAD" not in current_block and "ASSIGN" not in current_block)):
+            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL") else tokens[0]
+            prop = _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "SEC")
             type_hint = _get_kw_val(tokens, "TYPE").lower()
 
             pts = []
             tokens_upper = [t.upper() for t in tokens]
-            if "PT" in tokens_upper:
-                idx = tokens_upper.index("PT")
-                for j in range(idx + 1, len(tokens)):
-                    if tokens[j].upper() in ("PROP", "TYPE", "NUMPTS"):
+            for kw in ("PT", "PTS", "J", "JOINTS", "NODES"):
+                if kw in tokens_upper:
+                    idx = tokens_upper.index(kw)
+                    for j in range(idx + 1, len(tokens)):
+                        if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
+                            break
+                        pts.append(tokens[j])
+                    break
+
+            if not pts:
+                start_j = 2 if tokens[0].upper() in ("AREA", "SHELL") else 1
+                for j in range(start_j, len(tokens)):
+                    if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
                         break
                     pts.append(tokens[j])
 
@@ -293,6 +348,13 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "pts": pts,
                     "type_hint": type_hint,
                 })
+
+        # 6b. AREA ASSIGNMENTS
+        elif ("AREA" in current_block or "SHELL" in current_block) and "ASSIGN" in current_block and "LOAD" not in current_block:
+            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL") else tokens[0]
+            sec = _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SEC")
+            if a_name and sec:
+                area_assigns[a_name] = sec
 
         # 7. LOAD PATTERNS
         elif "LOAD" in current_block and "PAT" in current_block:
@@ -397,12 +459,20 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "dof": dof,
                 })
 
+    # Apply line and area section assignments
+    for f in raw_frames:
+        if not f.get("prop") and f["name"] in line_assigns:
+            f["prop"] = line_assigns[f["name"]]
+    for a in raw_areas:
+        if not a.get("prop") and a["name"] in area_assigns:
+            a["prop"] = area_assigns[a["name"]]
+
     # Post-process: Attach coordinates & classify elements
     columns, beams, braces = [], [], []
 
     for f in raw_frames:
-        p1 = points.get(f["i_pt"])
-        p2 = points.get(f["j_pt"])
+        p1 = _get_pt(f["i_pt"])
+        p2 = _get_pt(f["j_pt"])
         if not p1 or not p2:
             continue
 
@@ -460,7 +530,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
     walls, slabs = [], []
     for a in raw_areas:
-        v_pts = [points[pt] for pt in a["pts"] if pt in points]
+        v_pts = [_get_pt(pt) for pt in a["pts"] if _get_pt(pt) is not None]
         if len(v_pts) < 3:
             continue
 
@@ -511,7 +581,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
     restraints = []
     for r in raw_restraints:
-        pt = points.get(r["joint_name"])
+        pt = _get_pt(r["joint_name"])
         if pt:
             restraints.append({
                 "joint_name": r["joint_name"],

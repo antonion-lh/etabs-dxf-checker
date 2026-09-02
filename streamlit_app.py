@@ -610,13 +610,16 @@ def _render_drawing(uploaded_drawing, active_story_z=None):
 # KPI Strip: Colored indicator borders, crisp typography
 # ─────────────────────────────────────────────────────────────
 def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = None):
+    has_type = (not df.empty) and ("element_type" in df.columns)
+    has_status = (not df.empty) and ("status" in df.columns)
+
     if is_pdf_mode:
-        n_total = len(df)
-        n_cols = len(df[df["element_type"] == "column"])
-        n_beams = len(df[df["element_type"] == "beam"])
-        n_walls = len(df[df["element_type"] == "wall"])
-        n_slabs = len(df[df["element_type"] == "slab"])
-        n_secs = df["etabs_section"].nunique() if "etabs_section" in df.columns else 0
+        n_total = len(df) if not df.empty else 0
+        n_cols = len(df[df["element_type"] == "column"]) if has_type else 0
+        n_beams = len(df[df["element_type"] == "beam"]) if has_type else 0
+        n_walls = len(df[df["element_type"] == "wall"]) if has_type else 0
+        n_slabs = len(df[df["element_type"] == "slab"]) if has_type else 0
+        n_secs = df["etabs_section"].nunique() if (not df.empty and "etabs_section" in df.columns) else 0
         n_mats = len(etabs_data.get("materials", [])) if etabs_data else 0
         n_rests = len(etabs_data.get("restraints", [])) if etabs_data else 0
 
@@ -658,13 +661,13 @@ def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = N
         """, unsafe_allow_html=True)
         return
 
-    counts = df["status"].value_counts()
+    counts = df["status"].value_counts() if has_status else pd.Series(dtype=int)
     n_match = counts.get(Status.MATCH, 0)
     n_mis   = counts.get(Status.SECTION_MISMATCH, 0)
     n_etabs = counts.get(Status.ETABS_ONLY, 0)
     n_dxf   = counts.get(Status.DXF_ONLY, 0)
-    n_total = len(df)
-    pct     = round(n_match / max(n_total, 1) * 100)
+    n_total = len(df) if not df.empty else 0
+    pct     = round(n_match / max(n_total, 1) * 100) if has_status else 0
 
     st.markdown(f"""
     <div class="kpi-strip">
@@ -1296,7 +1299,12 @@ def main():
                                 "xy_dist_m": None,
                                 "notes": "Vizualno provjeriti s tlocrtom u PDF elaboratu",
                             })
-                df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame()
+                STANDARD_COLS = [
+                    "element_type", "status", "etabs_name", "etabs_x", "etabs_y", "etabs_z",
+                    "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
+                    "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
+                ]
+                df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame(columns=STANDARD_COLS)
                 df_res.attrs["sanity_alerts"] = run_structural_sanity_checks(etabs_data, cfg)
             else:
                 df_dxf = parse_dxf(dxf_path, cfg)
@@ -1328,6 +1336,12 @@ def main():
     z_levels = sorted(set([round(float(z), 2) for z in raw_z if float(z) > 0.1]))
 
     df_eval = df_res.copy()
+    if df_eval.empty or "element_type" not in df_eval.columns:
+        df_eval = pd.DataFrame(columns=[
+            "element_type", "status", "etabs_name", "etabs_x", "etabs_y", "etabs_z",
+            "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
+            "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
+        ])
     chosen_z = None
     if len(z_levels) > 1:
         st_opts = ["🏢 Sve etaže (Ukupni model)"]
