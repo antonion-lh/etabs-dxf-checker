@@ -833,6 +833,25 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             showlegend=False,
         ))
 
+    # 2b. Room Slabs: Architectural room floor fill
+    slabs_all = etabs_data.get("slabs", pd.DataFrame())
+    if not slabs_all.empty:
+        for _, s in slabs_all.iterrows():
+            pts = s.get("pts_coords")
+            if isinstance(pts, (list, tuple)) and len(pts) >= 3:
+                poly_x = [p[0] for p in pts] + [pts[0][0]]
+                poly_y = [p[1] for p in pts] + [pts[0][1]]
+                fig.add_trace(go.Scatter(
+                    x=poly_x, y=poly_y,
+                    fill="toself",
+                    fillcolor="rgba(241, 245, 249, 0.88)",
+                    line=dict(color="#cbd5e1", width=1.2),
+                    mode="lines",
+                    name="Ploča / Prostorije",
+                    hoverinfo="skip",
+                    showlegend=False,
+                ))
+
     # 3. Walls: True geometric baseline with solid physical thickness
     if not walls_all.empty:
         if active_story_name and "story" in walls_all.columns:
@@ -847,6 +866,9 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             is_cut = w.get("is_cut", True)
             st_val = status_map.get(str(w["name"]), Status.MATCH)
             col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
+            is_brick = "brick" in str(w.get("material", "")).lower() or "opeka" in str(w.get("material", "")).lower() or "masonry" in str(w.get("material", "")).lower() or "wall" in str(w.get("prop_name", "")).lower()
+            wall_fill_col = "#dc2626" if (is_brick and st_val == Status.MATCH) else col
+            wall_line_col = "#991b1b" if (is_brick and st_val == Status.MATCH) else "#0f172a"
             x1 = w.get("x_start", w.get("centroid_x", 0.0))
             y1 = w.get("y_start", w.get("centroid_y", 0.0))
             x2 = w.get("x_end", w.get("centroid_x", 0.0))
@@ -882,9 +904,9 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
                     fill="toself",
-                    fillcolor=col,
+                    fillcolor=wall_fill_col,
                     opacity=0.92,
-                    line=dict(color="#0f172a", width=1.5),
+                    line=dict(color=wall_line_col, width=1.5),
                     mode="lines",
                     name="Nosivi zid (presjek)",
                     hovertext=(
@@ -1199,8 +1221,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 name="Grede",
             ))
 
-    # Walls in 3D: Shaded structural panels & wireframe contours
-    walls = etabs_data.get("walls", pd.DataFrame())
+    # Walls in 3D: Shaded structural panels & wireframe contours matching ETABS
     if not walls.empty:
         w_xs, w_ys, w_zs = [], [], []
         mesh_x, mesh_y, mesh_z = [], [], []
@@ -1254,8 +1275,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Mesh3d(
                 x=mesh_x, y=mesh_y, z=mesh_z,
                 i=mesh_i, j=mesh_j, k=mesh_k,
-                color="#0284c7" if etabs_color_mode else "#10b981",
-                opacity=0.22,
+                color="#dc2626" if etabs_color_mode else "#10b981",
+                opacity=0.72,
                 name="Plohe zidova (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1264,13 +1285,12 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Scatter3d(
                 x=w_xs, y=w_ys, z=w_zs,
                 mode="lines",
-                line=dict(color="#0369a1" if etabs_color_mode else "#059669", width=2.5),
-                name="Konture zidova (ETABS)",
+                line=dict(color="#ffffff" if etabs_color_mode else "#059669", width=1.5),
+                name="Mreža zidova (ETABS)",
                 hoverinfo="skip",
             ))
 
-    # Slabs in 3D: Shaded plane & borders
-    slabs = etabs_data.get("slabs", pd.DataFrame())
+    # Slabs in 3D: Shaded plane & borders matching ETABS gray floor slabs
     if not slabs.empty:
         s_xs, s_ys, s_zs = [], [], []
         s_mesh_x, s_mesh_y, s_mesh_z = [], [], []
@@ -1305,8 +1325,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Mesh3d(
                 x=s_mesh_x, y=s_mesh_y, z=s_mesh_z,
                 i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
-                color="#f59e0b",
-                opacity=0.18,
+                color="#e2e8f0",
+                opacity=0.85,
                 name="Međukatna ploča",
                 hoverinfo="skip",
             ))
@@ -1315,8 +1335,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Scatter3d(
                 x=s_xs, y=s_ys, z=s_zs,
                 mode="lines",
-                line=dict(color="#d97706", width=2, dash="dash"),
-                name="Ploče (ETABS)",
+                line=dict(color="#94a3b8", width=1.5),
+                name="Rub ploče (ETABS)",
                 hoverinfo="skip",
             ))
 
