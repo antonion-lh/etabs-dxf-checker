@@ -1306,6 +1306,12 @@ def main():
                 ]
                 df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame(columns=STANDARD_COLS)
                 df_res.attrs["sanity_alerts"] = run_structural_sanity_checks(etabs_data, cfg)
+                df_res.attrs["materials"] = etabs_data.get("materials", [])
+                df_res.attrs["load_patterns"] = etabs_data.get("load_patterns", pd.DataFrame())
+                df_res.attrs["area_loads"] = etabs_data.get("area_loads", pd.DataFrame())
+                df_res.attrs["frame_loads"] = etabs_data.get("frame_loads", pd.DataFrame())
+                df_res.attrs["restraints"] = etabs_data.get("restraints", pd.DataFrame())
+                df_res.attrs["hinges"] = etabs_data.get("hinges", pd.DataFrame())
             else:
                 df_dxf = parse_dxf(dxf_path, cfg)
                 df_res = validate(etabs_data, df_dxf, cfg)
@@ -1395,17 +1401,26 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    # ── Compact Sanity Warning Pills ──────────────────────────
+    # ── Inženjerska kontrola modela (Sanity Alerts) ───────────
     alerts = df_res.attrs.get("sanity_alerts", [])
     if alerts:
-        pills = ""
-        for a in alerts[:6]:
-            cls = "error-pill" if a.get("severity") == "ERROR" else "warn-pill"
-            icon = "🔴" if a.get("severity") == "ERROR" else "⚠️"
-            pills += f'<span class="{cls}">{icon} [{a["category"]}] {a["element"]}: {a["issue"]}</span>'
-        if len(alerts) > 6:
-            pills += f'<span class="warn-pill">+{len(alerts)-6} dodatnih provjera…</span>'
-        st.markdown(f"<div style='margin-bottom: 16px;'>{pills}</div>", unsafe_allow_html=True)
+        seen_alerts = set()
+        dedup_alerts = []
+        for a in alerts:
+            k = (a.get("category"), a.get("element"), a.get("issue"))
+            if k not in seen_alerts:
+                seen_alerts.add(k)
+                dedup_alerts.append(a)
+
+        err_count = sum(1 for a in dedup_alerts if a.get("severity") == "ERROR")
+        warn_count = sum(1 for a in dedup_alerts if a.get("severity") == "WARNING")
+
+        if err_count > 0 or warn_count > 0:
+            exp_title = f"⚠️ Inženjerska kontrola modela ({err_count} upozorenja, {warn_count} napomena)" if err_count > 0 else f"ℹ️ Inženjerske napomene za model ({warn_count})"
+            with st.expander(exp_title, expanded=False):
+                for a in dedup_alerts:
+                    icon = "🔴" if a.get("severity") == "ERROR" else ("⚠️" if a.get("severity") == "WARNING" else "ℹ️")
+                    st.markdown(f"{icon} **[{a.get('category','')}] {a.get('element','')}**: {a.get('issue','')}")
 
     # ── Tab Navigation: Clear, descriptive titles ─────────────
     t_map, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([

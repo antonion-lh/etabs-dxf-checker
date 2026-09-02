@@ -373,17 +373,18 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 else:
                     p_type = p_type.capitalize()
 
+                # Self-weight multiplier is strictly from SELFWT or SW keyword
                 sw_str = _get_kw_val(tokens, "SELFWT") or _get_kw_val(tokens, "SW") or _get_kw_val(tokens, "SELF_WEIGHT")
-                if not sw_str and len(tokens) >= 3:
+                if sw_str:
                     try:
-                        float(tokens[-1])
-                        sw_str = tokens[-1]
+                        self_wt = float(sw_str)
                     except ValueError:
-                        pass
-                try:
-                    self_wt = float(sw_str) if sw_str else 0.0
-                except ValueError:
-                    self_wt = 0.0
+                        self_wt = 0.0
+                else:
+                    # In structural engineering & ETABS, ONLY primary Dead load has 1.0 default
+                    # Seismic, Live, Wind, etc. NEVER have self weight
+                    is_primary_dead = p_type.lower() == "dead" and ("DEAD" in p_name.upper() or p_name.upper() in ("G", "DL"))
+                    self_wt = 1.0 if is_primary_dead else 0.0
 
                 raw_load_patterns.append({
                     "name": p_name,

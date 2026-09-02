@@ -187,10 +187,10 @@ def _clean_status(status) -> Status:
 def _status_badge(status) -> str:
     try:
         st = _clean_status(status)
-        return (f'<span class="badge" style="background:{STATUS_BG[st]}">'
-                f'{STATUS_ICON[st]} {st.value.replace("_", " ")}</span>')
+        return (f'<span class="badge" style="background:{STATUS_BG.get(st, "#f8f9fa")}">'
+                f'{STATUS_ICON.get(st, "●")} {st.value.replace("_", " ")}</span>')
     except (ValueError, KeyError):
-        return str(status)
+        return f'<span class="badge" style="background:#e0f2fe;color:#0369a1;font-weight:600;">🏢 {status}</span>'
 
 
 def _element_badge(et: str) -> str:
@@ -205,10 +205,10 @@ def _data_rows(df: pd.DataFrame, cols: list[str]) -> str:
         try:
             st = _clean_status(raw_status)
             status_str = st.value
-            bg = STATUS_BG[st]
+            bg = STATUS_BG.get(st, "#ffffff")
         except (ValueError, KeyError):
             status_str = str(raw_status)
-            bg = "#ffffff"
+            bg = "#f0f9ff" if "PDF" in status_str else "#ffffff"
 
         cells = []
         for col in cols:
@@ -254,11 +254,17 @@ def _summary_cards_html(counts: dict) -> str:
     parts = []
     for st in Status:
         n = counts.get(st, 0)
-        cls = STATUS_CARD_CLASS[st]
-        icon = STATUS_ICON[st]
+        cls = STATUS_CARD_CLASS.get(st, "")
+        icon = STATUS_ICON.get(st, "●")
         parts.append(
             f'<div class="card {cls}"><div class="num">{n}</div>'
             f'<div class="lbl">{icon} {st.value.replace("_"," ")}</div></div>'
+        )
+    if "Za provjeru s PDF-om" in counts:
+        n = counts["Za provjeru s PDF-om"]
+        parts.append(
+            f'<div class="card" style="background:#e0f2fe;"><div class="num">{n}</div>'
+            f'<div class="lbl">🏢 Modelirani elementi</div></div>'
         )
     return '<div class="cards">' + "".join(parts) + "</div>"
 
@@ -645,6 +651,7 @@ def _generate_pdf_reportlab(df: pd.DataFrame, output_path: str, cfg: Config) -> 
         Status.SECTION_MISMATCH: colors.HexColor("#fff3cd"),
         Status.ETABS_ONLY: colors.HexColor("#f8d7da"),
         Status.DXF_ONLY: colors.HexColor("#d1ecf1"),
+        "Za provjeru s PDF-om": colors.HexColor("#e0f2fe"),
     }
 
     table_data = [[Paragraph(f"<font color='white'><b>{h}</b></font>", cell_bold) for h in headers]]

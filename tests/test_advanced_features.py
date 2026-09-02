@@ -187,3 +187,84 @@ $ FRAME SECTIONS
     assert cols.iloc[0]["section"] == "COL_40x40"
     assert cols.iloc[0]["height_mm"] == 400.0
 
+
+def test_seismic_pattern_self_weight_zero():
+    """Verify that SEISMIC and lateral load patterns never pick up direction numbers as self-weight."""
+    import io
+    from phase1_e2k import parse_e2k
+    from phase3_validation import run_structural_sanity_checks
+    from config import Config
+
+    e2k_sample = """
+$ LOAD PATTERNS
+  LOADPATTERN "G" TYPE "DEAD" SELFWT 1.0
+  LOADPATTERN "SEISMIC" TYPE "SEISMIC" DIR 1.0
+  LOADPATTERN "WIND" TYPE "WIND" DIR 1.0
+"""
+    etabs = parse_e2k(io.StringIO(e2k_sample))
+    pats = etabs["load_patterns"]
+    assert len(pats) == 3
+
+    g_pat = pats[pats["name"] == "G"].iloc[0]
+    assert g_pat["self_weight_mult"] == 1.0
+
+    seis_pat = pats[pats["name"] == "SEISMIC"].iloc[0]
+    assert seis_pat["self_weight_mult"] == 0.0
+
+    wind_pat = pats[pats["name"] == "WIND"].iloc[0]
+    assert wind_pat["self_weight_mult"] == 0.0
+
+    # Ensure sanity checks produce NO errors or warnings
+    alerts = run_structural_sanity_checks(etabs, Config())
+    assert len(alerts) == 0
+
+
+def test_report_generation_in_pdf_mode():
+    """Verify HTML and PDF report generation works smoothly with 'Za provjeru s PDF-om' status."""
+    import tempfile
+    import os
+    import pandas as pd
+    from report import generate_html, generate_pdf
+    from config import Config
+
+    df_pdf_mode = pd.DataFrame([
+        {
+            "element_type": "wall",
+            "status": "Za provjeru s PDF-om",
+            "etabs_name": "W1",
+            "etabs_x": 10.0,
+            "etabs_y": 5.0,
+            "etabs_z": 3.2,
+            "etabs_section": "WALL_25",
+            "etabs_w_mm": None,
+            "etabs_h_mm": 250.0,
+            "etabs_material": "C25/30",
+            "dxf_dim_text": "Provjeriti na PDF-u",
+            "dxf_dim1_mm": None,
+            "dxf_dim2_mm": None,
+            "xy_dist_m": None,
+            "notes": "Provjeriti s tlocrtom prizemlja",
+        }
+    ])
+    cfg = Config()
+
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as f_html:
+        html_path = f_html.name
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f_pdf:
+        pdf_path = f_pdf.name
+
+    try:
+        html_out = generate_html(df_pdf_mode, html_path, cfg)
+        assert os.path.exists(html_path)
+        assert "Za provjeru s PDF-om" in html_out
+
+        generate_pdf(df_pdf_mode, pdf_path, cfg)
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 1000
+    finally:
+        try: os.unlink(html_path)
+        except: pass
+        try: os.unlink(pdf_path)
+        except: pass
+
+
