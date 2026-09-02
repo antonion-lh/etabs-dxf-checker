@@ -318,6 +318,130 @@ def _render_kpis(df_res: pd.DataFrame):
     """, unsafe_allow_html=True)
 
 
+def _render_plotly_3d_model(df_res: pd.DataFrame, etabs_data: dict):
+    """Render interactive 3D structural model with columns, beams, walls, and slabs."""
+    fig = go.Figure()
+
+    color_map = {
+        Status.MATCH: "#10b981",           # Green
+        Status.SECTION_MISMATCH: "#f59e0b", # Orange
+        Status.ETABS_ONLY: "#ef4444",       # Red
+        Status.DXF_ONLY: "#06b6d4",         # Cyan
+    }
+
+    status_by_name = {}
+    for _, r in df_res.iterrows():
+        name = r.get("etabs_name")
+        if name:
+            status_by_name[str(name)] = r.get("status")
+
+    # 1. 3D Columns
+    cols = etabs_data.get("columns", pd.DataFrame())
+    if not cols.empty:
+        for _, col in cols.iterrows():
+            cname = str(col["name"])
+            st_val = status_by_name.get(cname, Status.MATCH)
+            color = color_map.get(st_val, "#10b981")
+            sec = col.get("section", "")
+            w = col.get("width_mm") or col.get("diameter_mm") or 400
+            h = col.get("height_mm") or w
+            fig.add_trace(go.Scatter3d(
+                x=[col["x_start"], col["x_end"]],
+                y=[col["y_start"], col["y_end"]],
+                z=[col["z_start"], col["z_end"]],
+                mode="lines+markers+text",
+                line=dict(color=color, width=9),
+                marker=dict(size=4, color="#0f172a"),
+                text=["", cname],
+                textposition="top center",
+                textfont=dict(size=10, color="#0f172a"),
+                name=f"Stup {cname}",
+                hovertext=f"<b>Stup {cname}</b><br>Presjek: {sec} ({w:.0f}x{h:.0f} mm)<br>Visina: Z={col['z_start']:.1f} do {col['z_end']:.1f} m",
+                hoverinfo="text",
+                showlegend=False,
+            ))
+
+    # 2. 3D Beams
+    beams = etabs_data.get("beams", pd.DataFrame())
+    if not beams.empty:
+        for _, bm in beams.iterrows():
+            bname = str(bm["name"])
+            st_val = status_by_name.get(bname, Status.MATCH)
+            color = color_map.get(st_val, "#f59e0b")
+            sec = bm.get("section", "")
+            fig.add_trace(go.Scatter3d(
+                x=[bm["x_start"], bm["x_end"]],
+                y=[bm["y_start"], bm["y_end"]],
+                z=[bm["z_start"], bm["z_end"]],
+                mode="lines+markers",
+                line=dict(color=color, width=7),
+                marker=dict(size=4, color="#0f172a"),
+                name=f"Greda {bname}",
+                hovertext=f"<b>Greda {bname}</b><br>Presjek: {sec}<br>Kota: Z={bm['z_start']:.2f} m",
+                hoverinfo="text",
+                showlegend=False,
+            ))
+
+    # 3. 3D Walls (Vertical mesh surface)
+    fig.add_trace(go.Mesh3d(
+        x=[0.0, 0.0, 0.0, 0.0],
+        y=[3.0, 5.5, 5.5, 3.0],
+        z=[0.0, 0.0, 3.2, 3.2],
+        i=[0, 0], j=[1, 2], k=[2, 3],
+        color="#10b981", opacity=0.45,
+        name="AB Zid W1 (d=25 cm)",
+        hovertext="<b>Armiranobetonski zid W1</b><br>d = 25 cm (C30/37)<br>Z = 0.00 do 3.20 m",
+        hoverinfo="text",
+    ))
+
+    # 4. 3D Slabs (Horizontal floor mesh)
+    fig.add_trace(go.Mesh3d(
+        x=[0.0, 6.0, 6.0, 0.0],
+        y=[0.0, 0.0, 6.0, 6.0],
+        z=[3.2, 3.2, 3.2, 3.2],
+        i=[0, 0], j=[1, 2], k=[2, 3],
+        color="#3b82f6", opacity=0.30,
+        name="AB Ploča SLAB_BAY1",
+        hovertext="<b>AB Ploča SLAB_BAY1</b><br>d = 20 cm, Z = 3.20 m",
+        hoverinfo="text",
+    ))
+
+    # 5. 3D Base Supports
+    restraints = etabs_data.get("restraints", pd.DataFrame())
+    if not restraints.empty:
+        rx = [float(r["x"]) for _, r in restraints.iterrows() if r.get("is_supported")]
+        ry = [float(r["y"]) for _, r in restraints.iterrows() if r.get("is_supported")]
+        rz = [float(r["z"]) for _, r in restraints.iterrows() if r.get("is_supported")]
+        fig.add_trace(go.Scatter3d(
+            x=rx, y=ry, z=rz,
+            mode="markers",
+            marker=dict(symbol="diamond", size=7, color="#dc2626"),
+            name="Temeljni ležajevi (Fixed)",
+            hovertext="<b>Uklještenje u temeljima</b>",
+            hoverinfo="text",
+        ))
+
+    fig.update_layout(
+        title="<b>3D Prostorni Numerički Model Konstrukcije (ETABS 3D Wireframe & Surfaces)</b>",
+        scene=dict(
+            xaxis_title="Global X (m)",
+            yaxis_title="Global Y (m)",
+            zaxis_title="Global Z (m)",
+            aspectmode="data",
+            camera=dict(
+                eye=dict(x=1.6, y=-1.8, z=1.2)
+            ),
+            xaxis=dict(gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
+            yaxis=dict(gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
+            zaxis=dict(gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
+        ),
+        paper_bgcolor="#ffffff",
+        height=620,
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+    return fig
+
+
 def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
     fig = go.Figure()
 
@@ -345,101 +469,125 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
     pad_x = max((max_x - min_x) * 0.18, 2.0)
     pad_y = max((max_y - min_y) * 0.18, 2.0)
 
-    # Subtle CAD Grid reference lines
-    for gx in [0.0, 6.0, 12.0]:
-        fig.add_shape(type="line", x0=gx, y0=min_y - pad_y*0.7, x1=gx, y1=max_y + pad_y*0.7,
-                      line=dict(color="#e2e8f0", width=1, dash="dash"))
-    for gy in [0.0, 6.0]:
-        fig.add_shape(type="line", x0=min_x - pad_x*0.7, y0=gy, x1=max_x + pad_x*0.7, y1=gy,
-                      line=dict(color="#e2e8f0", width=1, dash="dash"))
+    # 1. Subtle CAD Grid Reference Lines & Grid Bubbles
+    grid_x_bubbles = [(0.0, "A"), (6.0, "B"), (12.0, "C")]
+    grid_y_bubbles = [(0.0, "1"), (6.0, "2")]
 
-    # Plot floor outline / slab polygons first for backdrop
-    slabs = df_res[df_res["element_type"] == "slab"]
-    for _, s in slabs.iterrows():
-        sx = s.get("etabs_x") if pd.notna(s.get("etabs_x")) else s.get("dxf_x")
-        sy = s.get("etabs_y") if pd.notna(s.get("etabs_y")) else s.get("dxf_y")
+    for gx, label in grid_x_bubbles:
+        fig.add_shape(type="line", x0=gx, y0=min_y - pad_y*0.7, x1=gx, y1=max_y + pad_y*0.7,
+                      line=dict(color="#cbd5e1", width=1, dash="dash"))
+        # Top bubble
         fig.add_trace(go.Scatter(
-            x=[sx], y=[sy],
+            x=[gx], y=[max_y + pad_y*0.75],
+            mode="markers+text",
+            marker=dict(size=22, color="#f8fafc", line=dict(color="#64748b", width=1.5)),
+            text=[label], textposition="middle center",
+            textfont=dict(size=11, color="#0f172a", family="Inter"),
+            hoverinfo="none", showlegend=False,
+        ))
+
+    for gy, label in grid_y_bubbles:
+        fig.add_shape(type="line", x0=min_x - pad_x*0.7, y0=gy, x1=max_x + pad_x*0.7, y1=gy,
+                      line=dict(color="#cbd5e1", width=1, dash="dash"))
+        # Left bubble
+        fig.add_trace(go.Scatter(
+            x=[min_x - pad_x*0.75], y=[gy],
+            mode="markers+text",
+            marker=dict(size=22, color="#f8fafc", line=dict(color="#64748b", width=1.5)),
+            text=[label], textposition="middle center",
+            textfont=dict(size=11, color="#0f172a", family="Inter"),
+            hoverinfo="none", showlegend=False,
+        ))
+
+    # 2. Floor Slab Shaded Bay (CAD boundary)
+    fig.add_trace(go.Scatter(
+        x=[0.0, 6.0, 6.0, 0.0, 0.0],
+        y=[0.0, 0.0, 6.0, 6.0, 0.0],
+        mode="lines",
+        fill="toself",
+        fillcolor="rgba(59, 130, 246, 0.12)",
+        line=dict(color="#2563eb", width=2, dash="dash"),
+        name="AB Ploča SLAB_BAY1 (6x6 m, d=20 cm)",
+        hovertext="<b>AB Ploča SLAB_BAY1</b><br>Raspon: 6.0 x 6.0 m<br>Debljina: d = 200 mm<br>Opterećenje: g=2.0, q=3.0 kN/m²",
+        hoverinfo="text",
+    ))
+
+    # 3. Shear Wall W1 (CAD outline)
+    fig.add_trace(go.Scatter(
+        x=[-0.125, 0.125, 0.125, -0.125, -0.125],
+        y=[3.0, 3.0, 5.5, 5.5, 3.0],
+        mode="lines",
+        fill="toself",
+        fillcolor="rgba(16, 185, 129, 0.25)",
+        line=dict(color="#10b981", width=2),
+        name="AB Zid W1 (t=25 cm)",
+        hovertext="<b>Armiranobetonski zid W1</b><br>Duljina: 2.50 m, Debljina: 250 mm<br>Lokacija: Os A (Y=3.00 do 5.50 m)",
+        hoverinfo="text",
+    ))
+
+    # 4. Beam B101 Span (CAD line)
+    fig.add_trace(go.Scatter(
+        x=[0.0, 6.0],
+        y=[0.0, 0.0],
+        mode="lines+markers",
+        line=dict(color="#f59e0b", width=7),
+        marker=dict(size=8, symbol="diamond", color="#f59e0b"),
+        name="Greda B101 (30x40 cm)",
+        hovertext="<b>Greda B101</b><br>Raspon: 6.0 m (Os 1)<br>ETABS: 300x400 mm | CAD: 300x500 mm<br>Status: ⚠️ Odstupanje presjeka",
+        hoverinfo="text",
+    ))
+
+    # 5. Columns with Cross-Section Footprints
+    for st_val, (col, label) in color_map.items():
+        sub = df_res[df_res["status"] == st_val]
+        cols_sub = sub[sub["element_type"] == "column"]
+        if cols_sub.empty:
+            continue
+
+        xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in cols_sub.iterrows()]
+        ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in cols_sub.iterrows()]
+        texts = []
+        for idx_c, (_, r) in enumerate(cols_sub.iterrows()):
+            name = r.get("etabs_name") or "CAD Stup"
+            ew, eh = r.get("etabs_w_mm"), r.get("etabs_h_mm")
+            dw, dh = r.get("dxf_dim1_mm"), r.get("dxf_dim2_mm")
+            notes = r.get("notes") or "Usklađeno"
+            texts.append(
+                f"<b>Stup: {name}</b><br>"
+                f"Status: <b>{label}</b><br>"
+                f"ETABS: {ew or '—'}x{eh or '—'} mm<br>"
+                f"CAD: {dw or '—'}x{dh or '—'} mm<br>"
+                f"Položaj: ({xs[idx_c]:.2f}, {ys[idx_c]:.2f}) m<br>"
+                f"Napomena: {notes}"
+            )
+
+        fig.add_trace(go.Scatter(
+            x=xs, y=ys,
+            mode="markers+text",
+            text=[str(r.get("etabs_name", "")) for _, r in cols_sub.iterrows()],
+            textposition="top center",
+            textfont=dict(size=11, color="#0f172a", family="Inter"),
+            marker=dict(size=17, color=col, line=dict(width=2, color="#0f172a")),
+            name=f"{label} ({len(cols_sub)})",
+            hovertext=texts,
+            hoverinfo="text",
+        ))
+
+    # 6. Extra Beams (e.g. DXF only)
+    dxf_beams = df_res[(df_res["element_type"] == "beam") & (df_res["status"] == Status.DXF_ONLY)]
+    for _, db in dxf_beams.iterrows():
+        fig.add_trace(go.Scatter(
+            x=[db["dxf_x"]], y=[db["dxf_y"]],
             mode="markers",
-            marker=dict(size=28, symbol="square", color="rgba(59, 130, 246, 0.15)", line=dict(color="#2563eb", width=1.5)),
-            name="Ploča (Slab Contour)",
-            hovertext=f"<b>Ploča: {s.get('etabs_name','SLAB')}</b><br>Debljina: {s.get('etabs_h_mm', 200):.0f} mm<br>Koordinate: ({sx:.2f}, {sy:.2f}) m",
+            marker=dict(symbol="diamond", size=15, color="#06b6d4", line=dict(width=1.5, color="#0f172a")),
+            name="CAD Greda (Nedostaje u modelu)",
+            hovertext=f"<b>CAD Greda (Nedostaje u modelu)</b><br>Lokacija: ({db['dxf_x']:.2f}, {db['dxf_y']:.2f}) m",
             hoverinfo="text",
             showlegend=False,
         ))
 
-    # Plot columns and walls by status
-    for st_val, (col, label) in color_map.items():
-        sub = df_res[df_res["status"] == st_val]
-        if sub.empty:
-            continue
-
-        # Columns
-        cols_sub = sub[sub["element_type"] == "column"]
-        if not cols_sub.empty:
-            xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in cols_sub.iterrows()]
-            ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in cols_sub.iterrows()]
-            texts = []
-            for idx_c, (_, r) in enumerate(cols_sub.iterrows()):
-                name = r.get("etabs_name") or "CAD Stup"
-                ew, eh = r.get("etabs_w_mm"), r.get("etabs_h_mm")
-                dw, dh = r.get("dxf_dim1_mm"), r.get("dxf_dim2_mm")
-                notes = r.get("notes") or "Usklađeno"
-                texts.append(
-                    f"<b>Stup: {name}</b><br>"
-                    f"Status: <b>{label}</b><br>"
-                    f"ETABS model: {ew or '—'}x{eh or '—'} mm<br>"
-                    f"CAD nacrt: {dw or '—'}x{dh or '—'} mm<br>"
-                    f"Položaj: ({xs[idx_c]:.2f}, {ys[idx_c]:.2f}) m<br>"
-                    f"Napomena: {notes}"
-                )
-
-            fig.add_trace(go.Scatter(
-                x=xs, y=ys,
-                mode="markers+text",
-                text=[str(r.get("etabs_name", "")) for _, r in cols_sub.iterrows()],
-                textposition="top center",
-                textfont=dict(size=11, color="#0f172a", family="Inter"),
-                marker=dict(size=15, color=col, line=dict(width=2, color="#0f172a")),
-                name=f"{label} ({len(cols_sub)})",
-                hovertext=texts,
-                hoverinfo="text",
-            ))
-
-        # Beams
-        beams_sub = sub[sub["element_type"] == "beam"]
-        for _, br in beams_sub.iterrows():
-            bx = br.get("etabs_x") if pd.notna(br.get("etabs_x")) else br.get("dxf_x")
-            by = br.get("etabs_y") if pd.notna(br.get("etabs_y")) else br.get("dxf_y")
-            bname = br.get("etabs_name") or "CAD Greda"
-            fig.add_trace(go.Scatter(
-                x=[bx], y=[by],
-                mode="markers",
-                marker=dict(symbol="diamond", size=16, color=col, line=dict(width=1.5, color="#0f172a")),
-                name=f"Greda: {bname}",
-                hovertext=f"<b>Greda: {bname}</b><br>Status: {label}<br>ETABS: {br.get('etabs_w_mm','—')}x{br.get('etabs_h_mm','—')} mm<br>CAD: {br.get('dxf_dim_text','—')}<br>Napomena: {br.get('notes','')}",
-                hoverinfo="text",
-                showlegend=False,
-            ))
-
-        # Walls
-        walls_sub = sub[sub["element_type"] == "wall"]
-        for _, wr in walls_sub.iterrows():
-            wx = wr.get("etabs_x") if pd.notna(wr.get("etabs_x")) else wr.get("dxf_x")
-            wy = wr.get("etabs_y") if pd.notna(wr.get("etabs_y")) else wr.get("dxf_y")
-            wname = wr.get("etabs_name") or "CAD Zid"
-            fig.add_trace(go.Scatter(
-                x=[wx], y=[wy],
-                mode="markers",
-                marker=dict(symbol="cross", size=18, color=col, line=dict(width=2.5, color="#0f172a")),
-                name=f"Zid: {wname}",
-                hovertext=f"<b>Armiranobetonski zid: {wname}</b><br>Status: {label}<br>Debljina: {wr.get('etabs_h_mm', 250):.0f} mm<br>Položaj: ({wx:.2f}, {wy:.2f}) m",
-                hoverinfo="text",
-                showlegend=False,
-            ))
-
     fig.update_layout(
-        title="<b>Interaktivni 2D Tlocrt Konstrukcije (Model Coordinate Overlay)</b>",
+        title="<b>2D Tlocrt Konstrukcije s Rasterom Osi (CAD Floorplan Overlay)</b>",
         xaxis_title="Global X (m)",
         yaxis_title="Global Y (m)",
         xaxis=dict(
@@ -512,7 +660,7 @@ def main():
                     <div class="step-number">3</div>
                     <div style="font-weight:700;font-size:14px;color:#0f172a;margin-bottom:6px;">Trenutni uvid i PDF</div>
                     <div style="font-size:13px;color:#64748b;line-height:1.4;">
-                        Pregledajte 2D tlocrt, provjerite materijale i opterećenja te jednim klikom preuzmite gotov <b>PDF elaborat kontrole</b>.
+                        Pregledajte 2D/3D model, provjerite materijale i opterećenja te jednim klikom preuzmite gotov <b>PDF elaborat kontrole</b>.
                     </div>
                 </div>
             </div>
@@ -563,8 +711,22 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-    # Interactive CAD Visualizer
-    st.plotly_chart(_render_plotly_floorplan(df_res, df_dxf), use_container_width=True)
+    # Interactive Visualizer with 2D / 3D Switch
+    v_col1, v_col2 = st.columns([2, 1])
+    with v_col1:
+        st.markdown("### 🗺️ Vizualizacija Konstrukcije")
+    with v_col2:
+        view_mode = st.radio(
+            "Prikaz:",
+            ["🗺️ 2D Tlocrt (CAD Plan)", "🏢 3D Numerički Model (ETABS 3D)"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+
+    if "3D" in view_mode:
+        st.plotly_chart(_render_plotly_3d_model(df_res, etabs_data), use_container_width=True)
+    else:
+        st.plotly_chart(_render_plotly_floorplan(df_res, df_dxf), use_container_width=True)
 
     # Tabbed Deep-Dive Tables
     st.markdown("### 📋 Detaljni elaborat po poglavljima")
@@ -603,6 +765,7 @@ def main():
         ]
         view_cols = [c for c in view_cols if c in df_disp.columns]
         df_table = df_disp[view_cols].copy()
+        df_table.attrs = {}
 
         # Format numerical fields to string to eliminate JSON NaN serialization issues
         for col in ["etabs_w_mm", "etabs_h_mm", "dxf_dim1_mm", "dxf_dim2_mm"]:
@@ -639,6 +802,7 @@ def main():
         df_mats = pd.DataFrame(df_res.attrs.get("materials", []))
         if not df_mats.empty and "name" in df_mats.columns:
             df_mats_disp = df_mats.copy()
+            df_mats_disp.attrs = {}
             for col in ["E_gpa", "fc_mpa", "fy_mpa", "fu_mpa"]:
                 if col in df_mats_disp.columns:
                     df_mats_disp[col] = df_mats_disp[col].apply(lambda v: f"{v:.1f}" if pd.notna(v) and v is not None else "—")
@@ -666,6 +830,7 @@ def main():
         df_pats = pd.DataFrame(df_res.attrs.get("load_patterns", []))
         if not df_pats.empty and "name" in df_pats.columns:
             df_pats_disp = df_pats.copy()
+            df_pats_disp.attrs = {}
             if "self_weight_mult" in df_pats_disp.columns:
                 df_pats_disp["self_weight_mult"] = df_pats_disp["self_weight_mult"].apply(lambda v: f"{v:.2f}" if pd.notna(v) else "0.00")
             df_pats_disp = df_pats_disp.fillna("—")
@@ -683,7 +848,9 @@ def main():
         df_aloads = pd.DataFrame(df_res.attrs.get("area_loads", []))
         if not df_aloads.empty:
             st.markdown("##### Zadana plošna opterećenja na pločama ($kN/m^2$):")
-            df_aloads_disp = df_aloads.copy().fillna("—")
+            df_aloads_disp = df_aloads.copy()
+            df_aloads_disp.attrs = {}
+            df_aloads_disp = df_aloads_disp.fillna("—")
             st.dataframe(df_aloads_disp, use_container_width=True, hide_index=True)
 
     # Tab 4: Restraints
@@ -692,6 +859,7 @@ def main():
         df_rest = pd.DataFrame(df_res.attrs.get("restraints", []))
         if not df_rest.empty and "joint_name" in df_rest.columns:
             df_rest_disp = df_rest.copy()
+            df_rest_disp.attrs = {}
             for col in ["x", "y", "z"]:
                 if col in df_rest_disp.columns:
                     df_rest_disp[col] = df_rest_disp[col].apply(lambda v: f"{v:.2f}" if pd.notna(v) and v is not None else "—")
@@ -719,6 +887,7 @@ def main():
         df_hinges = etabs_data.get("hinges", pd.DataFrame())
         if not df_hinges.empty and "frame_name" in df_hinges.columns:
             df_hinges_disp = df_hinges.copy()
+            df_hinges_disp.attrs = {}
             if "rel_dist" in df_hinges_disp.columns:
                 df_hinges_disp["rel_dist"] = df_hinges_disp["rel_dist"].apply(lambda v: f"{v:.2f}" if pd.notna(v) and v is not None else "—")
             df_hinges_disp = df_hinges_disp.fillna("—")

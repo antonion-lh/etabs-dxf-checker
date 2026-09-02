@@ -499,10 +499,15 @@ def validate(
 
     def _to_recs(obj):
         if isinstance(obj, pd.DataFrame):
-            return obj.to_dict(orient="records")
+            recs = obj.to_dict(orient="records")
         elif isinstance(obj, list):
-            return obj
-        return []
+            recs = obj
+        else:
+            return []
+        cleaned = []
+        for r in recs:
+            cleaned.append({k: (None if (isinstance(v, float) and np.isnan(v)) else v) for k, v in r.items()})
+        return cleaned
 
     df_result.attrs["materials"] = _to_recs(etabs_dict.get("materials"))
     df_result.attrs["load_patterns"] = _to_recs(etabs_dict.get("load_patterns"))
