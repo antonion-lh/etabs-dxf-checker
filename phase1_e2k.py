@@ -109,6 +109,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     raw_area_loads: list[dict] = []
     raw_frame_loads: list[dict] = []
     raw_hinges: list[dict] = []
+    raw_grids: list[dict] = []
     line_assigns: dict[str, str] = {}
     area_assigns: dict[str, str] = {}
 
@@ -560,6 +561,39 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "dof": dof,
                 })
 
+        # 12. GRID LINES
+        elif "GRID" in current_block and not any(k in current_block for k in ("ASSIGN", "LOAD", "AREA", "SHELL", "WALL", "FRAME")):
+            gid = _get_kw_val(tokens, "ID") or _get_kw_val(tokens, "LINE") or _get_kw_val(tokens, "NAME")
+            gdir = (_get_kw_val(tokens, "DIR") or _get_kw_val(tokens, "DIRECTION") or "").upper()
+            gcoord_str = _get_kw_val(tokens, "COORD") or _get_kw_val(tokens, "COORDINATE") or _get_kw_val(tokens, "VAL")
+            if not gdir:
+                for t in tokens:
+                    if t.upper() in ("X", "Y", "Z"):
+                        gdir = t.upper()
+                        break
+            if not gcoord_str:
+                for t in tokens[1:]:
+                    try:
+                        float(t)
+                        gcoord_str = t
+                    except ValueError:
+                        pass
+            if not gid and len(tokens) >= 2:
+                for t in tokens:
+                    if t.upper() not in ("GRID", "GLOBAL", "DIR", "X", "Y", "Z", "COORD", "LINE", "VISIBLE", "BUBBLE", "SYSTEM"):
+                        gid = t.strip('"').strip("'")
+                        break
+            if gid and gdir in ("X", "Y") and gcoord_str:
+                try:
+                    c_val = float(gcoord_str)
+                    raw_grids.append({
+                        "id": gid.strip('"').strip("'"),
+                        "dir": gdir,
+                        "coord": c_val,
+                    })
+                except ValueError:
+                    pass
+
     # Apply line and area section assignments
     for f in raw_frames:
         if not f.get("prop") and f["name"] in line_assigns:
@@ -784,6 +818,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         "area_loads": pd.DataFrame(raw_area_loads),
         "frame_loads": pd.DataFrame(raw_frame_loads),
         "restraints": pd.DataFrame(restraints),
+        "grids": pd.DataFrame(raw_grids),
     }
 
     log.info("E2K Parsing Complete: %d cols, %d beams, %d walls, %d slabs",

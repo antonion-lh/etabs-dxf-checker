@@ -840,8 +840,24 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
                 line=dict(color="#0369a1", width=1.5),
                 mode="lines",
                 name="Zidovi",
-                hovertext=f"<b>Zid {w['name']}</b> [{lbl}]<br>Presjek: {w.get('prop_name', '—')}<br>Debljina: {thick_m*1000:.0f} mm<br>Materijal: {w.get('material', '—')}",
+                hovertext=(
+                    f"<b>Zid {w['name']}</b> [{lbl}]<br>"
+                    f"Presjek: {w.get('prop_name', '—')} (Debljina: {thick_m*1000:.0f} mm)<br>"
+                    f"Središnja os: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})<br>"
+                    f"Model: Od sredine do sredine zida (±{thick_m*500:.0f} mm do lica)<br>"
+                    f"Materijal: {w.get('material', '—')}"
+                ),
                 hoverinfo="text",
+                showlegend=False,
+            ))
+
+            # Proračunska os (od sredine do sredine zida)
+            fig.add_trace(go.Scatter(
+                x=[x1, x2], y=[y1, y2],
+                mode="lines",
+                line=dict(color="#ffffff", width=1.8, dash="dash"),
+                name="Središnja os zida",
+                hoverinfo="skip",
                 showlegend=False,
             ))
 
@@ -891,7 +907,19 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=True,
         ))
 
-    # 5. Clean Architectural Grid Bubbles (Never overlapping)
+    # 5. Architectural Grid Bubbles (From ETABS or clean clustered axes)
+    df_grids = etabs_data.get("grids", pd.DataFrame())
+    if not df_grids.empty and "dir" in df_grids.columns and "coord" in df_grids.columns:
+        x_grids = df_grids[df_grids["dir"] == "X"].sort_values("coord")
+        y_grids = df_grids[df_grids["dir"] == "Y"].sort_values("coord")
+        bubble_xs = x_grids["coord"].tolist() if not x_grids.empty else []
+        labels_x = x_grids["id"].tolist() if not x_grids.empty else []
+        bubble_ys = y_grids["coord"].tolist() if not y_grids.empty else []
+        labels_y = y_grids["id"].tolist() if not y_grids.empty else []
+    else:
+        bubble_xs, labels_x = [], []
+        bubble_ys, labels_y = [], []
+
     def _cluster_coords(coords, min_gap=3.5):
         if not coords:
             return []
@@ -904,9 +932,9 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             out.append(sorted_c[-1])
         return out
 
-    # Along X: A, B, C, D...
-    bubble_xs = _cluster_coords(all_x, min_gap=4.0)
-    labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
+    if not bubble_xs:
+        bubble_xs = _cluster_coords(all_x, min_gap=4.0)
+        labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
     y_bubble = max_y + pad_y * 0.45
 
     for gx, lx in zip(bubble_xs, labels_x):
@@ -922,9 +950,9 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=False,
         ))
 
-    # Along Y: 1, 2, 3...
-    bubble_ys = _cluster_coords(all_y, min_gap=4.0)
-    labels_y = [str(i + 1) for i in range(len(bubble_ys))]
+    if not bubble_ys:
+        bubble_ys = _cluster_coords(all_y, min_gap=4.0)
+        labels_y = [str(i + 1) for i in range(len(bubble_ys))]
     x_bubble = min_x - pad_x * 0.45
 
     for gy, ly in zip(bubble_ys, labels_y):
@@ -1600,6 +1628,8 @@ def main():
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
     with t_map:
+        st.info("📐 **Inženjerska definicija elemenata (Osi modela):** Elementi u numeričkom modelu (ETABS) zadani su duž **središnjih osi konstrukcije** (od sredine do sredine zida / sjecišta osi). U 2D tlocrtu bijela crtkana linija označava proračunsku os, a plava ploha puni fizički presjek zida sa stvarnom debljinom.")
+
         has_drawing = uploaded_drawing is not None
 
         if has_drawing:
