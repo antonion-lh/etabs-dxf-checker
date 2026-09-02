@@ -844,6 +844,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
 
         for _, w in walls_to_draw.iterrows():
+            is_cut = w.get("is_cut", True)
             st_val = status_map.get(str(w["name"]), Status.MATCH)
             col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
             x1 = w.get("x_start", w.get("centroid_x", 0.0))
@@ -876,33 +877,52 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     y1 + ny * ht
                 ]
 
-            fig.add_trace(go.Scatter(
-                x=poly_x, y=poly_y,
-                fill="toself",
-                fillcolor=col,
-                line=dict(color="#0369a1", width=1.5),
-                mode="lines",
-                name="Zidovi",
-                hovertext=(
-                    f"<b>Zid {w['name']}</b> [{lbl}]<br>"
-                    f"Presjek: {w.get('prop_name', '—')} (Debljina: {thick_m*1000:.0f} mm)<br>"
-                    f"Središnja os: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})<br>"
-                    f"Model: Od sredine do sredine zida (±{thick_m*500:.0f} mm do lica)<br>"
-                    f"Materijal: {w.get('material', '—')}"
-                ),
-                hoverinfo="text",
-                showlegend=False,
-            ))
+            if is_cut:
+                # Puni nosivi zid u presjeku (Solid structural wall cut at +1.2m)
+                fig.add_trace(go.Scatter(
+                    x=poly_x, y=poly_y,
+                    fill="toself",
+                    fillcolor=col,
+                    opacity=0.92,
+                    line=dict(color="#0f172a", width=1.5),
+                    mode="lines",
+                    name="Nosivi zid (presjek)",
+                    hovertext=(
+                        f"<b>Nosivi zid {w['name']}</b> [{lbl}]<br>"
+                        f"Presjek: {w.get('prop_name', '—')} (Debljina: {thick_m*1000:.0f} mm)<br>"
+                        f"Središnja os: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})<br>"
+                        f"Proračunski model: Od sredine do sredine zida (±{thick_m*500:.0f} mm do lica)<br>"
+                        f"Materijal: {w.get('material', '—')}"
+                    ),
+                    hoverinfo="text",
+                    showlegend=False,
+                ))
 
-            # Proračunska os (od sredine do sredine zida)
-            fig.add_trace(go.Scatter(
-                x=[x1, x2], y=[y1, y2],
-                mode="lines",
-                line=dict(color="#ffffff", width=1.8, dash="dash"),
-                name="Središnja os zida",
-                hoverinfo="skip",
-                showlegend=False,
-            ))
+                # Proračunska os (od sredine do sredine zida)
+                fig.add_trace(go.Scatter(
+                    x=[x1, x2], y=[y1, y2],
+                    mode="lines",
+                    line=dict(color="#ffffff", width=1.8, dash="dash"),
+                    name="Središnja os zida",
+                    hoverinfo="skip",
+                    showlegend=False,
+                ))
+            else:
+                # Nadvoj / parapet prozora (Window opening/lintel outline)
+                fig.add_trace(go.Scatter(
+                    x=poly_x, y=poly_y,
+                    fill="none",
+                    line=dict(color="#94a3b8", width=1.0, dash="dot"),
+                    mode="lines",
+                    name="Otvor / Nadvoj prozora",
+                    hovertext=(
+                        f"<b>Otvor prozora / Nadvoj {w['name']}</b><br>"
+                        f"Presjek: {w.get('prop_name', '—')} (Debljina: {thick_m*1000:.0f} mm)<br>"
+                        f"Kota: Z = {w.get('centroid_z', 0.0):.2f} m"
+                    ),
+                    hoverinfo="text",
+                    showlegend=False,
+                ))
 
     # 4. Columns: Sharp colored squares
     if active_story_name and "story" in df_res.columns:
@@ -1038,9 +1058,19 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             showlegend=False,
         ))
 
+    # Story title display
+    s_disp = active_story_name
+    if active_story_name:
+        for s in etabs_data.get("stories", []):
+            if s["name"] == active_story_name:
+                s_disp = s.get("display_name", s["name"])
+                break
+        if s_disp and s_disp.lower() in ("base", "podnozje", "podnožje"):
+            s_disp = "Prizemlje"
+
     fig.update_layout(
         title=dict(
-            text=f"<b>📐 Tlocrt: {active_story_name}</b>" if active_story_name else "<b>📐 Tlocrt numeričkog modela (Sve etaže)</b>",
+            text=f"<b>📐 Tlocrt: {s_disp}</b>" if s_disp else "<b>📐 Tlocrt numeričkog modela (Sve etaže)</b>",
             x=0.02, y=0.98,
             font=dict(size=14, color="#0f172a"),
         ),
@@ -1608,21 +1638,21 @@ def main():
     # ── Multi-Story / Story Filter ────────────────────────────
     stories = etabs_data.get("stories", [])
     if not stories:
-        stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
+        stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
 
-    story_opts = [f"🏢 {s['name']} (Z = {s['z_bottom']:.2f} – {s['z_top']:.2f} m)" for s in stories]
+    story_opts = [f"🏢 {s.get('display_name', s['name'])} (Z = {s['z_bottom']:.2f} – {s['z_top']:.2f} m)" for s in stories]
     story_opts.append("🌐 Sve etaže (Cijela zgrada)")
 
-    c_story, c_info = st.columns([2.4, 2.6])
-    with c_story:
-        choice_story = st.selectbox(
-            "📍 Odabir etaže za prikaz tlocrta i kontrolu:",
-            story_opts,
-            index=0,
-            key="active_story_filter"
-        )
-    with c_info:
-        st.caption("ℹ️ *Arhitektonski nacrti prikazuju pojedinačne etaže. Odabirom etaže tlocrt i tablice prikazuju isključivo elemente tog kata.*")
+    # 1. SIDEBAR SELECTOR (Always visible!)
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🏢 2. Odabir etaže (Story)")
+    choice_story = st.sidebar.selectbox(
+        "Aktivna etaža modela:",
+        story_opts,
+        index=0,
+        key="active_story_filter",
+        help="Odabirom etaže u lijevom izborniku tlocrt i tablice prikazuju elemente tog kata."
+    )
 
     active_story_name = None
     chosen_z = None
@@ -1633,6 +1663,8 @@ def main():
         selected_story_data = stories[sel_idx]
         active_story_name = selected_story_data["name"]
         chosen_z = selected_story_data["z_top"]
+        disp_title = selected_story_data.get("display_name", active_story_name)
+        st.sidebar.success(f"Prikazuje se: **{disp_title}**")
 
         if "story" in df_res.columns:
             df_eval = df_res[
@@ -1648,6 +1680,7 @@ def main():
             ].copy()
         df_eval.attrs = dict(df_res.attrs)
     else:
+        st.sidebar.info("Prikazuje se: **Cijela zgrada**")
         df_eval = df_res.copy()
         df_eval.attrs = dict(df_res.attrs)
 
@@ -1720,13 +1753,25 @@ def main():
                     def_idx = i
                     break
 
-        sel_tab1_label = st.radio(
-            "📍 **Aktivna etaža za prikaz tlocrta:**",
-            tab1_story_opts,
-            index=def_idx,
-            horizontal=True,
-            key="tab1_story_radio"
-        )
+        c_t1_l, c_t1_r = st.columns([3.2, 1.8])
+        with c_t1_l:
+            sel_tab1_label = st.radio(
+                "🏢 **Odabir etaže za prikaz tlocrta:**",
+                tab1_story_opts,
+                index=def_idx,
+                horizontal=True,
+                key="tab1_story_radio"
+            )
+        with c_t1_r:
+            if not sel_tab1_label.startswith("🌐"):
+                curr_idx = tab1_story_opts.index(sel_tab1_label)
+                s_info = stories[curr_idx]
+                disp_s = s_info.get("display_name", s_info["name"])
+                if disp_s.lower() in ("base", "podnozje", "podnožje"):
+                    disp_s = "Prizemlje"
+                st.info(f"📍 **{disp_s}**: Z = **{s_info['z_bottom']:.2f} do {s_info['z_top']:.2f} m** (h = {s_info['height']:.2f} m)")
+            else:
+                st.info("🌐 Prikazani su elementi svih etaža.")
 
         if not sel_tab1_label.startswith("🌐"):
             curr_idx = tab1_story_opts.index(sel_tab1_label)
@@ -1734,6 +1779,8 @@ def main():
             active_story_name = selected_story_data["name"]
             chosen_z = selected_story_data["z_top"]
             disp_story_title = selected_story_data.get("display_name", active_story_name)
+            if disp_story_title.lower() in ("base", "podnozje", "podnožje"):
+                disp_story_title = "Prizemlje"
 
             if "story" in df_res.columns:
                 df_eval = df_res[
@@ -1748,7 +1795,7 @@ def main():
                     (df_res["status"] == Status.DXF_ONLY)
                 ].copy()
             df_eval.attrs = dict(df_res.attrs)
-            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Bijela crtkana linija označava proračunsku os zida (od sredine do sredine zida).")
+            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Proračunska središnja os zida označena je bijelom crtkanom linijom (od sredine do sredine zida).")
         else:
             active_story_name = None
             disp_story_title = "Sve etaže"

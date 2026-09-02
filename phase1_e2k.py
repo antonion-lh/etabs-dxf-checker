@@ -564,7 +564,12 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         # 12. GRID LINES
         elif "GRID" in current_block and not any(k in current_block for k in ("ASSIGN", "LOAD", "AREA", "SHELL", "WALL", "FRAME")):
-            gid = _get_kw_val(tokens, "ID") or _get_kw_val(tokens, "LINE") or _get_kw_val(tokens, "NAME")
+            gid = (
+                _get_kw_val(tokens, "LABEL") or
+                _get_kw_val(tokens, "ID") or
+                _get_kw_val(tokens, "LINE") or
+                _get_kw_val(tokens, "NAME")
+            )
             gdir = (_get_kw_val(tokens, "DIR") or _get_kw_val(tokens, "DIRECTION") or "").upper()
             gcoord_str = _get_kw_val(tokens, "COORD") or _get_kw_val(tokens, "COORDINATE") or _get_kw_val(tokens, "VAL")
 
@@ -589,7 +594,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 # Fallback: find token after system name
                 for t in tokens[2:]:
                     tu = t.upper().strip('"').strip("'")
-                    if tu not in ("DIR", "X", "Y", "Z", "COORD", "LINE", "VISIBLE", "BUBBLE", "SYSTEM", "GLOBAL"):
+                    if tu not in ("DIR", "X", "Y", "Z", "COORD", "LINE", "VISIBLE", "BUBBLE", "SYSTEM", "GLOBAL", "LABEL", "ID", "GRID", "NAME", "VAL"):
                         gid = tu
                         break
 
@@ -600,6 +605,9 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                         gcoord_str = t
                     except ValueError:
                         pass
+
+            if gid and gid.upper() in ("LABEL", "ID", "LINE", "GRID", "SYSTEM", "GLOBAL", "DIR", "COORD"):
+                gid = None
 
             if gid and gdir in ("X", "Y") and gcoord_str:
                 try:
@@ -615,11 +623,12 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                         if len(parts) > 1 and parts[-1]:
                             clean_id = parts[-1]
 
-                    raw_grids.append({
-                        "id": clean_id,
-                        "dir": gdir,
-                        "coord": c_val,
-                    })
+                    if clean_id.upper() not in ("LABEL", "ID", "LINE", "GRID", "SYSTEM", "GLOBAL"):
+                        raw_grids.append({
+                            "id": clean_id,
+                            "dir": gdir,
+                            "coord": c_val,
+                        })
                 except ValueError:
                     pass
 
@@ -663,20 +672,18 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     all_z_vals = [p[2] for p in points.values()]
     stories = []
 
+    valid_raw = []
+    base_elev = 0.0
     if raw_stories:
-        # Filter out Base / zero-height / non-floor levels
-        valid_raw = []
-        base_elev = 0.0
         for s in sorted(raw_stories, key=lambda x: x["elevation"]):
             nm_low = s["name"].lower()
-            if nm_low in ("base", "podnozje", "podnožje", "temelj", "temelji", "foundation") or (s.get("height") is not None and s["height"] <= 0.05):
+            h = s.get("height")
+            if (nm_low in ("base", "podnozje", "podnožje", "temelj", "temelji", "foundation") and (h is None or h <= 0.1)) or (h is not None and h <= 0.05):
                 base_elev = s["elevation"]
             else:
                 valid_raw.append(s)
 
-        if not valid_raw and raw_stories:
-            valid_raw = raw_stories
-
+    if valid_raw:
         prev_elev = base_elev
         for idx, s in enumerate(valid_raw):
             elev = s["elevation"]
@@ -685,7 +692,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             nm = s["name"]
             nm_low = nm.lower()
-            if nm_low in ("story1", "st1", "s1"):
+            if nm_low in ("story1", "st1", "s1", "base"):
                 disp_nm = "Prizemlje"
             elif nm_low in ("story2", "st2", "s2"):
                 disp_nm = "1. Kat"
@@ -708,16 +715,16 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             })
             prev_elev = elev
     else:
-        # Auto-cluster Z coordinates into architectural stories
+        # Auto-cluster Z coordinates into architectural stories (min 2.5m gap between floors)
         z_vals_clean = sorted(set([round(float(z), 2) for z in all_z_vals if float(z) > -10.0]))
         if not z_vals_clean:
             stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
         else:
             z_floors = [z_vals_clean[0]]
             for z in z_vals_clean[1:]:
-                if z - z_floors[-1] >= 1.5:
+                if z - z_floors[-1] >= 2.5:
                     z_floors.append(z)
-            if z_vals_clean[-1] - z_floors[-1] >= 0.8:
+            if z_vals_clean[-1] - z_floors[-1] >= 1.5:
                 z_floors.append(z_vals_clean[-1])
 
             if len(z_floors) <= 1:
@@ -880,15 +887,24 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         else:
             wx1, wy1, wx2, wy2 = cx, cy, cx, cy
 
+        elem_st = _get_elem_story(cz)
+        st_obj = next((s for s in stories if s["name"] == elem_st), None)
+        z_cut = (st_obj["z_bottom"] + 1.2) if st_obj else (cz)
+        z_min_val = min(p[2] for p in v_pts) if v_pts else cz
+        z_max_val = max(p[2] for p in v_pts) if v_pts else cz
+        is_cut = (z_min_val <= z_cut <= z_max_val) if abs(z_max_val - z_min_val) > 0.5 else True
+
         if is_wall:
             walls.append({
                 "name": a["name"],
                 "element_type": "wall",
                 "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
+                "z_min": z_min_val, "z_max": z_max_val,
+                "is_cut": is_cut,
                 "x_match": cx, "y_match": cy,
                 "x_start": wx1, "y_start": wy1,
                 "x_end": wx2, "y_end": wy2,
-                "story": _get_elem_story(cz),
+                "story": elem_st,
                 "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
