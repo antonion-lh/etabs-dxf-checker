@@ -633,32 +633,52 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     pass
 
         # 13. STORIES / STORY DATA
-        elif "STOR" in current_block and not any(k in current_block for k in ("ASSIGN", "LOAD")):
-            s_name = _get_kw_val(tokens, "STORY") or _get_kw_val(tokens, "NAME") or (tokens[1] if len(tokens) > 1 and tokens[0].upper() == "STORY" else tokens[0])
-            h_str = _get_kw_val(tokens, "HEIGHT") or _get_kw_val(tokens, "H")
-            elev_str = _get_kw_val(tokens, "ELEV") or _get_kw_val(tokens, "ELEVATION")
-            if not elev_str and len(tokens) >= 3:
+        elif (tokens[0].upper() == "STORY" or "STOR" in current_block or "TOWER" in current_block or "LEVEL" in current_block) and not any(k in current_block for k in ("ASSIGN", "LOAD")):
+            s_name = None
+            h_val = None
+            elev_val = None
+
+            # Keywords check
+            for i, t in enumerate(tokens):
+                tu = t.upper()
+                if tu in ("STORY", "NAME") and i + 1 < len(tokens):
+                    cand = tokens[i+1].strip('"').strip("'")
+                    if not s_name and cand.upper() not in ("HEIGHT", "ELEV", "ELEVATION", "H", "DIR", "TYPE"):
+                        s_name = cand
+                elif tu in ("HEIGHT", "H") and i + 1 < len(tokens):
+                    try: h_val = float(tokens[i+1])
+                    except ValueError: pass
+                elif tu in ("ELEV", "ELEVATION") and i + 1 < len(tokens):
+                    try: elev_val = float(tokens[i+1])
+                    except ValueError: pass
+
+            if not s_name and len(tokens) >= 2:
+                if tokens[0].upper() == "STORY":
+                    s_name = tokens[1].strip('"').strip("'")
+                else:
+                    s_name = tokens[0].strip('"').strip("'")
+
+            # Positional check: find all numeric values
+            nums = []
+            for t in tokens:
                 try:
-                    float(tokens[-1])
-                    elev_str = tokens[-1]
-                except ValueError:
-                    pass
-            if not h_str and len(tokens) >= 3:
-                try:
-                    float(tokens[-2])
-                    h_str = tokens[-2]
+                    nums.append(float(t))
                 except ValueError:
                     pass
 
-            if s_name and elev_str:
-                try:
-                    raw_stories.append({
-                        "name": s_name.strip('"').strip("'"),
-                        "height": float(h_str) if h_str else None,
-                        "elevation": float(elev_str),
-                    })
-                except ValueError:
-                    pass
+            if elev_val is None and len(nums) >= 2:
+                n1, n2 = nums[0], nums[1]
+                h_val = min(n1, n2) if h_val is None else h_val
+                elev_val = max(n1, n2)
+            elif elev_val is None and len(nums) == 1:
+                elev_val = nums[0]
+
+            if s_name and elev_val is not None:
+                raw_stories.append({
+                    "name": s_name,
+                    "height": h_val,
+                    "elevation": elev_val,
+                })
 
     # Apply line and area section assignments
     for f in raw_frames:
