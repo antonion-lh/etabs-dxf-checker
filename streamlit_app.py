@@ -1,7 +1,7 @@
 """
 streamlit_app.py — ETABS ↔ CAD Automated Structural QA Platform
 Enterprise engineering tool with crystal-clear navigation, high contrast,
-full CAD/PDF/image drawing support, and zero visual clutter.
+full CAD/PDF/image drawing support, multi-story filtering, and zero visual clutter.
 """
 
 import io
@@ -30,8 +30,14 @@ st.set_page_config(
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SAMPLE_DXF = os.path.join(SCRIPT_DIR, "sample_building.dxf")
-SAMPLE_E2K = os.path.join(SCRIPT_DIR, "sample_building.e2k")
+DEMO_COMMERCIAL_DXF = os.path.join(SCRIPT_DIR, "demo_commercial_building.dxf")
+DEMO_COMMERCIAL_E2K = os.path.join(SCRIPT_DIR, "demo_commercial_building.e2k")
+SMALL_SAMPLE_DXF = os.path.join(SCRIPT_DIR, "sample_building.dxf")
+SMALL_SAMPLE_E2K = os.path.join(SCRIPT_DIR, "sample_building.e2k")
+
+# Default demo files (multi-bay commercial building from actual ETABS model)
+SAMPLE_DXF = DEMO_COMMERCIAL_DXF
+SAMPLE_E2K = DEMO_COMMERCIAL_E2K
 
 # ─────────────────────────────────────────────────────────────
 # High-contrast, clean CSS
@@ -315,6 +321,19 @@ def _sidebar() -> tuple:
         )
         st.session_state["use_demo"] = use_demo
 
+        demo_model_choice = "commercial"
+        if use_demo:
+            choice_label = st.selectbox(
+                "Odaberite demo model:",
+                [
+                    "🏢 Poslovna zgrada (18×7 polja, 2 etaže — stvarni model)",
+                    "🏠 Manji ogledni model (3 polja, 1 etaža)",
+                ],
+                index=0,
+                key="demo_model_selector"
+            )
+            demo_model_choice = "commercial" if choice_label.startswith("🏢") else "small"
+
         uploaded_dxf = uploaded_e2k = None
         if not use_demo:
             uploaded_dxf = st.file_uploader(
@@ -395,7 +414,7 @@ def _sidebar() -> tuple:
         st.markdown("---")
         st.caption("Inženjerska kontrola · Eurocode HRN EN 1992/1993")
 
-    return use_demo, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg
+    return use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg
 
 
 # ─────────────────────────────────────────────────────────────
@@ -496,57 +515,57 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
     fig = go.Figure()
 
-    # Collect coordinates to set view limits
-    all_x, all_y = [], []
-    for _, r in df_res.iterrows():
-        x = r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x")
-        y = r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y")
-        if pd.notna(x) and pd.notna(y):
-            all_x.append(float(x)); all_y.append(float(y))
+    cols_all = etabs_data.get("columns", pd.DataFrame())
+    beams_all = etabs_data.get("beams", pd.DataFrame())
+    slabs_all = etabs_data.get("slabs", pd.DataFrame())
+    walls_all = etabs_data.get("walls", pd.DataFrame())
+
+    # Collect coordinates for bounding box
+    if not cols_all.empty:
+        all_x = sorted(set([round(float(x), 2) for x in cols_all["x_start"].dropna()]))
+        all_y = sorted(set([round(float(y), 2) for y in cols_all["y_start"].dropna()]))
+    else:
+        all_x = sorted(set([round(float(r["etabs_x"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_x"))]))
+        all_y = sorted(set([round(float(r["etabs_y"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_y"))]))
 
     min_x = min(all_x) if all_x else 0.0
     max_x = max(all_x) if all_x else 12.0
     min_y = min(all_y) if all_y else 0.0
     max_y = max(all_y) if all_y else 6.0
 
-    pad_x = max((max_x - min_x) * 0.20, 2.5)
-    pad_y = max((max_y - min_y) * 0.20, 2.5)
+    pad_x = max((max_x - min_x) * 0.08, 2.5)
+    pad_y = max((max_y - min_y) * 0.12, 2.5)
 
     status_map = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
     # 1. Background Slab Polygons
-    slabs = etabs_data.get("slabs", pd.DataFrame())
-    if not slabs.empty:
-        # Draw slab boundary (e.g. 0 to 6 in X, 0 to 6 in Y)
+    if not slabs_all.empty or (max_x > min_x and max_y > min_y):
         fig.add_trace(go.Scatter(
-            x=[0, 6, 6, 0, 0], y=[0, 0, 6, 6, 0],
+            x=[min_x, max_x, max_x, min_x, min_x],
+            y=[min_y, min_y, max_y, max_y, min_y],
             fill="toself",
-            fillcolor="rgba(241, 245, 249, 0.6)",
+            fillcolor="rgba(241, 245, 249, 0.7)",
             line=dict(color="#cbd5e1", width=1, dash="dash"),
-            name="AB Ploča d=20 cm",
-            hovertext="<b>AB Ploča SLAB_BAY1</b><br>Debljina: 200 mm<br>Raspon: 6.0 × 6.0 m",
+            name="Ploča konstrukcije",
+            hovertext=f"<b>Ploča konstrukcije</b><br>Raspon: {max_x - min_x:.1f} × {max_y - min_y:.1f} m",
             hoverinfo="text",
             showlegend=False,
         ))
 
-    # 2. Beams: Exact lines between joints
-    beams = etabs_data.get("beams", pd.DataFrame())
-    if not beams.empty:
-        for _, bm in beams.iterrows():
-            st_val = status_map.get(str(bm["name"]), Status.MATCH)
-            col, lbl = COLOR_MAP.get(st_val, ("#10b981", "Usklađeno"))
-            x0, y0 = bm["x_start"], bm["y_start"]
-            x1, y1 = bm["x_end"], bm["y_end"]
-            fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1],
-                mode="lines",
-                line=dict(color=col, width=6),
-                name=f"Grede [{lbl}]",
-                hovertext=f"<b>Greda {bm['name']}</b> [{lbl}]<br>Presjek: {bm.get('section','—')}<br>Od: ({x0:.1f}, {y0:.1f}) do ({x1:.1f}, {y1:.1f}) m",
-                hoverinfo="text",
-                legendgroup="Grede",
-                showlegend=False,
-            ))
+    # 2. Beams: connecting grid lines
+    if not beams_all.empty:
+        b_xs, b_ys = [], []
+        for _, bm in beams_all.iterrows():
+            b_xs.extend([bm["x_start"], bm["x_end"], None])
+            b_ys.extend([bm["y_start"], bm["y_end"], None])
+        fig.add_trace(go.Scatter(
+            x=b_xs, y=b_ys,
+            mode="lines",
+            line=dict(color="#cbd5e1", width=2),
+            name="Mreža greda",
+            hoverinfo="skip",
+            showlegend=False,
+        ))
 
     # Any DXF-only beams
     dxf_only_beams = df_res[(df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "beam")]
@@ -554,9 +573,9 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
         bx = bm.get("dxf_x", 0.0)
         by = bm.get("dxf_y", 0.0)
         fig.add_trace(go.Scatter(
-            x=[bx, bx + 6.0], y=[by, by],
+            x=[bx, bx + 5.0], y=[by, by],
             mode="lines",
-            line=dict(color="#3b82f6", width=5, dash="dot"),
+            line=dict(color="#3b82f6", width=4, dash="dot"),
             name="Samo u CAD-u",
             hovertext=f"<b>Greda (samo u CAD-u)</b><br>Kota: {bm.get('dxf_dim_text','—')}<br>Lokacija: Y = {by:.2f} m",
             hoverinfo="text",
@@ -564,24 +583,26 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
         ))
 
     # 3. Walls
-    walls = etabs_data.get("walls", pd.DataFrame())
-    if not walls.empty:
-        for _, w in walls.iterrows():
+    if not walls_all.empty:
+        for _, w in walls_all.iterrows():
             st_val = status_map.get(str(w["name"]), Status.MATCH)
             col, lbl = COLOR_MAP.get(st_val, ("#10b981", "Usklađeno"))
             wx, wy = w["centroid_x"], w["centroid_y"]
             fig.add_trace(go.Scatter(
                 x=[wx, wx], y=[wy - 1.75, wy + 1.75],
                 mode="lines",
-                line=dict(color=col, width=10),
+                line=dict(color=col, width=8),
                 name="Zidovi",
-                hovertext=f"<b>AB Zid {w['name']}</b> [{lbl}]<br>Debljina: {w.get('thickness_mm', 250):.0f} mm<br>Pozicija: X={wx:.1f}, Y={wy:.1f} m",
+                hovertext=f"<b>AB Zid {w['name']}</b> [{lbl}]<br>Debljina: {w.get('thickness_mm', 250):.0f} mm",
                 hoverinfo="text",
                 showlegend=False,
             ))
 
-    # 4. Columns: Sharp colored squares with clear ID badges
+    # 4. Columns: Sharp colored squares
     col_records = df_res[df_res["element_type"] == "column"]
+    marker_size = 12 if len(col_records) > 50 else 22
+    show_text_on_marker = len(col_records) <= 25
+
     for status, (color, label) in COLOR_MAP.items():
         sub_cols = col_records[col_records["status"] == status]
         if sub_cols.empty:
@@ -589,7 +610,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
         xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in sub_cols.iterrows()]
         ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in sub_cols.iterrows()]
-        texts = [r.get("etabs_name") or r.get("dxf_name") or "C" for _, r in sub_cols.iterrows()]
+        texts = [r.get("etabs_name") or r.get("dxf_name") or "C" for _, r in sub_cols.iterrows()] if show_text_on_marker else None
 
         tips = []
         for _, r in sub_cols.iterrows():
@@ -607,56 +628,56 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
         fig.add_trace(go.Scatter(
             x=xs, y=ys,
-            mode="markers+text",
+            mode="markers+text" if show_text_on_marker else "markers",
             marker=dict(
-                size=22,
+                size=marker_size,
                 symbol="square",
                 color=color,
-                line=dict(color="#ffffff", width=2),
+                line=dict(color="#ffffff", width=1.5),
             ),
-            text=texts,
+            text=texts if show_text_on_marker else None,
             textposition="top center",
-            textfont=dict(size=11, color="#0f172a", family="Inter", weight="bold"),
-            name=f"Stupovi — {label}",
+            textfont=dict(size=10, color="#0f172a", family="Inter", weight="bold"),
+            name=f"{label} ({len(sub_cols)})",
             hovertext=tips,
             hoverinfo="text",
             showlegend=True,
         ))
 
-    # 5. Architectural CAD Grid Bubbles (Osi A, B, C i 1, 2)
-    grid_x = [0.0, 6.0, 12.0]
-    labels_x = ["A", "B", "C"]
-    y_bubble = max_y + 1.2
+    # 5. Dynamic Architectural CAD Grid Bubbles
+    # Along X: A, B, C, D... S
+    step_bubble_x = max(1, len(all_x) // 19) if len(all_x) > 26 else 1
+    bubble_xs = all_x[::step_bubble_x]
+    labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
+    y_bubble = max_y + pad_y * 0.45
 
-    for gx, lx in zip(grid_x, labels_x):
-        # Guideline
+    for gx, lx in zip(bubble_xs, labels_x):
         fig.add_shape(type="line", x0=gx, y0=min_y - 0.5, x1=gx, y1=y_bubble,
                       line=dict(color="#e2e8f0", width=1, dash="dot"))
-        # Circle Bubble
         fig.add_trace(go.Scatter(
             x=[gx], y=[y_bubble],
             mode="markers+text",
-            marker=dict(size=24, color="#3b82f6", line=dict(color="#ffffff", width=2)),
-            text=[lx], textfont=dict(color="white", size=11, weight="bold"),
+            marker=dict(size=22, color="#3b82f6", line=dict(color="#ffffff", width=1.5)),
+            text=[lx], textfont=dict(color="white", size=10, weight="bold"),
             textposition="middle center",
             hovertext=f"Grid Os {lx} (X = {gx:.1f} m)", hoverinfo="text",
             showlegend=False,
         ))
 
-    grid_y = [0.0, 6.0]
-    labels_y = ["1", "2"]
-    x_bubble = min_x - 1.2
+    # Along Y: 1, 2, 3... 8
+    step_bubble_y = max(1, len(all_y) // 10) if len(all_y) > 15 else 1
+    bubble_ys = all_y[::step_bubble_y]
+    labels_y = [str(i + 1) for i in range(len(bubble_ys))]
+    x_bubble = min_x - pad_x * 0.45
 
-    for gy, ly in zip(grid_y, labels_y):
-        # Guideline
+    for gy, ly in zip(bubble_ys, labels_y):
         fig.add_shape(type="line", x0=x_bubble, y0=gy, x1=max_x + 0.5, y1=gy,
                       line=dict(color="#e2e8f0", width=1, dash="dot"))
-        # Circle Bubble
         fig.add_trace(go.Scatter(
             x=[x_bubble], y=[gy],
             mode="markers+text",
-            marker=dict(size=24, color="#0284c7", line=dict(color="#ffffff", width=2)),
-            text=[ly], textfont=dict(color="white", size=11, weight="bold"),
+            marker=dict(size=22, color="#0284c7", line=dict(color="#ffffff", width=1.5)),
+            text=[ly], textfont=dict(color="white", size=10, weight="bold"),
             textposition="middle center",
             hovertext=f"Grid Os {ly} (Y = {gy:.1f} m)", hoverinfo="text",
             showlegend=False,
@@ -700,47 +721,101 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3D Model: Wireframe with color-coded status
+# 3D Model: Fast segmented wireframe matching ETABS appearance
 # ─────────────────────────────────────────────────────────────
-def _fig_3d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
+def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True) -> go.Figure:
     fig = go.Figure()
-    COLOR_MAP = {
-        Status.MATCH: "#10b981", Status.SECTION_MISMATCH: "#f59e0b",
-        Status.ETABS_ONLY: "#ef4444", Status.DXF_ONLY: "#3b82f6",
-    }
+
+    cols = etabs_data.get("columns", pd.DataFrame())
+    beams = etabs_data.get("beams", pd.DataFrame())
     status_by = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
-    # Columns
-    cols = etabs_data.get("columns", pd.DataFrame())
-    for _, c in (cols.iterrows() if not cols.empty else []):
-        color = COLOR_MAP.get(status_by.get(str(c["name"]), Status.MATCH), "#10b981")
+    if etabs_color_mode:
+        # Authentic ETABS magenta wireframe view (matching screenshot)
+        if not cols.empty:
+            c_xs, c_ys, c_zs = [], [], []
+            for _, c in cols.iterrows():
+                c_xs.extend([c["x_start"], c["x_end"], None])
+                c_ys.extend([c["y_start"], c["y_end"], None])
+                c_zs.extend([c["z_start"], c["z_end"], None])
+            fig.add_trace(go.Scatter3d(
+                x=c_xs, y=c_ys, z=c_zs,
+                mode="lines",
+                line=dict(color="#d946ef", width=5),
+                name="Stupovi (ETABS)",
+            ))
+
+        if not beams.empty:
+            b_xs, b_ys, b_zs = [], [], []
+            for _, b in beams.iterrows():
+                b_xs.extend([b["x_start"], b["x_end"], None])
+                b_ys.extend([b["y_start"], b["y_end"], None])
+                b_zs.extend([b["z_start"], b["z_end"], None])
+            fig.add_trace(go.Scatter3d(
+                x=b_xs, y=b_ys, z=b_zs,
+                mode="lines",
+                line=dict(color="#a855f7", width=3),
+                name="Grede (ETABS)",
+            ))
+    else:
+        # Audit color mode: Green = Matched, Amber = Section mismatch, Red = ETABS only
+        for st_val, col_hex, lbl in [
+            (Status.MATCH, "#10b981", "Usklađeni stupovi"),
+            (Status.SECTION_MISMATCH, "#f59e0b", "Odstupanje presjeka"),
+            (Status.ETABS_ONLY, "#ef4444", "Samo u ETABS-u"),
+        ]:
+            c_xs, c_ys, c_zs = [], [], []
+            for _, c in (cols.iterrows() if not cols.empty else []):
+                if status_by.get(str(c["name"]), Status.MATCH) == st_val:
+                    c_xs.extend([c["x_start"], c["x_end"], None])
+                    c_ys.extend([c["y_start"], c["y_end"], None])
+                    c_zs.extend([c["z_start"], c["z_end"], None])
+            if c_xs:
+                fig.add_trace(go.Scatter3d(
+                    x=c_xs, y=c_ys, z=c_zs,
+                    mode="lines",
+                    line=dict(color=col_hex, width=6),
+                    name=lbl,
+                ))
+
+        # Beams
+        if not beams.empty:
+            b_xs, b_ys, b_zs = [], [], []
+            for _, b in beams.iterrows():
+                b_xs.extend([b["x_start"], b["x_end"], None])
+                b_ys.extend([b["y_start"], b["y_end"], None])
+                b_zs.extend([b["z_start"], b["z_end"], None])
+            fig.add_trace(go.Scatter3d(
+                x=b_xs, y=b_ys, z=b_zs,
+                mode="lines",
+                line=dict(color="#64748b", width=3),
+                name="Grede",
+            ))
+
+    # Base restraints (fixed / pinned foundation joints at Z=0)
+    rests = etabs_data.get("restraints", pd.DataFrame())
+    if not rests.empty and "x" in rests.columns:
         fig.add_trace(go.Scatter3d(
-            x=[c["x_start"], c["x_end"]], y=[c["y_start"], c["y_end"]], z=[c["z_start"], c["z_end"]],
-            mode="lines", line=dict(color=color, width=9),
-            name=f"Stup {c['name']}", showlegend=False,
-            hovertext=f"<b>Stup {c['name']}</b><br>Presjek: {c.get('section','')}<br>Visina: {c['z_start']:.1f} do {c['z_end']:.1f} m",
-            hoverinfo="text",
+            x=rests["x"], y=rests["y"], z=rests["z"],
+            mode="markers",
+            marker=dict(size=4, color="#0284c7", symbol="square"),
+            name="Oslonci temelja (Base)",
         ))
 
-    # Beams
-    beams = etabs_data.get("beams", pd.DataFrame())
-    for _, b in (beams.iterrows() if not beams.empty else []):
-        color = COLOR_MAP.get(status_by.get(str(b["name"]), Status.MATCH), "#f59e0b")
-        fig.add_trace(go.Scatter3d(
-            x=[b["x_start"], b["x_end"]], y=[b["y_start"], b["y_end"]], z=[b["z_start"], b["z_end"]],
-            mode="lines", line=dict(color=color, width=6),
-            name=f"Greda {b['name']}", showlegend=False,
-            hovertext=f"<b>Greda {b['name']}</b><br>Presjek: {b.get('section','')}<br>Kota Z = {b['z_start']:.2f} m",
-            hoverinfo="text",
-        ))
-
-    # Slab
-    fig.add_trace(go.Mesh3d(
-        x=[0, 6, 6, 0], y=[0, 0, 6, 6], z=[3.2, 3.2, 3.2, 3.2],
-        i=[0, 0], j=[1, 2], k=[2, 3],
-        color="#3b82f6", opacity=0.20, showlegend=False,
-        hovertext="<b>AB Ploča</b> d=20 cm, Z=3.20 m", hoverinfo="text"
-    ))
+    # Slabs
+    if not cols.empty:
+        max_x = cols["x_end"].max()
+        max_y = cols["y_end"].max()
+        z_levels = sorted(set(cols["z_end"].dropna().tolist()))
+        for zl in z_levels:
+            fig.add_trace(go.Mesh3d(
+                x=[0, max_x, max_x, 0],
+                y=[0, 0, max_y, max_y],
+                z=[zl, zl, zl, zl],
+                i=[0, 0], j=[1, 2], k=[2, 3],
+                color="#0284c7", opacity=0.10, showlegend=False,
+                hovertext=f"Ploča etaže Z = {zl:.2f} m", hoverinfo="text",
+            ))
 
     fig.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
@@ -748,7 +823,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
         paper_bgcolor="#ffffff",
         scene=dict(
             aspectmode="data",
-            camera=dict(eye=dict(x=1.6, y=-1.8, z=1.2)),
+            camera=dict(eye=dict(x=-1.6, y=-1.6, z=0.9)),
             xaxis=dict(title="X (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
             yaxis=dict(title="Y (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
             zaxis=dict(title="Z (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
@@ -775,7 +850,7 @@ def _safe_df(df: pd.DataFrame, float_fmt=None) -> pd.DataFrame:
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
-    use_demo, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg = _sidebar()
+    use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg = _sidebar()
 
     # ── Header Card ──────────────────────────────────────────
     st.markdown("""
@@ -798,9 +873,16 @@ def main():
     has_data, dxf_path, e2k_content = False, None, None
 
     if use_demo:
-        if os.path.exists(SAMPLE_DXF) and os.path.exists(SAMPLE_E2K):
-            dxf_path = SAMPLE_DXF
-            with open(SAMPLE_E2K, "r", encoding="utf-8", errors="replace") as f:
+        if demo_model_choice == "commercial":
+            dxf_target = DEMO_COMMERCIAL_DXF
+            e2k_target = DEMO_COMMERCIAL_E2K
+        else:
+            dxf_target = SMALL_SAMPLE_DXF
+            e2k_target = SMALL_SAMPLE_E2K
+
+        if os.path.exists(dxf_target) and os.path.exists(e2k_target):
+            dxf_path = dxf_target
+            with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
                 e2k_content = f.read()
             has_data = True
         else:
@@ -831,10 +913,10 @@ def main():
         # Big 1-click Demo Action
         col_demo, col_empty = st.columns([1.5, 1])
         with col_demo:
-            if st.button("🚀 Isprobaj odmah s oglednim primjerom (1 klik)", type="primary", use_container_width=True):
+            if st.button("🚀 Isprobaj odmah s modelom poslovne zgrade (1 klik)", type="primary", use_container_width=True):
                 st.session_state["use_demo"] = True
                 st.rerun()
-            st.caption("Učitava gotov proračunski model zgrade i CAD nacrt za trenutni prikaz funkcionalnosti.")
+            st.caption("Učitava složeni model zgrade s 18×7 polja i 2 etaže (860 elemenata) prema stvarnom primjeru.")
 
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
@@ -890,8 +972,38 @@ def main():
                 try: os.unlink(dxf_path)
                 except: pass
 
+    # ── Multi-Story / Story Filter ────────────────────────────
+    cols_data = etabs_data.get("columns", pd.DataFrame())
+    z_levels = sorted(set(cols_data["z_end"].dropna().tolist())) if not cols_data.empty else []
+
+    df_eval = df_res.copy()
+    if len(z_levels) > 1:
+        st_opts = ["🏢 Sve etaže (Ukupni model)"]
+        for idx, zl in enumerate(z_levels):
+            st_name = "Prizemlje / 1. Kat" if idx == 0 else f"{idx + 1}. Kat / Krov"
+            st_opts.append(f"{idx + 1}️⃣ {st_name} (Z = {zl:.2f} m)")
+
+        c_story, c_info = st.columns([1.8, 3.2])
+        with c_story:
+            choice_story = st.selectbox(
+                "Odabir etaže za provjeru s CAD nacrtom:",
+                st_opts,
+                index=1 if len(st_opts) > 1 else 0,
+                key="active_story_filter"
+            )
+        with c_info:
+            st.caption("ℹ️ *CAD nacrti se crtaju po etažama. Odabirom etaže provjeravaju se elementi tog kata.*")
+
+        if not choice_story.startswith("🏢"):
+            chosen_z = z_levels[st_opts.index(choice_story) - 1]
+            cols_at_level = set(cols_data[abs(cols_data["z_end"] - chosen_z) <= 0.5]["name"].astype(str))
+            df_eval = df_res[
+                (df_res["etabs_name"].astype(str).isin(cols_at_level)) |
+                ((df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "column"))
+            ]
+
     # ── KPI Strip ─────────────────────────────────────────────
-    _kpi_strip(df_res)
+    _kpi_strip(df_eval)
 
     # ── Legend / Color Explanations ───────────────────────────
     st.markdown("""
@@ -945,7 +1057,7 @@ def main():
                     if sub_m == "3D Wireframe":
                         st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
                     else:
-                        st.plotly_chart(_fig_2d(df_res, etabs_data), use_container_width=True)
+                        st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
                 with col_d:
                     st.markdown("##### Referentni nacrt")
                     _render_drawing(uploaded_drawing)
@@ -955,22 +1067,29 @@ def main():
                 if sub_m.startswith("3D"):
                     st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
                 else:
-                    st.plotly_chart(_fig_2d(df_res, etabs_data), use_container_width=True)
+                    st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
 
             else:
                 _render_drawing(uploaded_drawing)
 
         else:
-            sub_col, cap_col = st.columns([1, 2])
+            sub_col, col_mode_opt = st.columns([1.2, 1.8])
             with sub_col:
                 mode = st.radio("Tip prikaza modela:", ["2D Tlocrt s osima", "3D Wireframe model"], horizontal=True, key="mode_full")
-            with cap_col:
-                st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
 
             if mode.startswith("3D"):
-                st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+                with col_mode_opt:
+                    c_mode = st.radio(
+                        "Bojanje 3D modela:",
+                        ["🟣 ETABS originalni prikaz (Magenta)", "🔍 Kontrola usklađenosti (Status)"],
+                        horizontal=True,
+                        key="color_mode_3d"
+                    )
+                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🟣")), use_container_width=True)
             else:
-                st.plotly_chart(_fig_2d(df_res, etabs_data), use_container_width=True)
+                with col_mode_opt:
+                    st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
+                st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
 
     # ── TAB 2: Deviations & Geometry Table ────────────────────
     with t_geo:
@@ -979,11 +1098,11 @@ def main():
         with f1:
             st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
         with f2:
-            ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_res["element_type"].unique()), key="geo_type")
+            ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_eval["element_type"].unique()), key="geo_type")
         with f3:
-            search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, 30x40...", key="geo_search")
+            search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, 50x50...", key="geo_search")
 
-        dfd = df_res.copy()
+        dfd = df_eval.copy()
         if st_f != "Svi statusi":
             dfd = dfd[dfd["status"].astype(str) == st_f]
         if ty_f != "Svi tipovi":
@@ -1126,7 +1245,7 @@ def main():
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as fp:
                 pdf_path = fp.name
             try:
-                generate_pdf(df_res, pdf_path, cfg)
+                generate_pdf(df_eval, pdf_path, cfg)
                 st.download_button(
                     "📥 Preuzmi PDF Elaborat (A4 Landscape)",
                     data=open(pdf_path, "rb").read(),
@@ -1143,7 +1262,7 @@ def main():
             with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as fh:
                 html_path = fh.name
             try:
-                html_content = generate_html(df_res, html_path, cfg)
+                html_content = generate_html(df_eval, html_path, cfg)
                 st.download_button(
                     "🌐 Preuzmi HTML Izvještaj (Web pregled)",
                     data=html_content.encode("utf-8"),
