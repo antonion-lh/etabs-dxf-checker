@@ -329,14 +329,24 @@ def _materials_table_html(df_mats: pd.DataFrame) -> str:
 def _loads_table_html(df_pats: pd.DataFrame, df_result: pd.DataFrame) -> str:
     parts = []
     if not df_pats.empty and "name" in df_pats.columns:
+        has_dead_sw = any(
+            (str(r.get("type","")).lower() == "dead" or str(r.get("name","")).upper() in ("DEAD","G","DL","VLASTITA"))
+            and abs(float(r.get("self_weight_mult",0.0)) - 1.0) < 1e-4
+            for _, r in df_pats.iterrows()
+        )
         rows = []
         for _, r in df_pats.iterrows():
             name = str(r.get("name",""))
             ptype = str(r.get("type",""))
             sw = float(r.get("self_weight_mult",0.0))
-            is_dead = ptype.lower() == "dead" or name.upper() == "DEAD"
+            is_dead = ptype.lower() == "dead" or name.upper() in ("DEAD", "G", "DL", "VT")
             if is_dead:
-                st = "<span style='color:#198754;font-weight:bold;'>OK (Dead 1.0)</span>" if abs(sw-1.0)<1e-4 else "<span style='color:#dc3545;font-weight:bold;'>ERROR (Dead != 1.0)</span>"
+                if abs(sw - 1.0) < 1e-4:
+                    st = "<span style='color:#198754;font-weight:bold;'>OK (Dead 1.0)</span>"
+                elif sw == 0.0 and has_dead_sw:
+                    st = "<span style='color:#198754;font-weight:bold;'>OK (Dodatno stalno 0.0)</span>"
+                else:
+                    st = "<span style='color:#dc3545;font-weight:bold;'>ERROR (Dead != 1.0)</span>"
             else:
                 st = "<span style='color:#198754;font-weight:bold;'>OK (0.0)</span>" if sw == 0.0 else "<span style='color:#dc3545;font-weight:bold;'>ERROR (Double Counted!)</span>"
             rows.append(
@@ -569,7 +579,10 @@ def _generate_pdf_reportlab(df: pd.DataFrame, output_path: str, cfg: Config) -> 
     story = []
 
     # Title & Metadata
-    story.append(Paragraph(f"<b>ETABS v23 ↔ DXF Structural Validation Report</b>", title_style))
+    counts = df["status"].value_counts() if not df.empty else {}
+    is_pdf_mode = ("Za provjeru s PDF-om" in counts) or (not df.empty and (df["status"] == "Za provjeru s PDF-om").any())
+    report_title = "ETABS v23 Model & PDF Elaborat Verification Report" if is_pdf_mode else "ETABS v23 ↔ DXF Structural Validation Report"
+    story.append(Paragraph(f"<b>{report_title}</b>", title_style))
     story.append(Paragraph(
         f"Project: <b>{cfg.project_name}</b> | Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
         f"Frame Tol: ±{cfg.spatial_tolerance_frame}m | Area Tol: ±{cfg.spatial_tolerance_area}m | Sec Tol: ±{cfg.section_tolerance_mm}mm",
@@ -578,23 +591,43 @@ def _generate_pdf_reportlab(df: pd.DataFrame, output_path: str, cfg: Config) -> 
     story.append(Spacer(1, 5*mm))
 
     # Summary Statistics Cards
-    counts = df["status"].value_counts() if not df.empty else {}
-    sum_data = [
-        [
-            Paragraph("<b>MATCH</b>", cell_bold),
-            Paragraph("<b>SECTION MISMATCH</b>", cell_bold),
-            Paragraph("<b>ETABS ONLY</b>", cell_bold),
-            Paragraph("<b>DXF ONLY</b>", cell_bold),
-            Paragraph("<b>TOTAL</b>", cell_bold),
-        ],
-        [
-            Paragraph(f"<font size=13 color='#198754'><b>{counts.get(Status.MATCH, 0)}</b></font>", cell_style),
-            Paragraph(f"<font size=13 color='#b07d00'><b>{counts.get(Status.SECTION_MISMATCH, 0)}</b></font>", cell_style),
-            Paragraph(f"<font size=13 color='#dc3545'><b>{counts.get(Status.ETABS_ONLY, 0)}</b></font>", cell_style),
-            Paragraph(f"<font size=13 color='#0d6efd'><b>{counts.get(Status.DXF_ONLY, 0)}</b></font>", cell_style),
-            Paragraph(f"<font size=13><b>{len(df)}</b></font>", cell_style),
+    if is_pdf_mode:
+        n_walls = len(df[df["element_type"] == "wall"]) if "element_type" in df.columns else 0
+        n_frames = len(df[df["element_type"].isin(["column", "beam", "brace"])]) if "element_type" in df.columns else 0
+        n_slabs = len(df[df["element_type"] == "slab"]) if "element_type" in df.columns else 0
+        sum_data = [
+            [
+                Paragraph("<b>UKUPNO ELEMENATA</b>", cell_bold),
+                Paragraph("<b>NOSIVI ZIDOVI</b>", cell_bold),
+                Paragraph("<b>GREDE / STUPOVI</b>", cell_bold),
+                Paragraph("<b>PLOČE</b>", cell_bold),
+                Paragraph("<b>NAČIN KONTROLE</b>", cell_bold),
+            ],
+            [
+                Paragraph(f"<font size=13 color='#0284c7'><b>{len(df)}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#0f766e'><b>{n_walls}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#4338ca'><b>{n_frames}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#b45309'><b>{n_slabs}</b></font>", cell_style),
+                Paragraph(f"<font size=12 color='#8b5cf6'><b>PDF Elaborat</b></font>", cell_style),
+            ]
         ]
-    ]
+    else:
+        sum_data = [
+            [
+                Paragraph("<b>MATCH</b>", cell_bold),
+                Paragraph("<b>SECTION MISMATCH</b>", cell_bold),
+                Paragraph("<b>ETABS ONLY</b>", cell_bold),
+                Paragraph("<b>DXF ONLY</b>", cell_bold),
+                Paragraph("<b>TOTAL</b>", cell_bold),
+            ],
+            [
+                Paragraph(f"<font size=13 color='#198754'><b>{counts.get(Status.MATCH, 0)}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#b07d00'><b>{counts.get(Status.SECTION_MISMATCH, 0)}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#dc3545'><b>{counts.get(Status.ETABS_ONLY, 0)}</b></font>", cell_style),
+                Paragraph(f"<font size=13 color='#0d6efd'><b>{counts.get(Status.DXF_ONLY, 0)}</b></font>", cell_style),
+                Paragraph(f"<font size=13><b>{len(df)}</b></font>", cell_style),
+            ]
+        ]
     t_sum = Table(sum_data, colWidths=[55*mm, 55*mm, 55*mm, 55*mm, 55*mm])
     t_sum.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#e9ecef")),
@@ -760,13 +793,23 @@ def _generate_pdf_reportlab(df: pd.DataFrame, output_path: str, cfg: Config) -> 
             Paragraph("<b>Self-Weight Mult</b>", cell_bold),
             Paragraph("<b>Status / Audit Check</b>", cell_bold),
         ]]
+        has_dead_sw = any(
+            (str(r.get("type","")).lower() == "dead" or str(r.get("name","")).upper() in ("DEAD","G","DL","VLASTITA"))
+            and abs(float(r.get("self_weight_mult",0.0)) - 1.0) < 1e-4
+            for _, r in df_pats.iterrows()
+        )
         for _, pr in df_pats.iterrows():
             pname = str(pr.get("name", ""))
             ptype = str(pr.get("type", ""))
             sw = float(pr.get("self_weight_mult", 0.0))
-            is_dead = ptype.lower() == "dead" or pname.upper() == "DEAD"
+            is_dead = ptype.lower() == "dead" or pname.upper() in ("DEAD", "G", "DL", "VT")
             if is_dead:
-                st_pat = "<font color='#198754'><b>OK (Dead 1.0)</b></font>" if abs(sw-1.0) < 1e-4 else "<font color='#dc3545'><b>ERROR (Dead != 1.0)</b></font>"
+                if abs(sw - 1.0) < 1e-4:
+                    st_pat = "<font color='#198754'><b>OK (Dead 1.0)</b></font>"
+                elif sw == 0.0 and has_dead_sw:
+                    st_pat = "<font color='#198754'><b>OK (Dodatno stalno 0.0)</b></font>"
+                else:
+                    st_pat = "<font color='#dc3545'><b>ERROR (Dead != 1.0)</b></font>"
             else:
                 st_pat = "<font color='#198754'><b>OK (0.0)</b></font>" if sw == 0.0 else "<font color='#dc3545'><b>ERROR (Double Counted!)</b></font>"
             pat_rows.append([

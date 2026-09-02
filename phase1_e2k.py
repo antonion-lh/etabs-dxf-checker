@@ -269,20 +269,45 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "diameter_mm": d_mm,
                 }
 
-        # 4. SHELL / AREA SECTIONS
-        elif ("SHELL" in current_block or "AREA" in current_block) and "SEC" in current_block:
-            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("SHELL", "AREA") else tokens[0]
+        # 4. SHELL / AREA / WALL / SLAB SECTIONS
+        elif any(k in current_block for k in ("SHELL", "AREA", "WALL", "SLAB")) and any(k in current_block for k in ("SEC", "PROP")):
+            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("SHELL", "AREA", "WALL", "SLAB", "PROP", "SECTION") else tokens[0]
             if sec_name:
-                thick_str = _get_kw_val(tokens, "THICKNESS") or _get_kw_val(tokens, "BENDING", "0.20")
+                sec_name = sec_name.strip('"').strip("'")
+                thick_str = (
+                    _get_kw_val(tokens, "THICKNESS") or
+                    _get_kw_val(tokens, "THICK") or
+                    _get_kw_val(tokens, "T") or
+                    _get_kw_val(tokens, "BENDING") or
+                    _get_kw_val(tokens, "MEMBRANE")
+                )
+                if not thick_str:
+                    for tok in tokens[1:]:
+                        try:
+                            fval = float(tok)
+                            if 0.01 <= fval <= 5.0:
+                                thick_str = tok
+                                break
+                        except ValueError:
+                            pass
+
                 try:
-                    thick = float(thick_str)
+                    thick = float(thick_str) if thick_str else 0.25
                     thick_mm = thick * 1000 if thick < 10 else thick
                 except ValueError:
-                    thick_mm = 200.0
+                    thick_mm = 250.0
+
+                mat_val = _get_kw_val(tokens, "MAT") or _get_kw_val(tokens, "MATERIAL", "")
+                if not mat_val:
+                    for tok in tokens:
+                        t_clean = tok.strip('"').strip("'")
+                        if t_clean in materials_dict:
+                            mat_val = t_clean
+                            break
 
                 area_sections[sec_name] = {
                     "sec_name": sec_name,
-                    "material": _get_kw_val(tokens, "MAT", ""),
+                    "material": mat_val,
                     "thickness_mm": thick_mm,
                 }
 
@@ -318,8 +343,8 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 line_assigns[f_name] = sec
 
         # 6. AREA CONNECTIVITIES (WALLS & SLABS)
-        elif ("AREA" in current_block or "SHELL" in current_block) and ("CONNECT" in current_block or ("OBJECT" in current_block and "LOAD" not in current_block and "ASSIGN" not in current_block)):
-            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL") else tokens[0]
+        elif any(k in current_block for k in ("AREA", "SHELL", "WALL", "SLAB")) and ("CONNECT" in current_block or ("OBJECT" in current_block and "LOAD" not in current_block and "ASSIGN" not in current_block)):
+            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else tokens[0]
             prop = _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "SEC")
             type_hint = _get_kw_val(tokens, "TYPE").lower()
 
@@ -335,7 +360,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     break
 
             if not pts:
-                start_j = 2 if tokens[0].upper() in ("AREA", "SHELL") else 1
+                start_j = 2 if tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else 1
                 for j in range(start_j, len(tokens)):
                     if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
                         break
@@ -349,12 +374,19 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "type_hint": type_hint,
                 })
 
-        # 6b. AREA ASSIGNMENTS
-        elif ("AREA" in current_block or "SHELL" in current_block) and "ASSIGN" in current_block and "LOAD" not in current_block:
-            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL") else tokens[0]
+        # 6b. AREA / WALL / SHELL ASSIGNMENTS
+        elif any(k in current_block for k in ("AREA", "SHELL", "WALL", "SLAB")) and "ASSIGN" in current_block and "LOAD" not in current_block:
+            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else tokens[0]
             sec = _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SEC")
+            if not sec and len(tokens) >= 3:
+                sec = tokens[2]
+            elif not sec and len(tokens) == 2:
+                sec = tokens[1]
             if a_name and sec:
-                area_assigns[a_name] = sec
+                a_clean = a_name.strip('"').strip("'")
+                sec_clean = sec.strip('"').strip("'")
+                area_assigns[a_name] = sec_clean
+                area_assigns[a_clean] = sec_clean
 
         # 7. LOAD PATTERNS
         elif "LOAD" in current_block and "PAT" in current_block:
@@ -369,7 +401,19 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                             p_type = known_t.capitalize()
                             break
                 if not p_type:
-                    p_type = "Dead" if ("DEAD" in p_name.upper() or p_name.upper() in ("G", "DL")) else "Other"
+                    name_u = p_name.upper()
+                    if any(k in name_u for k in ("DEAD", "PERMANENT", "STALNO")) or name_u in ("G", "DL", "VT"):
+                        p_type = "Dead"
+                    elif any(k in name_u for k in ("LIVE", "VARIABLE", "PROMJENJIVO", "KORISNO")) or name_u in ("Q", "LL"):
+                        p_type = "Live"
+                    elif any(k in name_u for k in ("SEIS", "POTRES", "EARTHQUAKE", "QUAKE")) or name_u in ("E", "EX", "EY"):
+                        p_type = "Seismic"
+                    elif any(k in name_u for k in ("WIND", "VJETAR")) or name_u in ("W", "WX", "WY"):
+                        p_type = "Wind"
+                    elif any(k in name_u for k in ("SNOW", "SNIJEG")) or name_u == "S":
+                        p_type = "Snow"
+                    else:
+                        p_type = "Other"
                 else:
                     p_type = p_type.capitalize()
 
@@ -381,8 +425,6 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     except ValueError:
                         self_wt = 0.0
                 else:
-                    # In structural engineering & ETABS, ONLY primary Dead load has 1.0 default
-                    # Seismic, Live, Wind, etc. NEVER have self weight
                     is_primary_dead = p_type.lower() == "dead" and ("DEAD" in p_name.upper() or p_name.upper() in ("G", "DL"))
                     self_wt = 1.0 if is_primary_dead else 0.0
 
@@ -557,9 +599,21 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         cy = sum(p[1] for p in v_pts) / len(v_pts)
         cz = sum(p[2] for p in v_pts) / len(v_pts)
 
-        sec_data = area_sections.get(a["prop"], {})
-        thick_mm = sec_data.get("thickness_mm", 200.0)
+        prop_key = str(a.get("prop") or "").strip().strip('"').strip("'")
+        sec_data = area_sections.get(prop_key, {})
+        if not sec_data and prop_key:
+            for sk, sv in area_sections.items():
+                if sk.lower() == prop_key.lower():
+                    sec_data = sv
+                    break
+
+        thick_mm = sec_data.get("thickness_mm", 250.0)
         mat_name = sec_data.get("material", "")
+        if not mat_name and materials_dict:
+            for mk, mv in materials_dict.items():
+                if mv.get("type", "").lower() in ("concrete", "masonry"):
+                    mat_name = mk
+                    break
 
         v1 = (v_pts[1][0] - v_pts[0][0], v_pts[1][1] - v_pts[0][1], v_pts[1][2] - v_pts[0][2])
         v2 = (v_pts[2][0] - v_pts[0][0], v_pts[2][1] - v_pts[0][1], v_pts[2][2] - v_pts[0][2])
@@ -571,13 +625,16 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         )
         norm_z = nz / mag if mag > 1e-6 else 1.0
 
-        if a["type_hint"] == "wall" or norm_z < 0.5:
+        is_wall = (a["type_hint"] == "wall" or norm_z < 0.5)
+        prop_display = prop_key or sec_data.get("sec_name") or (f"WALL_{int(thick_mm)}" if is_wall else f"SLAB_{int(thick_mm)}")
+
+        if is_wall:
             walls.append({
                 "name": a["name"],
                 "element_type": "wall",
                 "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                 "x_match": cx, "y_match": cy,
-                "prop_name": a["prop"],
+                "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
                 "width_mm": None,
@@ -590,7 +647,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "element_type": "slab",
                 "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                 "x_match": cx, "y_match": cy,
-                "prop_name": a["prop"],
+                "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
                 "width_mm": None,

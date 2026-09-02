@@ -268,3 +268,76 @@ def test_report_generation_in_pdf_mode():
         except: pass
 
 
+def test_strossmayer_load_patterns_and_report():
+    """Verify Strossmayer project load patterns (G, VT, Q, POTRES) are recognized without errors."""
+    import io
+    import tempfile
+    import os
+    import pandas as pd
+    from phase1_e2k import parse_e2k
+    from report import generate_pdf
+    from config import Config
+
+    e2k_strossmayer = """
+$ LOAD PATTERNS
+  LOADPATTERN "VT" TYPE "DEAD" SELFWT 0.0
+  LOADPATTERN "G" TYPE "DEAD" SELFWT 1.0
+  LOADPATTERN "Q" TYPE "LIVE" SELFWT 0.0
+  LOADPATTERN "POTRES_X" TYPE "SEISMIC" DIR 1.0
+  LOADPATTERN "POTRES_Y" TYPE "SEISMIC" DIR 1.0
+  LOADPATTERN "SEISMIC" TYPE "SEISMIC" DIR 1.0
+"""
+    etabs = parse_e2k(io.StringIO(e2k_strossmayer))
+    pats = etabs["load_patterns"]
+    assert len(pats) == 6
+
+    # Verify types
+    vt = pats[pats["name"] == "VT"].iloc[0]
+    assert vt["type"] == "Dead"
+    assert vt["self_weight_mult"] == 0.0
+
+    g = pats[pats["name"] == "G"].iloc[0]
+    assert g["type"] == "Dead"
+    assert g["self_weight_mult"] == 1.0
+
+    q = pats[pats["name"] == "Q"].iloc[0]
+    assert q["type"] == "Live"
+    assert q["self_weight_mult"] == 0.0
+
+    pot = pats[pats["name"] == "POTRES_X"].iloc[0]
+    assert pot["type"] == "Seismic"
+    assert pot["self_weight_mult"] == 0.0
+
+    # Verify report generation with these patterns attached
+    df_eval = pd.DataFrame([{
+        "element_type": "wall",
+        "status": "Za provjeru s PDF-om",
+        "etabs_name": "W108",
+        "etabs_x": 10.7,
+        "etabs_y": 0.0,
+        "etabs_z": 3.0,
+        "etabs_section": "WALL_50",
+        "etabs_w_mm": None,
+        "etabs_h_mm": 500.0,
+        "etabs_material": "Masonry",
+        "dxf_dim_text": "Provjeriti na PDF-u",
+        "dxf_dim1_mm": None,
+        "dxf_dim2_mm": None,
+        "xy_dist_m": None,
+        "notes": "Vizualno provjeriti s tlocrtom u PDF elaboratu",
+    }])
+    df_eval.attrs["load_patterns"] = pats
+    df_eval.attrs["materials"] = []
+
+    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f_pdf:
+        pdf_path = f_pdf.name
+    try:
+        generate_pdf(df_eval, pdf_path, Config())
+        assert os.path.exists(pdf_path)
+        assert os.path.getsize(pdf_path) > 1000
+    finally:
+        try: os.unlink(pdf_path)
+        except: pass
+
+
+
