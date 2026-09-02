@@ -203,6 +203,13 @@ def _sidebar() -> tuple:
             tol_sec   = st.slider("Presjeci (mm)",       1.0, 25.0,  5.0,  1.0)
 
         st.markdown("---")
+        st.markdown("### Referentni nacrt (opcija)")
+        uploaded_drawing = st.file_uploader(
+            "Priložite PDF ili sliku nacrta",
+            type=["pdf", "jpg", "jpeg", "png", "tif", "tiff"],
+            help="Izvedbeni nacrt u PDF ili slika (JPEG/PNG/TIFF). Prikazuje se kao referentni pregled uz analizu modela.",
+        )
+        st.markdown("---")
         st.markdown("### Obuhvat kontrole")
         c1, c2 = st.columns(2)
         with c1:
@@ -237,7 +244,59 @@ def _sidebar() -> tuple:
         st.markdown("---")
         st.caption("v2.5 · Eurocode HRN EN 1992/1993")
 
-    return use_sample, uploaded_dxf, uploaded_e2k, cfg
+    return use_sample, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg
+
+
+# ─────────────────────────────────────────────────────────────
+# Drawing viewer  (PDF / JPEG / PNG / TIFF)
+# ─────────────────────────────────────────────────────────────
+def _render_drawing(uploaded_drawing, page: int = 0):
+    """
+    Render an uploaded PDF or raster image as a Streamlit image.
+    Returns True if a drawing was rendered, False if nothing to show.
+    """
+    if uploaded_drawing is None:
+        return False
+
+    name = uploaded_drawing.name.lower()
+    raw  = uploaded_drawing.getvalue()
+
+    try:
+        if name.endswith(".pdf"):
+            import fitz  # PyMuPDF
+            doc  = fitz.open(stream=raw, filetype="pdf")
+            n    = len(doc)
+
+            # Page selector (for multi-page PDFs)
+            if n > 1:
+                page = st.number_input(
+                    f"Stranica PDF-a (1 – {n}):", min_value=1, max_value=n,
+                    value=1, step=1, key="pdf_page"
+                ) - 1
+            pg   = doc[page]
+            mat  = fitz.Matrix(2.0, 2.0)   # 2× resolution for crisp display
+            pix  = pg.get_pixmap(matrix=mat, alpha=False)
+            img_bytes = pix.tobytes("png")
+            st.image(img_bytes, use_container_width=True,
+                     caption=f"{uploaded_drawing.name}  •  str. {page+1}/{n}")
+            if n > 1:
+                st.caption(f"📄 PDF ima {n} stranica — odaberite željenu pomoću gore navedenog polja.")
+        else:
+            # JPEG / PNG / TIFF — display directly
+            from PIL import Image
+            import io as _io
+            img = Image.open(_io.BytesIO(raw))
+            # Optionally downscale very large rasters (e.g. high-res TIFF scans)
+            max_w = 4000
+            if img.width > max_w:
+                ratio = max_w / img.width
+                img   = img.resize((max_w, int(img.height * ratio)), Image.LANCZOS)
+            st.image(img, use_container_width=True, caption=uploaded_drawing.name)
+    except Exception as e:
+        st.error(f"Nije moguće prikazati nacrt: {e}")
+        return False
+
+    return True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -488,7 +547,7 @@ def _safe_df(df: pd.DataFrame, float_fmt=None) -> pd.DataFrame:
 # Main
 # ─────────────────────────────────────────────────────────────
 def main():
-    use_sample, uploaded_dxf, uploaded_e2k, cfg = _sidebar()
+    use_sample, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg = _sidebar()
 
     # ── Header ──────────────────────────────────────────────
     st.markdown("""
@@ -577,12 +636,31 @@ def main():
 
     # ── TAB 1: visual model ───────────────────────────────────
     with t_map:
-        mode = st.radio("", ["2D Tlocrt", "3D Model"], horizontal=True,
-                        label_visibility="collapsed")
-        if mode == "3D Model":
-            st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+        has_drawing = uploaded_drawing is not None
+
+        if has_drawing:
+            # Side-by-side: ETABS model | Reference drawing
+            col_model, col_draw = st.columns(2, gap="medium")
+            with col_model:
+                st.caption("**Numerički model (ETABS)**")
+                mode = st.radio("", ["2D Tlocrt", "3D Model"], horizontal=True,
+                                label_visibility="collapsed", key="model_mode")
+                if mode == "3D Model":
+                    st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+                else:
+                    st.plotly_chart(_fig_2d(df_res), use_container_width=True)
+            with col_draw:
+                st.caption("**Referentni nacrt (učitana datoteka)**")
+                _render_drawing(uploaded_drawing)
         else:
-            st.plotly_chart(_fig_2d(df_res), use_container_width=True)
+            # Full-width model viewer
+            mode = st.radio("", ["2D Tlocrt", "3D Model"], horizontal=True,
+                            label_visibility="collapsed", key="model_mode_full")
+            if mode == "3D Model":
+                st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+            else:
+                st.plotly_chart(_fig_2d(df_res), use_container_width=True)
+            st.caption("💡 Priložite PDF ili JPEG/PNG nacrt u bočnoj traci (Referentni nacrt) za usporedni prikaz.")
 
     # ── TAB 2: geometry / section table ──────────────────────
     with t_geo:
