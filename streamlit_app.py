@@ -19,6 +19,7 @@ from phase1_e2k import parse_e2k
 from phase2_dxf import parse_dxf
 from phase3_validation import validate, Status, run_structural_sanity_checks
 from report import generate_pdf, generate_html
+from curriculum_audit import run_curriculum_audit
 
 # ─────────────────────────────────────────────────────────────
 # Page setup
@@ -1618,13 +1619,14 @@ def main():
                     st.markdown(f"{icon} **[{a.get('category','')}] {a.get('element','')}**: {a.get('issue','')}")
 
     # ── Tab Navigation: Clear, descriptive titles ─────────────
-    t_map, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([
+    t_map, t_audit, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([
         "🗺️ 1. Vizualni model (2D/3D)",
-        "📊 2. Tablica odstupanja",
-        "🧪 3. Materijali & Opterećenja",
-        "🧱 4. Oslonci & Zglobovi",
-        "📄 5. Službeni PDF Elaborat",
-        "📖 6. Upute za rad & Vodič",
+        "🎓 2. Nastavna & Studentska revizija (1–27)",
+        "📊 3. Tablica odstupanja",
+        "🧪 4. Materijali & Opterećenja",
+        "🧱 5. Oslonci & Zglobovi",
+        "📄 6. Službeni PDF Elaborat",
+        "📖 7. Upute za rad & Vodič",
     ])
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
@@ -1683,7 +1685,79 @@ def main():
                     st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
                 st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
 
-    # ── TAB 2: Deviations & Geometry Table ────────────────────
+    # ── TAB 2: Studentska & Nastavna revizijska lista ───────────
+    with t_audit:
+        st.markdown("#### 🎓 Nastavne napomene za pregled modela (Kontrolni list 1–27)")
+        st.caption("Automatizirana kontrola numeričkog ETABS (.e2k) modela prema službenom nastavnom zadatku za studente građevinarstva.")
+
+        audit_results = run_curriculum_audit(etabs_data)
+
+        n_pass = sum(1 for a in audit_results if a["status"] == "PASS")
+        n_warn = sum(1 for a in audit_results if a["status"] == "WARNING")
+        n_fail = sum(1 for a in audit_results if a["status"] == "FAIL")
+        n_info = sum(1 for a in audit_results if a["status"] == "INFO")
+
+        c_m1, c_m2, c_m3, c_m4 = st.columns(4)
+        c_m1.metric("🟢 Usklađene točke", f"{n_pass} / {len(audit_results)}")
+        c_m2.metric("🟡 Upozorenja", n_warn)
+        c_m3.metric("🔴 Kritična odstupanja", n_fail)
+        c_m4.metric("ℹ️ Smjernice", n_info)
+
+        st.markdown("<hr style='margin: 16px 0;'>", unsafe_allow_html=True)
+
+        c_filter, _ = st.columns([2.0, 3.0])
+        with c_filter:
+            flt_status = st.selectbox(
+                "Prikaz točaka kontrolnog lista:",
+                ["Sve točke (1–27)", "Samo upozorenja i kritična odstupanja (⚠️/🔴)", "Samo usklađene točke (🟢)"],
+                key="audit_filter_status"
+            )
+
+        items_to_show = audit_results
+        if "upozorenja" in flt_status.lower():
+            items_to_show = [a for a in audit_results if a["status"] in ("WARNING", "FAIL")]
+        elif "usklađene" in flt_status.lower():
+            items_to_show = [a for a in audit_results if a["status"] == "PASS"]
+
+        for item in items_to_show:
+            st_val = item["status"]
+            if st_val == "PASS":
+                icon = "🟢"
+                badge_bg = "#dcfce7"
+                badge_col = "#15803d"
+                badge_txt = "USKLAĐENO"
+            elif st_val == "WARNING":
+                icon = "🟡"
+                badge_bg = "#fef3c7"
+                badge_col = "#b45309"
+                badge_txt = "UPOZORENJE"
+            elif st_val == "FAIL":
+                icon = "🔴"
+                badge_bg = "#fee2e2"
+                badge_col = "#b91c1c"
+                badge_txt = "POGREŠKA"
+            else:
+                icon = "ℹ️"
+                badge_bg = "#e0f2fe"
+                badge_col = "#0369a1"
+                badge_txt = "SMJERNICA"
+
+            st.markdown(f"""
+            <div style="background: white; border: 1px solid #e2e8f0; border-left: 5px solid {badge_col}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{icon} {item['title']}</span>
+                <span style="background: {badge_bg}; color: {badge_col}; font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 9999px;">{badge_txt}</span>
+              </div>
+              <div style="font-size: 0.92rem; color: #1e293b; margin-bottom: 8px; background: #f8fafc; padding: 10px 12px; border-radius: 6px; border: 1px dashed #cbd5e1;">
+                <strong>🔍 Nalaz u modelu:</strong> {item['finding']}
+              </div>
+              <div style="font-size: 0.85rem; color: #64748b; line-height: 1.4;">
+                <strong>📖 Nastavno pravilo:</strong> <em>{item['rule']}</em>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # ── TAB 3: Deviations & Geometry Table ────────────────────
     with t_geo:
         if is_pdf_mode:
             st.markdown("##### 📋 Kontrolni inventar elemenata modela za provjeru s PDF-om")

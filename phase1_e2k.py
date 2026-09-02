@@ -806,6 +806,16 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                             "r1": True, "r2": True, "r3": True,
                         })
 
+    used_points = set()
+    for f in raw_frames:
+        if f.get("i_pt"): used_points.add(str(f["i_pt"]))
+        if f.get("j_pt"): used_points.add(str(f["j_pt"]))
+    for a in raw_areas:
+        for p in a.get("pts", []):
+            used_points.add(str(p))
+    for r in raw_restraints:
+        if r.get("joint_name"): used_points.add(str(r["joint_name"]))
+
     result = {
         "columns": pd.DataFrame(columns),
         "beams": pd.DataFrame(beams),
@@ -819,6 +829,8 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         "frame_loads": pd.DataFrame(raw_frame_loads),
         "restraints": pd.DataFrame(restraints),
         "grids": pd.DataFrame(raw_grids),
+        "all_points": points,
+        "used_points": used_points,
     }
 
     log.info("E2K Parsing Complete: %d cols, %d beams, %d walls, %d slabs",
