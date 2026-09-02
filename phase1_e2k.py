@@ -567,11 +567,32 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             gid = _get_kw_val(tokens, "ID") or _get_kw_val(tokens, "LINE") or _get_kw_val(tokens, "NAME")
             gdir = (_get_kw_val(tokens, "DIR") or _get_kw_val(tokens, "DIRECTION") or "").upper()
             gcoord_str = _get_kw_val(tokens, "COORD") or _get_kw_val(tokens, "COORDINATE") or _get_kw_val(tokens, "VAL")
+
             if not gdir:
                 for t in tokens:
-                    if t.upper() in ("X", "Y", "Z"):
+                    if t.upper() in ("X", "Y"):
                         gdir = t.upper()
                         break
+
+            # Positional format: GRID <sys> <dir> <id> <coord>
+            if not gid and len(tokens) >= 5 and tokens[2].upper() in ("X", "Y"):
+                gdir = tokens[2].upper()
+                gid = tokens[3].strip('"').strip("'")
+                if not gcoord_str:
+                    gcoord_str = tokens[4]
+            elif not gid and len(tokens) >= 4 and tokens[1].upper() in ("X", "Y"):
+                gdir = tokens[1].upper()
+                gid = tokens[2].strip('"').strip("'")
+                if not gcoord_str:
+                    gcoord_str = tokens[3]
+            elif not gid:
+                # Fallback: find token after system name
+                for t in tokens[2:]:
+                    tu = t.upper().strip('"').strip("'")
+                    if tu not in ("DIR", "X", "Y", "Z", "COORD", "LINE", "VISIBLE", "BUBBLE", "SYSTEM", "GLOBAL"):
+                        gid = tu
+                        break
+
             if not gcoord_str:
                 for t in tokens[1:]:
                     try:
@@ -579,16 +600,23 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                         gcoord_str = t
                     except ValueError:
                         pass
-            if not gid and len(tokens) >= 2:
-                for t in tokens:
-                    if t.upper() not in ("GRID", "GLOBAL", "DIR", "X", "Y", "Z", "COORD", "LINE", "VISIBLE", "BUBBLE", "SYSTEM"):
-                        gid = t.strip('"').strip("'")
-                        break
+
             if gid and gdir in ("X", "Y") and gcoord_str:
                 try:
                     c_val = float(gcoord_str)
+                    # Clean up prefix like "G1-" or "G1_" from ID
+                    clean_id = gid
+                    if "-" in clean_id:
+                        parts = clean_id.split("-")
+                        if len(parts) > 1 and parts[-1]:
+                            clean_id = parts[-1]
+                    elif "_" in clean_id:
+                        parts = clean_id.split("_")
+                        if len(parts) > 1 and parts[-1]:
+                            clean_id = parts[-1]
+
                     raw_grids.append({
-                        "id": gid.strip('"').strip("'"),
+                        "id": clean_id,
                         "dir": gdir,
                         "coord": c_val,
                     })
@@ -636,14 +664,43 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     stories = []
 
     if raw_stories:
-        sorted_st = sorted(raw_stories, key=lambda s: s["elevation"])
-        prev_elev = 0.0
-        for idx, s in enumerate(sorted_st):
+        # Filter out Base / zero-height / non-floor levels
+        valid_raw = []
+        base_elev = 0.0
+        for s in sorted(raw_stories, key=lambda x: x["elevation"]):
+            nm_low = s["name"].lower()
+            if nm_low in ("base", "podnozje", "podnožje", "temelj", "temelji", "foundation") or (s.get("height") is not None and s["height"] <= 0.05):
+                base_elev = s["elevation"]
+            else:
+                valid_raw.append(s)
+
+        if not valid_raw and raw_stories:
+            valid_raw = raw_stories
+
+        prev_elev = base_elev
+        for idx, s in enumerate(valid_raw):
             elev = s["elevation"]
             h = s.get("height") or (elev - prev_elev)
             z_bot = elev - h if h and h > 0 else prev_elev
+
+            nm = s["name"]
+            nm_low = nm.lower()
+            if nm_low in ("story1", "st1", "s1"):
+                disp_nm = "Prizemlje"
+            elif nm_low in ("story2", "st2", "s2"):
+                disp_nm = "1. Kat"
+            elif nm_low in ("story3", "st3", "s3"):
+                disp_nm = "2. Kat"
+            elif nm_low in ("story4", "st4", "s4"):
+                disp_nm = "Krovište / Potkrovlje"
+            elif nm_low in ("story5", "st5", "s5"):
+                disp_nm = "Krov"
+            else:
+                disp_nm = nm
+
             stories.append({
                 "name": s["name"],
+                "display_name": disp_nm,
                 "z_bottom": round(z_bot, 2),
                 "z_top": round(elev, 2),
                 "height": round(h if h else elev - prev_elev, 2),
@@ -652,9 +709,9 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             prev_elev = elev
     else:
         # Auto-cluster Z coordinates into architectural stories
-        z_vals_clean = sorted(set([round(float(z), 2) for z in all_z_vals]))
+        z_vals_clean = sorted(set([round(float(z), 2) for z in all_z_vals if float(z) > -10.0]))
         if not z_vals_clean:
-            stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
+            stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
         else:
             z_floors = [z_vals_clean[0]]
             for z in z_vals_clean[1:]:
@@ -665,7 +722,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if len(z_floors) <= 1:
                 z_top = z_vals_clean[-1] if z_vals_clean[-1] > 0.5 else 4.0
-                stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": z_top, "height": z_top, "elevation": z_top}]
+                stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": z_top, "height": z_top, "elevation": z_top}]
             else:
                 has_basement = z_floors[0] < -0.5
                 for i in range(len(z_floors) - 1):
@@ -680,6 +737,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                         nm = f"{kat_num}. Kat" if i < len(z_floors) - 2 else (f"{kat_num}. Kat / Krov" if i > 1 else f"{kat_num}. Kat")
                     stories.append({
                         "name": nm,
+                        "display_name": nm,
                         "z_bottom": round(z_bot, 2),
                         "z_top": round(z_tp, 2),
                         "height": round(z_tp - z_bot, 2),

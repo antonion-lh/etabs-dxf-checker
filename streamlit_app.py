@@ -744,31 +744,36 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             active_story_name = u_st[0]
 
     # Collect coordinates for bounding box based on active elements
+    all_x = []
+    all_y = []
     if active_story_name and not walls_all.empty and "story" in walls_all.columns:
         st_walls = walls_all[walls_all["story"] == active_story_name]
-        if not st_walls.empty:
-            all_x = sorted(set([round(float(w["x_start"]), 2) for _, w in st_walls.iterrows()] + [round(float(w["x_end"]), 2) for _, w in st_walls.iterrows()]))
-            all_y = sorted(set([round(float(w["y_start"]), 2) for _, w in st_walls.iterrows()] + [round(float(w["y_end"]), 2) for _, w in st_walls.iterrows()]))
-        else:
-            all_x, all_y = [], []
-    else:
-        all_x, all_y = [], []
+        for _, w in st_walls.iterrows():
+            if pd.notna(w.get("x_start")): all_x.append(float(w["x_start"]))
+            if pd.notna(w.get("x_end")): all_x.append(float(w["x_end"]))
+            if pd.notna(w.get("centroid_x")): all_x.append(float(w["centroid_x"]))
+            if pd.notna(w.get("y_start")): all_y.append(float(w["y_start"]))
+            if pd.notna(w.get("y_end")): all_y.append(float(w["y_end"]))
+            if pd.notna(w.get("centroid_y")): all_y.append(float(w["centroid_y"]))
 
     if not all_x:
-        if not cols_all.empty:
-            all_x = sorted(set([round(float(x), 2) for x in cols_all["x_start"].dropna()]))
-            all_y = sorted(set([round(float(y), 2) for y in cols_all["y_start"].dropna()]))
-        else:
-            all_x = sorted(set([round(float(r["etabs_x"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_x"))]))
-            all_y = sorted(set([round(float(r["etabs_y"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_y"))]))
+        for df, xk, yk in [(cols_all, "x_start", "y_start"), (walls_all, "centroid_x", "centroid_y"), (beams_all, "x_start", "y_start")]:
+            if not df.empty and xk in df.columns:
+                all_x.extend(df[xk].dropna().astype(float).tolist())
+            if not df.empty and yk in df.columns:
+                all_y.extend(df[yk].dropna().astype(float).tolist())
+
+    if not all_x and not df_res.empty:
+        all_x = [float(r["etabs_x"]) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_x"))]
+        all_y = [float(r["etabs_y"]) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_y"))]
 
     min_x = min(all_x) if all_x else 0.0
     max_x = max(all_x) if all_x else 12.0
     min_y = min(all_y) if all_y else 0.0
     max_y = max(all_y) if all_y else 6.0
 
-    pad_x = max((max_x - min_x) * 0.08, 2.5)
-    pad_y = max((max_y - min_y) * 0.12, 2.5)
+    pad_x = max((max_x - min_x) * 0.10, 3.5)
+    pad_y = max((max_y - min_y) * 0.14, 3.5)
 
     status_map = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
@@ -952,18 +957,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
 
     # 5. Architectural Grid Bubbles (From ETABS or clean clustered axes)
     df_grids = etabs_data.get("grids", pd.DataFrame())
-    if not df_grids.empty and "dir" in df_grids.columns and "coord" in df_grids.columns:
-        x_grids = df_grids[df_grids["dir"] == "X"].sort_values("coord")
-        y_grids = df_grids[df_grids["dir"] == "Y"].sort_values("coord")
-        bubble_xs = x_grids["coord"].tolist() if not x_grids.empty else []
-        labels_x = x_grids["id"].tolist() if not x_grids.empty else []
-        bubble_ys = y_grids["coord"].tolist() if not y_grids.empty else []
-        labels_y = y_grids["id"].tolist() if not y_grids.empty else []
-    else:
-        bubble_xs, labels_x = [], []
-        bubble_ys, labels_y = [], []
-
-    def _cluster_coords(coords, min_gap=3.5):
+    def _cluster_coords(coords, min_gap=4.0):
         if not coords:
             return []
         sorted_c = sorted(coords)
@@ -975,11 +969,48 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             out.append(sorted_c[-1])
         return out
 
-    if not bubble_xs:
-        bubble_xs = _cluster_coords(all_x, min_gap=4.0)
-        labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
-    y_bubble = max_y + pad_y * 0.45
+    def _cluster_grid_axis(coords, ids, min_gap=4.0):
+        if not coords:
+            return [], []
+        pairs = sorted(zip(coords, ids), key=lambda p: p[0])
+        filtered = [p for p in pairs if (min_x - pad_x*0.8) <= p[0] <= (max_x + pad_x*0.8)]
+        if not filtered:
+            filtered = pairs
 
+        out_c = [filtered[0][0]]
+        out_id = [str(filtered[0][1])]
+        for c, gid in filtered[1:]:
+            if c - out_c[-1] >= min_gap:
+                out_c.append(c)
+                out_id.append(str(gid))
+        if filtered[-1][0] - out_c[-1] > min_gap * 0.6:
+            out_c.append(filtered[-1][0])
+            out_id.append(str(filtered[-1][1]))
+        return out_c, out_id
+
+    df_grids = etabs_data.get("grids", pd.DataFrame())
+    bubble_xs, labels_x = [], []
+    bubble_ys, labels_y = [], []
+
+    if not df_grids.empty and "dir" in df_grids.columns and "coord" in df_grids.columns:
+        x_grids = df_grids[df_grids["dir"] == "X"].sort_values("coord")
+        y_grids = df_grids[df_grids["dir"] == "Y"].sort_values("coord")
+        if not x_grids.empty:
+            bubble_xs, labels_x = _cluster_grid_axis(x_grids["coord"].tolist(), x_grids["id"].tolist(), min_gap=4.0)
+        if not y_grids.empty:
+            bubble_ys, labels_y = _cluster_grid_axis(y_grids["coord"].tolist(), y_grids["id"].tolist(), min_gap=4.0)
+
+    if not bubble_xs:
+        c_x = _cluster_coords(all_x, min_gap=5.0)
+        bubble_xs = c_x
+        labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
+
+    if not bubble_ys:
+        c_y = _cluster_coords(all_y, min_gap=5.0)
+        bubble_ys = c_y
+        labels_y = [str(i + 1) for i in range(len(bubble_ys))]
+
+    y_bubble = max_y + pad_y * 0.45
     for gx, lx in zip(bubble_xs, labels_x):
         fig.add_shape(type="line", x0=gx, y0=min_y - 0.5, x1=gx, y1=y_bubble,
                       line=dict(color="#e2e8f0", width=1, dash="dot"))
@@ -987,17 +1018,13 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             x=[gx], y=[y_bubble],
             mode="markers+text",
             marker=dict(size=22, color="#3b82f6", line=dict(color="#ffffff", width=1.5)),
-            text=[lx], textfont=dict(color="white", size=10, weight="bold"),
+            text=[str(lx)[:4]], textfont=dict(color="white", size=10, weight="bold"),
             textposition="middle center",
             hovertext=f"Grid Os {lx} (X = {gx:.1f} m)", hoverinfo="text",
             showlegend=False,
         ))
 
-    if not bubble_ys:
-        bubble_ys = _cluster_coords(all_y, min_gap=4.0)
-        labels_y = [str(i + 1) for i in range(len(bubble_ys))]
     x_bubble = min_x - pad_x * 0.45
-
     for gy, ly in zip(bubble_ys, labels_y):
         fig.add_shape(type="line", x0=x_bubble, y0=gy, x1=max_x + 0.5, y1=gy,
                       line=dict(color="#e2e8f0", width=1, dash="dot"))
@@ -1005,7 +1032,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             x=[x_bubble], y=[gy],
             mode="markers+text",
             marker=dict(size=22, color="#0284c7", line=dict(color="#ffffff", width=1.5)),
-            text=[ly], textfont=dict(color="white", size=10, weight="bold"),
+            text=[str(ly)[:4]], textfont=dict(color="white", size=10, weight="bold"),
             textposition="middle center",
             hovertext=f"Grid Os {ly} (Y = {gy:.1f} m)", hoverinfo="text",
             showlegend=False,
@@ -1680,10 +1707,56 @@ def main():
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
     with t_map:
-        if active_story_name and selected_story_data:
-            st.success(f"🏢 **Aktivna etaža: {active_story_name} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Bijela crtkana linija označava proračunsku os zida (od sredine do sredine zida).")
+        stories = etabs_data.get("stories", [])
+        if not stories:
+            stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0}]
+
+        tab1_story_opts = [s.get("display_name", s["name"]) for s in stories] + ["🌐 Sve etaže (Cijeli model)"]
+
+        def_idx = 0
+        if active_story_name:
+            for i, s in enumerate(stories):
+                if s["name"] == active_story_name:
+                    def_idx = i
+                    break
+
+        sel_tab1_label = st.radio(
+            "📍 **Aktivna etaža za prikaz tlocrta:**",
+            tab1_story_opts,
+            index=def_idx,
+            horizontal=True,
+            key="tab1_story_radio"
+        )
+
+        if not sel_tab1_label.startswith("🌐"):
+            curr_idx = tab1_story_opts.index(sel_tab1_label)
+            selected_story_data = stories[curr_idx]
+            active_story_name = selected_story_data["name"]
+            chosen_z = selected_story_data["z_top"]
+            disp_story_title = selected_story_data.get("display_name", active_story_name)
+
+            if "story" in df_res.columns:
+                df_eval = df_res[
+                    (df_res["story"] == active_story_name) |
+                    (df_res["status"] == Status.DXF_ONLY)
+                ].copy()
+            else:
+                z_bot = selected_story_data["z_bottom"] - 0.20
+                z_top = selected_story_data["z_top"] + 0.20
+                df_eval = df_res[
+                    ((df_res["etabs_z"] >= z_bot) & (df_res["etabs_z"] <= z_top)) |
+                    (df_res["status"] == Status.DXF_ONLY)
+                ].copy()
+            df_eval.attrs = dict(df_res.attrs)
+            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Bijela crtkana linija označava proračunsku os zida (od sredine do sredine zida).")
         else:
-            st.info("📐 **Prikaz cjelokupnog modela (Sve etaže):** Za izolirani pregled pojedinog kata, odaberite željenu etažu u gornjem izborniku.")
+            active_story_name = None
+            disp_story_title = "Sve etaže"
+            selected_story_data = None
+            chosen_z = None
+            df_eval = df_res.copy()
+            df_eval.attrs = dict(df_res.attrs)
+            st.info("📐 **Prikaz cjelokupnog modela (Sve etaže):** Za izolirani pregled pojedinog kata, odaberite željenu etažu u gornjim gumbima.")
 
         has_drawing = uploaded_drawing is not None
 
