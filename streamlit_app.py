@@ -1641,14 +1641,23 @@ def main():
         <div class="dl-card">
           <div style="font-size: 38px; margin-bottom: 8px;">📄</div>
           <h3 style="margin: 0 0 6px 0; color: #0f172a; font-weight: 800;">Službeni Revizijski Elaborat</h3>
-          <p style="margin: 0 auto; color: #64748b; font-size: 13px; max-width: 520px; line-height: 1.5;">
-            Generirajte formalni A4 Landscape revizijski dokument s naslovnicom, sažetkom usklađenosti prema Eurocodu,
-            grafičkim tlocrtom i potpunim inženjerskim tablicama za arhiviranje i ovjeru.
+          <p style="margin: 0 auto 12px auto; color: #64748b; font-size: 13px; max-width: 650px; line-height: 1.5;">
+            Ova stranica služi za <b>automatsko generiranje i preuzimanje službenog inženjerskog elaborata</b> (A4 Landscape PDF).
+            Elaborat služi kao službena tehnička dokumentacija za investitora, glavnog projektanta, revidenta ili tehnički arhiv.
           </p>
         </div>
         """, unsafe_allow_html=True)
 
+        i1, i2, i3 = st.columns(3)
+        with i1:
+            st.info("📋 **1. Naslovnica & Parametri**\n\nPodaci o projektu, inženjerske tolerancije (±50 mm), datum revizije i globalni sažetak elemenata.")
+        with i2:
+            st.info("📐 **2. Matrica geometrije (Str. 1–6)**\n\nSvih 110 elemenata (zidovi W108–W581, ploča F1), točne koordinate centroida, debljine i materijali.")
+        with i3:
+            st.info("🧱 **3. Materijali & Opterećenja (Str. 7)**\n\nVerifikacija svih 6 materijala, modula elastičnosti i potpuna revizija ravnoteže opterećenja (G, VT, Q, Potres).")
+
         d1, d2 = st.columns(2)
+        html_content = ""
         with d1:
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as fp:
                 pdf_path = fp.name
@@ -1681,6 +1690,12 @@ def main():
             finally:
                 try: os.unlink(html_path)
                 except: pass
+
+        if html_content:
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            with st.expander("👁️ Interaktivni pretpregled elaborata u aplikaciji (Uživo)", expanded=True):
+                st.caption("ℹ️ *Ispod je izravan prikaz generiranog elaborata. Identičan sadržaj nalazi se u preuzetom PDF dokumentu:*")
+                st.components.v1.html(html_content, height=550, scrolling=True)
 
     # ── TAB 6: User Guide & Instructions ──────────────────────
     with t_guide:
