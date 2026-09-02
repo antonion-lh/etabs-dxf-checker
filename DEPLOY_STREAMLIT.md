@@ -1,40 +1,21 @@
 # Upute za postavljanje na Streamlit Community Cloud (1-Click za kolegicu)
 
-Ove upute objašnjavaju kako u **2 minute** podići web aplikaciju na **Streamlit Community Cloud** (besplatno), tako da kolegici pošalješ samo običan web link.
+GitHub repozitorij je već kreiran i sav kôd je uspješno poslan:
+🔗 **GitHub Repozitorij:** https://github.com/antonion-lh/etabs-dxf-checker
 
 ---
 
-## Korak 1: Povezivanje na tvoj GitHub račun
+## 🚀 Korak 1 (i jedini): Klikni Deploy na Streamlitu
 
-1. Na svom računalu otvori terminal u mapi projekta:
-   ```bash
-   cd "/Users/antonionovak/Documents/Claude projekti/etabs_dxf_checker"
-   ```
-2. Inicijaliziraj Git (ako već nisi) i kreiraj novi repozitorij na svom GitHubu (npr. `etabs-dxf-validator`):
-   ```bash
-   git init
-   git add .
-   git commit -m "Initial commit: ETABS DXF Web Validator"
-   git branch -M main
-   git remote add origin https://github.com/TVOJ-GITHUB-USERNAME/etabs-dxf-validator.git
-   git push -u origin main
-   ```
-   *(Možeš odabrati da repozitorij bude Private ili Public).*
+Otvori ovaj pripremljeni izravni link u svom pregledniku:
+👉 **[Klikni ovdje za 1-Click Streamlit Deploy](https://share.streamlit.io/deploy?repository=antonion-lh/etabs-dxf-checker&branch=main&mainModule=streamlit_app.py)**
 
----
+*(Sva polja — repozitorij `antonion-lh/etabs-dxf-checker`, grana `main` i glavna datoteka `streamlit_app.py` — automatski su već popunjena!)*
 
-## Korak 2: Deploy na Streamlit Community Cloud
+Samo klikni plavi gumb **"Deploy"**!
 
-1. Idi na [share.streamlit.io](https://share.streamlit.io/) i prijavi se sa svojim Streamlit računom.
-2. Klikni gumb **"New app"** (ili **"Create app"**).
-3. Ispuni 3 polja:
-   - **Repository**: `TVOJ-GITHUB-USERNAME/etabs-dxf-validator`
-   - **Branch**: `main`
-   - **Main file path**: `streamlit_app.py`
-4. Klikni **"Deploy!"**.
-
-Za ~1 minutu tvoja aplikacija bit će aktivna na trajnoj web adresi, npr.:
-👉 `https://etabs-dxf-validator.streamlit.app`
+Za ~1 minutu tvoja aplikacija bit će aktivna na trajnoj web adresi:
+👉 `https://etabs-dxf-checker.streamlit.app`
 
 ---
 
