@@ -395,16 +395,23 @@ def _sidebar() -> tuple:
 
         # 3. Mjerne jedinice i tolerancije
         st.markdown("#### 📐 3. Jedinice i tolerancije")
-        scale_label = st.selectbox(
-            "Jedinica u CAD crtežu:",
-            ["Centimetri (cm)", "Milimetri (mm)", "Metri (m)"],
-            index=0,
-            help="Odaberite mjernu jedinicu u kojoj je crtan CAD nacrt.",
-        )
-        scale_map = {"Centimetri (cm)": 0.01, "Milimetri (mm)": 0.001, "Metri (m)": 1.0}
-        unit_scale = scale_map[scale_label]
+        unit_scale = 0.01  # default cm
 
-        with st.expander("⚙️ Prilagodba tolerancija odstupanja"):
+        is_dxf_selected = (not use_demo and doc_type.startswith("📐")) or (use_demo and demo_model_choice == "commercial")
+        if is_dxf_selected:
+            scale_label = st.selectbox(
+                "Jedinica u CAD crtežu (.dxf):",
+                ["Centimetri (cm)", "Milimetri (mm)", "Metri (m)"],
+                index=0,
+                help="AutoCAD DXF datoteke spremaju koordinate bez fizičke jedinice (samo brojeve). Odaberite u kojoj je jedinici crtan CAD nacrt kako bi se točno preveo u metre.\n\nNapomena: Jedinice ETABS modela automatski se očitavaju iz samog .e2k zaglavlja!",
+            )
+            scale_map = {"Centimetri (cm)": 0.01, "Milimetri (mm)": 0.001, "Metri (m)": 1.0}
+            unit_scale = scale_map[scale_label]
+            st.caption("ℹ️ *Jedinice ETABS modela sustav sam očitava iz .e2k zaglavlja.*")
+        else:
+            st.info("ℹ️ **Jedinice ETABS modela** automatski se očitavaju iz samog `.e2k` zaglavlja (npr. KN, m, °C).\n\nNa PDF nacrtima kote tlocrta su standardno u **cm**, a visinske kote u **m**.")
+
+        with st.expander("⚙️ Prilagodba inženjerskih tolerancija"):
             tol_frame = st.slider("Tolerancija pozicije stupova/greda (m):", 0.05, 0.50, 0.15, 0.01)
             tol_area  = st.slider("Tolerancija pozicije zidova/ploča (m):", 0.10, 1.00, 0.30, 0.05)
             tol_sec   = st.slider("Dozvoljeno odstupanje presjeka (mm):", 1.0, 30.0, 5.0, 1.0)
