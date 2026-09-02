@@ -411,6 +411,24 @@ def _sidebar() -> tuple:
             report_hinges=chk_hinge,
         )
 
+        with st.expander("❓ Brzi podsjetnik za rad"):
+            st.markdown("""
+            **1. Izvoz modela iz ETABS-a:**  
+            `File → Export → .e2k Text File...`
+            
+            **2. Mjerne jedinice:**  
+            Uskladite jedinicu CAD crteža (cm, mm ili m).
+            
+            **3. Višeetažne zgrade:**  
+            Odaberite etažu koja odgovara CAD tlocrtu.
+            
+            **4. Tumač boja:**  
+            🟢 Usklađeno  
+            🟡 Razlika u dimenziji  
+            🔴 Nema u CAD-u  
+            🔵 Nema u ETABS-u  
+            """)
+
         st.markdown("---")
         st.caption("Inženjerska kontrola · Eurocode HRN EN 1992/1993")
 
@@ -861,6 +879,72 @@ def _safe_df(df: pd.DataFrame, float_fmt=None) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────
+# User Guide & Engineering Instructions Component
+# ─────────────────────────────────────────────────────────────
+def _render_instructions():
+    """Renders comprehensive user manual and engineering guide."""
+    st.markdown("""
+    ### 📖 Inženjerski Vodič za Kontrolu Numeričkih Modela (ETABS ↔ CAD)
+
+    Ovaj sustav omogućuje **automatiziranu reviziju i kontrolu kvalitete (QA/QC)** proračunskih modela iz softvera **CSI ETABS v23** u odnosu na izvedbene arhitektonske i građevinske nacrte (**AutoCAD .dxf, PDF ili slike**) u skladu s **Eurocode normama (HRN EN 1990, EN 1992, EN 1993, EN 1998)**.
+
+    ---
+
+    #### 1️⃣ Korak 1 — Izvoz modela iz ETABS-a (2 klika)
+    1. Otvorite svoj projekt u programu **ETABS v23** (ili ranijim verzijama).
+    2. U glavnom izborniku na vrhu odaberite:  
+       👉 **`File` → `Export` → `ETABS .e2k Text File...`**
+    3. Odaberite mapu i spremite datoteku na računalo (npr. `Projekt_Konstrukcije.e2k`).
+    4. *Zašto .e2k a ne .edb?*  
+       Datoteka `.edb` je interna binarna baza podataka koju ETABS zaključava i koja se ne može sigurno čitati na webu bez instaliranog Windows ETABS-a i aktivne licence. Datoteka `.e2k` je službeni, čisti tekstualni format namijenjen upravo za vanjsku razmjenu, arhiviranje i neovisnu reviziju modela.
+
+    ---
+
+    #### 2️⃣ Korak 2 — Priprema i učitavanje CAD nacrta (.dxf)
+    1. U AutoCAD-u otvorite tlocrt oplate ili armature etaže koju želite provjeriti.
+    2. Spremite ga u DXF formatu: **`File` → `Save As` → `AutoCAD 2010/2018 DXF (*.dxf)`**.
+    3. **Mjerne jedinice:** U lijevom izborniku aplikacije pod *Jedinica u CAD crtežu* obavezno odaberite jedinicu u kojoj je crtano:
+       - **Centimetri (cm)** — najčešći standard u visokogradnji (stup 50×50 cm je nacrtan kao 50×50).
+       - **Milimetri (mm)** — čest u detaljima i čeličnim konstrukcijama (stup je 500×500).
+       - **Metri (m)** — u geodeziji ili općim situacijama (stup je 0.50×0.50).
+    4. **Podržani elementi u CAD-u:**
+       - Stupovi mogu biti nacrtani kao zatvorene **polilinije** (`LWPOLYLINE`) ili **AutoCAD blokovi** (`INSERT`).
+       - Sustav automatski mjeri dimenzije iz same geometrije polilinije, a ako postoji tekstualna oznaka (npr. `50x50`, `Ø45`), provjerava i nju!
+    5. **Referentni PDF ili slika nacrta (opcija):**
+       - Ako nemate DXF ili želite vizualnu usporedbu, u polje *Referentni nacrt* učitajte PDF nacrt (ili JPG/PNG). Aplikacija će ga prikazati usporedo s modelom u prvom tabu!
+
+    ---
+
+    #### 3️⃣ Korak 3 — Rad s višeetažnim zgradama (Story Filter)
+    Budući da CAD nacrt obično prikazuje **jednu etažu** (npr. *Tlocrt oplate 1. kata*), a ETABS model sadrži **cijelu zgradu u 3D prostoru**:
+    - Iznad rezultata koristite padajući izbornik: **"Odabir etaže za provjeru s CAD nacrtom"**.
+    - Odaberite odgovarajući kat (npr. `1️⃣ Prizemlje / 1. Kat (Z = 3.80 m)`).
+    - Aplikacija će trenutno filtrirati stupove, grede i ploče te etaže i usporediti ih s nacrtom, bez lažnih odstupanja s gornjih katova.
+
+    ---
+
+    #### 4️⃣ Korak 4 — Tumač statusa i boja
+    - 🟢 **Usklađeno (Match):** Element je pronađen na točnoj lokaciji i njegove dimenzije u potpunosti odgovaraju nacrtu unutar zadane tolerancije.
+    - 🟡 **Odstupanje presjeka (Section Mismatch):** Pozicija odgovara, ali postoji razlika u dimenzijama (npr. CAD 40×40 cm vs. ETABS 50×50 cm). Potrebno uskladiti proračunski model s izvedbenim projektom!
+    - 🔴 **Samo u ETABS-u (ETABS Only):** Element postoji u numeričkom modelu, ali ga nema u nacrtu (mogući uzrok: element s druge etaže, privremeni štap ili višak).
+    - 🔵 **Samo u CAD-u (CAD Only):** Element je ucrtan na nacrtu, ali nije unesen u ETABS model (potencijalno zaboravljeni nosivi stup ili greda!).
+
+    ---
+
+    #### 5️⃣ Korak 5 — Podešavanje inženjerskih tolerancija
+    U lijevom izborniku pod `📐 3. Jedinice i tolerancije`:
+    - **Tolerancija pozicije stupova/greda (m):** Dozvoljeni prostorni razmak osi elementa i nacrta (preporučeno 0.15 m = 15 cm).
+    - **Dozvoljeno odstupanje presjeka (mm):** Dozvoljena razlika u dimenziji prije označavanja greške (preporučeno 5 mm).
+
+    ---
+
+    #### 6️⃣ Korak 6 — Preuzimanje službenog elaborata
+    U tabu **📄 5. Službeni PDF Elaborat** kliknite:
+    - **📥 Preuzmi PDF Elaborat (A4 Landscape):** Generira formalni dokument s naslovnicom, sažetkom usklađenosti po elementima, tlocrtom i tablicom svih odstupanja, spreman za arhivu i potpis ovlaštenog inženjera ili revidenta.
+    """)
+
+
+# ─────────────────────────────────────────────────────────────
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
@@ -970,6 +1054,10 @@ def main():
               </div>
             </div>
             """, unsafe_allow_html=True)
+
+        st.write("")
+        with st.expander("📖 Otvori detaljne inženjerske upute za pripremu modela i nacrta", expanded=False):
+            _render_instructions()
         return
 
     # ── Run Analysis ─────────────────────────────────────────
@@ -1051,12 +1139,13 @@ def main():
         st.markdown(f"<div style='margin-bottom: 16px;'>{pills}</div>", unsafe_allow_html=True)
 
     # ── Tab Navigation: Clear, descriptive titles ─────────────
-    t_map, t_geo, t_mat, t_sup, t_pdf = st.tabs([
+    t_map, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([
         "🗺️ 1. Vizualni model (2D/3D)",
         "📊 2. Tablica odstupanja",
         "🧪 3. Materijali & Opterećenja",
         "🧱 4. Oslonci & Zglobovi",
         "📄 5. Službeni PDF Elaborat",
+        "📖 6. Upute za rad & Vodič",
     ])
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
@@ -1297,6 +1386,10 @@ def main():
             finally:
                 try: os.unlink(html_path)
                 except: pass
+
+    # ── TAB 6: User Guide & Instructions ──────────────────────
+    with t_guide:
+        _render_instructions()
 
 
 if __name__ == "__main__":
