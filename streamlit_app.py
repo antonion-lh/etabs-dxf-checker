@@ -351,13 +351,29 @@ def _sidebar() -> tuple:
                 demo_model_choice = "small"
             st.session_state["demo_choice_key"] = demo_model_choice
 
-        uploaded_dxf = uploaded_e2k = None
+        uploaded_dxf = uploaded_pdf_doc = uploaded_e2k = None
         if not use_demo:
-            uploaded_dxf = st.file_uploader(
-                "CAD nacrt (.dxf):",
-                type=["dxf"],
-                help="Izvedbeni tlocrt konstrukcije iz AutoCAD-a ili drugog CAD softvera.",
+            doc_type = st.radio(
+                "Vrsta izvedbenog nacrta / dokumentacije:",
+                ["📑 PDF projektni elaborat / nacrti (.pdf)", "📐 CAD vektorski nacrt (.dxf)"],
+                index=0,
+                key="doc_type_choice",
+                help="Odaberite PDF ako imate projektni elaborat ili nacrte u PDF-u (npr. tehnički opis i tlocrti), ili DXF ako imate CAD datoteku."
             )
+
+            if doc_type.startswith("📑"):
+                uploaded_pdf_doc = st.file_uploader(
+                    "Projektni elaborat / nacrti (.pdf):",
+                    type=["pdf"],
+                    help="Učitajte PDF dokument koji sadrži tehnički opis i/ili tlocrte etaža.",
+                )
+            else:
+                uploaded_dxf = st.file_uploader(
+                    "CAD nacrt (.dxf):",
+                    type=["dxf"],
+                    help="Izvedbeni tlocrt konstrukcije iz AutoCAD-a (.dxf).",
+                )
+
             uploaded_e2k = st.file_uploader(
                 "ETABS model (.e2k, .$et):",
                 type=["e2k", "$et", "txt"],
@@ -365,15 +381,15 @@ def _sidebar() -> tuple:
             )
             st.caption("ℹ️ *Izvoz iz ETABS-a: File → Export → .e2k*")
 
-        st.markdown("---")
-
-        # 2. Referentni nacrt (PDF / slika)
-        st.markdown("#### 📑 2. Referentni nacrt (opcija)")
-        uploaded_drawing = st.file_uploader(
-            "Priložite PDF ili sliku nacrta:",
-            type=["pdf", "jpg", "jpeg", "png", "tif", "tiff"],
-            help="Projektantski nacrt u PDF-u ili JPG/PNG formatu za usporedni vizualni pregled uz numerički model.",
-        )
+        uploaded_drawing = uploaded_pdf_doc
+        if not use_demo and doc_type.startswith("📐"):
+            st.markdown("---")
+            st.markdown("#### 📑 2. Referentni nacrt (opcija)")
+            uploaded_drawing = st.file_uploader(
+                "Priložite PDF ili sliku uz CAD nacrt:",
+                type=["pdf", "jpg", "jpeg", "png", "tif", "tiff"],
+                help="Projektantski nacrt u PDF-u ili JPG/PNG formatu za usporedni pregled.",
+            )
 
         st.markdown("---")
 
@@ -586,7 +602,55 @@ def _render_drawing(uploaded_drawing, active_story_z=None):
 # ─────────────────────────────────────────────────────────────
 # KPI Strip: Colored indicator borders, crisp typography
 # ─────────────────────────────────────────────────────────────
-def _kpi_strip(df: pd.DataFrame):
+def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = None):
+    if is_pdf_mode:
+        n_total = len(df)
+        n_cols = len(df[df["element_type"] == "column"])
+        n_beams = len(df[df["element_type"] == "beam"])
+        n_walls = len(df[df["element_type"] == "wall"])
+        n_slabs = len(df[df["element_type"] == "slab"])
+        n_secs = df["etabs_section"].nunique() if "etabs_section" in df.columns else 0
+        n_mats = len(etabs_data.get("materials", [])) if etabs_data else 0
+        n_rests = len(etabs_data.get("restraints", [])) if etabs_data else 0
+
+        detail_txt = []
+        if n_cols: detail_txt.append(f"{n_cols} stupova")
+        if n_beams: detail_txt.append(f"{n_beams} greda")
+        if n_walls: detail_txt.append(f"{n_walls} zidova")
+        if n_slabs: detail_txt.append(f"{n_slabs} ploča")
+        sub_desc = ", ".join(detail_txt) if detail_txt else "Nosivi elementi"
+
+        st.markdown(f"""
+        <div class="kpi-strip">
+          <div class="kpi-card green">
+            <div class="kpi-label">🏢 Elementi modela</div>
+            <div class="kpi-number">{n_total}</div>
+            <div class="kpi-sub">{sub_desc}</div>
+          </div>
+          <div class="kpi-card amber">
+            <div class="kpi-label">📐 Poprečni presjeci</div>
+            <div class="kpi-number">{n_secs}</div>
+            <div class="kpi-sub">Različitih profila</div>
+          </div>
+          <div class="kpi-card blue">
+            <div class="kpi-label">🧪 Materijali modela</div>
+            <div class="kpi-number">{n_mats}</div>
+            <div class="kpi-sub">Klasa betona / čelika / opeke</div>
+          </div>
+          <div class="kpi-card slate">
+            <div class="kpi-label">🧱 Temeljni ležajevi</div>
+            <div class="kpi-number">{n_rests}</div>
+            <div class="kpi-sub">Pridržanih točaka baze</div>
+          </div>
+          <div class="kpi-card purple" style="border-left: 4px solid #8b5cf6;">
+            <div class="kpi-label">📑 Način kontrole</div>
+            <div class="kpi-number" style="font-size: 18px; font-weight: 700; color: #8b5cf6; padding-top: 4px;">PDF Dokument</div>
+            <div class="kpi-sub">Usporedba s PDF nacrtom</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+        return
+
     counts = df["status"].value_counts()
     n_match = counts.get(Status.MATCH, 0)
     n_mis   = counts.get(Status.SECTION_MISMATCH, 0)
@@ -1074,35 +1138,53 @@ def main():
     """, unsafe_allow_html=True)
 
     # ── Resolve Input Files ──────────────────────────────────
-    has_data, dxf_path, e2k_content = False, None, None
+    has_data = False
+    is_pdf_mode = False
+    dxf_path = None
+    e2k_content = None
 
     if use_demo:
         if demo_model_choice == "school":
-            dxf_target = DEMO_SKOLA_DXF
+            # School project demo: ETABS model + 20-page PDF elaborat (no DXF required!)
             e2k_target = DEMO_SKOLA_E2K
-            if uploaded_drawing is None and os.path.exists(DEMO_SKOLA_PDF):
+            if os.path.exists(e2k_target):
+                with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
+                    e2k_content = f.read()
                 uploaded_drawing = DEMO_SKOLA_PDF
+                is_pdf_mode = True
+                has_data = True
         elif demo_model_choice == "commercial":
             dxf_target = DEMO_COMMERCIAL_DXF
             e2k_target = DEMO_COMMERCIAL_E2K
+            if os.path.exists(dxf_target) and os.path.exists(e2k_target):
+                dxf_path = dxf_target
+                with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
+                    e2k_content = f.read()
+                has_data = True
         else:
             dxf_target = SMALL_SAMPLE_DXF
             e2k_target = SMALL_SAMPLE_E2K
+            if os.path.exists(dxf_target) and os.path.exists(e2k_target):
+                dxf_path = dxf_target
+                with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
+                    e2k_content = f.read()
+                has_data = True
 
-        if os.path.exists(dxf_target) and os.path.exists(e2k_target):
-            dxf_path = dxf_target
-            with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
-                e2k_content = f.read()
-            has_data = True
-        else:
+        if not has_data:
             st.error("Ogledne datoteke nisu pronađene na poslužitelju.")
-    elif uploaded_dxf and uploaded_e2k:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
-        tmp.write(uploaded_dxf.getvalue())
-        tmp.close()
-        dxf_path = tmp.name
+    elif uploaded_e2k:
         e2k_content = uploaded_e2k.getvalue().decode("utf-8", errors="replace")
-        has_data = True
+        if uploaded_dxf:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
+            tmp.write(uploaded_dxf.getvalue())
+            tmp.close()
+            dxf_path = tmp.name
+            has_data = True
+            is_pdf_mode = False
+        elif uploaded_drawing:
+            # User uploaded ETABS model + PDF project document instead of CAD!
+            has_data = True
+            is_pdf_mode = True
 
     # ── Welcome / Empty State: Clear instructions & 1-click Demo
     if not has_data:
@@ -1155,10 +1237,9 @@ def main():
             st.markdown("""
             <div class="step-card">
               <span class="step-number">2</span>
-              <div class="step-title">Učitavanje datoteka</div>
+              <div class="step-title">Učitavanje nacrta (PDF ili CAD)</div>
               <div class="step-desc">
-                U lijevom izborniku priložite <b>.e2k</b> datoteku i izvedbeni <b>CAD .dxf</b> nacrt
-                (ili referentni PDF nacrta).
+                U lijevom izborniku priložite <b>.e2k</b> model te projektni <b>PDF elaborat</b> (ili CAD .dxf nacrt).
               </div>
             </div>
             """, unsafe_allow_html=True)
@@ -1180,11 +1261,38 @@ def main():
         return
 
     # ── Run Analysis ─────────────────────────────────────────
-    with st.spinner("Automatska analiza geometrije i proračunskog modela u tijeku…"):
+    with st.spinner("Automatska obrada modela i projektne dokumentacije u tijeku…"):
         try:
-            df_dxf = parse_dxf(dxf_path, cfg)
             etabs_data = parse_e2k(io.StringIO(e2k_content), cfg)
-            df_res = validate(etabs_data, df_dxf, cfg)
+            if is_pdf_mode or dxf_path is None:
+                # PDF Mode: extract structural elements directly from ETABS model
+                all_items = []
+                for elem_type, key in [("column", "columns"), ("beam", "beams"), ("wall", "walls"), ("slab", "slabs")]:
+                    df_sub = etabs_data.get(key, pd.DataFrame())
+                    if not df_sub.empty:
+                        for _, row in df_sub.iterrows():
+                            all_items.append({
+                                "element_type": elem_type,
+                                "status": "Za provjeru s PDF-om",
+                                "etabs_name": row.get("name", ""),
+                                "etabs_x": row.get("x_start", row.get("centroid_x", 0.0)),
+                                "etabs_y": row.get("y_start", row.get("centroid_y", 0.0)),
+                                "etabs_z": row.get("z_end", row.get("centroid_z", row.get("z_start", 0.0))),
+                                "etabs_section": row.get("section", row.get("prop_name", "")),
+                                "etabs_w_mm": row.get("width_mm"),
+                                "etabs_h_mm": row.get("height_mm", row.get("thickness_mm")),
+                                "etabs_material": row.get("material", ""),
+                                "dxf_dim_text": "Provjeriti na PDF-u",
+                                "dxf_dim1_mm": None,
+                                "dxf_dim2_mm": None,
+                                "xy_dist_m": None,
+                                "notes": "Vizualno provjeriti s tlocrtom u PDF elaboratu",
+                            })
+                df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame()
+                df_res.attrs["sanity_alerts"] = run_structural_sanity_checks(etabs_data, cfg)
+            else:
+                df_dxf = parse_dxf(dxf_path, cfg)
+                df_res = validate(etabs_data, df_dxf, cfg)
         except Exception as err:
             st.error(f"Greška tijekom obrade modela: {err}")
             return
@@ -1195,9 +1303,24 @@ def main():
 
     # ── Multi-Story / Story Filter ────────────────────────────
     cols_data = etabs_data.get("columns", pd.DataFrame())
-    z_levels = sorted(set(cols_data["z_end"].dropna().tolist())) if not cols_data.empty else []
+    walls_data = etabs_data.get("walls", pd.DataFrame())
+    beams_data = etabs_data.get("beams", pd.DataFrame())
+    slabs_data = etabs_data.get("slabs", pd.DataFrame())
+
+    raw_z = []
+    if not cols_data.empty and "z_end" in cols_data.columns:
+        raw_z.extend(cols_data["z_end"].dropna().tolist())
+    if not walls_data.empty and "centroid_z" in walls_data.columns:
+        raw_z.extend(walls_data["centroid_z"].dropna().tolist())
+    if not beams_data.empty and "z_start" in beams_data.columns:
+        raw_z.extend(beams_data["z_start"].dropna().tolist())
+    if not slabs_data.empty and "centroid_z" in slabs_data.columns:
+        raw_z.extend(slabs_data["centroid_z"].dropna().tolist())
+
+    z_levels = sorted(set([round(float(z), 2) for z in raw_z if float(z) > 0.1]))
 
     df_eval = df_res.copy()
+    chosen_z = None
     if len(z_levels) > 1:
         st_opts = ["🏢 Sve etaže (Ukupni model)"]
         for idx, zl in enumerate(z_levels):
@@ -1207,22 +1330,19 @@ def main():
         c_story, c_info = st.columns([1.8, 3.2])
         with c_story:
             choice_story = st.selectbox(
-                "Odabir etaže za provjeru s CAD nacrtom:",
+                "Odabir etaže za provjeru s nacrtom:",
                 st_opts,
                 index=1 if len(st_opts) > 1 else 0,
                 key="active_story_filter"
             )
         with c_info:
-            st.caption("ℹ️ *CAD nacrti se crtaju po etažama. Odabirom etaže provjeravaju se elementi tog kata.*")
+            st.caption("ℹ️ *Projektni nacrti se crtaju po etažama. Odabirom etaže provjeravaju se elementi tog kata.*")
 
         if not choice_story.startswith("🏢"):
             chosen_z = z_levels[st_opts.index(choice_story) - 1]
-            cols_at_level = set(cols_data[abs(cols_data["z_end"] - chosen_z) <= 0.5]["name"].astype(str))
-            beams_data = etabs_data.get("beams", pd.DataFrame())
+            cols_at_level = set(cols_data[abs(cols_data["z_end"] - chosen_z) <= 0.5]["name"].astype(str)) if not cols_data.empty else set()
             beams_at_level = set(beams_data[abs(beams_data["z_start"] - chosen_z) <= 0.5]["name"].astype(str)) if not beams_data.empty else set()
-            slabs_data = etabs_data.get("slabs", pd.DataFrame())
             slabs_at_level = set(slabs_data[abs(slabs_data["centroid_z"] - chosen_z) <= 0.5]["name"].astype(str)) if not slabs_data.empty else set()
-            walls_data = etabs_data.get("walls", pd.DataFrame())
             walls_at_level = set(walls_data[abs(walls_data["centroid_z"] - chosen_z) <= 1.5]["name"].astype(str)) if not walls_data.empty else set()
 
             valid_names = cols_at_level | beams_at_level | slabs_at_level | walls_at_level
@@ -1232,18 +1352,26 @@ def main():
             ]
 
     # ── KPI Strip ─────────────────────────────────────────────
-    _kpi_strip(df_eval)
+    _kpi_strip(df_eval, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
 
     # ── Legend / Color Explanations ───────────────────────────
-    st.markdown("""
-    <div class="legend-banner">
-      <span style="font-weight: 700; color: #0f172a;">Tumač statusa:</span>
-      <span class="legend-item"><span class="dot-green">● Zeleno</span> Usklađeno (lokacija i presjek odgovaraju nacrtu)</span>
-      <span class="legend-item"><span class="dot-amber">● Narančasto</span> Odstupanje u dimenzijama presjeka</span>
-      <span class="legend-item"><span class="dot-red">● Crveno</span> Samo u ETABS-u (nema na CAD nacrtu)</span>
-      <span class="legend-item"><span class="dot-blue">● Plavo</span> Samo u CAD-u (nedostaje u numeričkom modelu)</span>
-    </div>
-    """, unsafe_allow_html=True)
+    if is_pdf_mode:
+        st.markdown("""
+        <div class="legend-banner">
+          <span style="font-weight: 700; color: #0f172a;">Način rada:</span>
+          <span>📑 <b>Vizualna revizija uz PDF elaborat</b> — Usporedite geometriju i dimenzije modela s nacrtom etaže u desnom prozoru (Tab 1).</span>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="legend-banner">
+          <span style="font-weight: 700; color: #0f172a;">Tumač statusa:</span>
+          <span class="legend-item"><span class="dot-green">● Zeleno</span> Usklađeno (lokacija i presjek odgovaraju nacrtu)</span>
+          <span class="legend-item"><span class="dot-amber">● Narančasto</span> Odstupanje u dimenzijama presjeka</span>
+          <span class="legend-item"><span class="dot-red">● Crveno</span> Samo u ETABS-u (nema na CAD nacrtu)</span>
+          <span class="legend-item"><span class="dot-blue">● Plavo</span> Samo u CAD-u (nedostaje u numeričkom modelu)</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     # ── Compact Sanity Warning Pills ──────────────────────────
     alerts = df_res.attrs.get("sanity_alerts", [])
@@ -1290,7 +1418,7 @@ def main():
                         st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
                 with col_d:
                     st.markdown("##### Referentni nacrt")
-                    _render_drawing(uploaded_drawing)
+                    _render_drawing(uploaded_drawing, active_story_z=chosen_z)
 
             elif view_mode.startswith("🏢"):
                 sub_m = st.radio("Tip prikaza:", ["2D Tlocrt s osima", "3D Wireframe"], horizontal=True, key="sub_m2")
@@ -1300,7 +1428,7 @@ def main():
                     st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
 
             else:
-                _render_drawing(uploaded_drawing)
+                _render_drawing(uploaded_drawing, active_story_z=chosen_z)
 
         else:
             sub_col, col_mode_opt = st.columns([1.2, 1.8])
@@ -1323,23 +1451,33 @@ def main():
 
     # ── TAB 2: Deviations & Geometry Table ────────────────────
     with t_geo:
-        st.markdown("##### Detaljna usporedba dimenzija i položaja elemenata")
+        if is_pdf_mode:
+            st.markdown("##### 📋 Kontrolni inventar elemenata modela za provjeru s PDF-om")
+            st.caption("Popis nosivih elemenata po etažama s točnim dimenzijama presjeka i materijalima iz ETABS-a.")
+        else:
+            st.markdown("##### Detaljna usporedba dimenzija i položaja elemenata")
+
         f1, f2, f3 = st.columns([1.5, 1.5, 2])
+        dfd = df_eval.copy()
+
         with f1:
-            st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
+            if is_pdf_mode:
+                st.info("ℹ️ Način kontrole: PDF elaborat")
+            else:
+                st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
+                if st_f != "Svi statusi":
+                    dfd = dfd[dfd["status"].astype(str) == st_f]
+
         with f2:
             ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_eval["element_type"].unique()), key="geo_type")
-        with f3:
-            search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, 50x50...", key="geo_search")
+            if ty_f != "Svi tipovi":
+                dfd = dfd[dfd["element_type"] == ty_f]
 
-        dfd = df_eval.copy()
-        if st_f != "Svi statusi":
-            dfd = dfd[dfd["status"].astype(str) == st_f]
-        if ty_f != "Svi tipovi":
-            dfd = dfd[dfd["element_type"] == ty_f]
-        if search:
-            q = search.lower()
-            dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
+        with f3:
+            search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, W_JUG, 50x50...", key="geo_search")
+            if search:
+                q = search.lower()
+                dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
 
         vcols = [
             "element_type", "status", "etabs_name", "etabs_z", "etabs_section",
