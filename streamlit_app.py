@@ -1123,13 +1123,17 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
 
     if active_story_name:
         if not cols.empty and "story" in cols.columns:
-            cols = cols[cols["story"] == active_story_name]
+            sub_c = cols[cols["story"] == active_story_name]
+            if not sub_c.empty: cols = sub_c
         if not beams.empty and "story" in beams.columns:
-            beams = beams[beams["story"] == active_story_name]
+            sub_b = beams[beams["story"] == active_story_name]
+            if not sub_b.empty: beams = sub_b
         if not walls.empty and "story" in walls.columns:
-            walls = walls[walls["story"] == active_story_name]
+            sub_w = walls[walls["story"] == active_story_name]
+            if not sub_w.empty: walls = sub_w
         if not slabs.empty and "story" in slabs.columns:
-            slabs = slabs[slabs["story"] == active_story_name]
+            sub_s = slabs[slabs["story"] == active_story_name]
+            if not sub_s.empty: slabs = sub_s
 
     status_by = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
@@ -1787,6 +1791,9 @@ def main():
                     (df_res["story"] == active_story_name) |
                     (df_res["status"] == Status.DXF_ONLY)
                 ].copy()
+                # Ako su sve etaže iste (tipski kat) i odabrani kat nema zasebne elemente, prikaži tipski tlocrt
+                if df_eval[df_eval["status"] != Status.DXF_ONLY].empty and not df_res.empty:
+                    df_eval = df_res.copy()
             else:
                 z_bot = selected_story_data["z_bottom"] - 0.20
                 z_top = selected_story_data["z_top"] + 0.20
@@ -1794,8 +1801,10 @@ def main():
                     ((df_res["etabs_z"] >= z_bot) & (df_res["etabs_z"] <= z_top)) |
                     (df_res["status"] == Status.DXF_ONLY)
                 ].copy()
+                if df_eval[df_eval["status"] != Status.DXF_ONLY].empty and not df_res.empty:
+                    df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
-            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Proračunska središnja os zida označena je bijelom crtkanom linijom (od sredine do sredine zida).")
+            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Sve etaže zgrade su identične (tipski kat). Prikazan je puni raspored nosivih zidova i otvora.")
         else:
             active_story_name = None
             disp_story_title = "Sve etaže"
