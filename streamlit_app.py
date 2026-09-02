@@ -16,7 +16,7 @@ import streamlit as st
 from config import Config
 from phase1_e2k import parse_e2k
 from phase2_dxf import parse_dxf
-from phase3_validation import validate, Status
+from phase3_validation import validate, Status, run_structural_sanity_checks
 from report import generate_pdf, generate_html
 
 # ─────────────────────────────────────────────────────────────
@@ -699,6 +699,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
         Status.SECTION_MISMATCH: ("#f59e0b", "Odstupanje dimenzija"),
         Status.ETABS_ONLY:       ("#ef4444", "Samo u ETABS-u"),
         Status.DXF_ONLY:         ("#3b82f6", "Samo u CAD nacrtu"),
+        "Za provjeru s PDF-om":  ("#0284c7", "Element u modelu"),
     }
 
     fig = go.Figure()
