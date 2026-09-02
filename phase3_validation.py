@@ -335,27 +335,45 @@ def run_structural_sanity_checks(etabs_dict: dict, cfg: Config) -> list[dict]:
     # 1. Load Patterns Self-Weight Audit
     df_pats = etabs_dict.get("load_patterns", pd.DataFrame())
     if not df_pats.empty and "name" in df_pats.columns:
+        dead_pats_with_sw = []
+        dead_pats_without_sw = []
         for _, r in df_pats.iterrows():
-            name = str(r.get("name", "")).upper()
-            ptype = str(r.get("type", "")).lower()
+            name = str(r.get("name", "")).strip().upper()
+            ptype = str(r.get("type", "")).strip().lower()
             sw = float(r.get("self_weight_mult", 0.0))
 
-            if ptype == "dead" or name == "DEAD":
-                if abs(sw - 1.0) > 1e-4:
-                    alerts.append({
-                        "category": "Load Pattern",
-                        "severity": "WARNING",
-                        "element": name,
-                        "issue": f"Dead Load self-weight multiplier is {sw:.2f} (expected 1.0). Self-weight might be omitted!",
-                    })
+            is_dead = (ptype == "dead" or name in ("DEAD", "G", "DL", "VLASTITA"))
+            if is_dead:
+                if abs(sw - 1.0) < 1e-4:
+                    dead_pats_with_sw.append(name)
+                else:
+                    dead_pats_without_sw.append((name, sw))
             else:
-                if sw > 0.0:
+                # Non-dead patterns (LIVE, SEISMIC, WIND, etc.) should have sw == 0.0
+                if sw > 1e-4:
                     alerts.append({
                         "category": "Load Pattern",
                         "severity": "ERROR",
                         "element": name,
-                        "issue": f"{name} ({ptype}) has self-weight multiplier {sw:.2f} > 0.0! Self-weight is being double counted!",
+                        "issue": f"{name} ({ptype}) ima faktor vlastite težine {sw:.2f} > 0.0! Vlastita težina se dvostruko računa.",
                     })
+
+        # Warn if NO dead load pattern has self-weight multiplier 1.0
+        if not dead_pats_with_sw and dead_pats_without_sw:
+            p_names = ", ".join([p[0] for p in dead_pats_without_sw])
+            alerts.append({
+                "category": "Load Pattern",
+                "severity": "WARNING",
+                "element": p_names,
+                "issue": f"Stalna opterećenja ({p_names}) imaju faktor vlastite težine 0.00 (očekivano 1.0). Vlastita težina konstrukcije možda nije uzeta u obzir!",
+            })
+        elif len(dead_pats_with_sw) > 1:
+            alerts.append({
+                "category": "Load Pattern",
+                "severity": "WARNING",
+                "element": ", ".join(dead_pats_with_sw),
+                "issue": f"Više slučajeva opterećenja ({', '.join(dead_pats_with_sw)}) ima faktor vlastite težine 1.0! Provjerite da se težina ne računa dvostruko.",
+            })
 
     # 2. Base Supports Audit
     df_res = etabs_dict.get("restraints", pd.DataFrame())

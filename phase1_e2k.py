@@ -358,12 +358,30 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         # 7. LOAD PATTERNS
         elif "LOAD" in current_block and "PAT" in current_block:
-            p_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() == "PATTERN" else tokens[0]
+            p_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("PATTERN", "LOADPATTERN") else tokens[0]
             if p_name:
-                p_type = _get_kw_val(tokens, "TYPE", "Dead").capitalize()
-                sw_str = _get_kw_val(tokens, "SELFWT", "0.0")
+                p_name = p_name.strip('"').strip("'")
+                p_type = _get_kw_val(tokens, "TYPE")
+                tokens_upper = [t.upper() for t in tokens]
+                if not p_type:
+                    for known_t in ("DEAD", "LIVE", "SEISMIC", "QUAKE", "WIND", "SNOW", "TEMPERATURE", "OTHER"):
+                        if known_t in tokens_upper:
+                            p_type = known_t.capitalize()
+                            break
+                if not p_type:
+                    p_type = "Dead" if ("DEAD" in p_name.upper() or p_name.upper() in ("G", "DL")) else "Other"
+                else:
+                    p_type = p_type.capitalize()
+
+                sw_str = _get_kw_val(tokens, "SELFWT") or _get_kw_val(tokens, "SW") or _get_kw_val(tokens, "SELF_WEIGHT")
+                if not sw_str and len(tokens) >= 3:
+                    try:
+                        float(tokens[-1])
+                        sw_str = tokens[-1]
+                    except ValueError:
+                        pass
                 try:
-                    self_wt = float(sw_str)
+                    self_wt = float(sw_str) if sw_str else 0.0
                 except ValueError:
                     self_wt = 0.0
 
