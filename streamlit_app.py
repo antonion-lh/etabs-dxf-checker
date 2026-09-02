@@ -795,18 +795,33 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=False,
         ))
 
-    # 3. Walls
+    # 3. Walls: True geometric baseline orientation
     if not walls_all.empty:
         for _, w in walls_all.iterrows():
             st_val = status_map.get(str(w["name"]), Status.MATCH)
-            col, lbl = COLOR_MAP.get(st_val, ("#10b981", "Usklađeno"))
-            wx, wy = w["centroid_x"], w["centroid_y"]
+            col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
+            x1 = w.get("x_start", w.get("centroid_x", 0.0))
+            y1 = w.get("y_start", w.get("centroid_y", 0.0))
+            x2 = w.get("x_end", w.get("centroid_x", 0.0))
+            y2 = w.get("y_end", w.get("centroid_y", 0.0))
+
+            if pd.isna(x1) or pd.isna(x2) or (x1 == x2 and y1 == y2):
+                cx, cy = w.get("centroid_x", 0.0), w.get("centroid_y", 0.0)
+                x_pts = [cx, cx]
+                y_pts = [cy - 0.5, cy + 0.5]
+            else:
+                x_pts = [x1, x2]
+                y_pts = [y1, y2]
+
+            thick = w.get("thickness_mm", 250.0)
+            line_w = max(min(int(thick / 40.0), 12), 5)
+
             fig.add_trace(go.Scatter(
-                x=[wx, wx], y=[wy - 1.75, wy + 1.75],
+                x=x_pts, y=y_pts,
                 mode="lines",
-                line=dict(color=col, width=8),
+                line=dict(color=col, width=line_w),
                 name="Zidovi",
-                hovertext=f"<b>AB Zid {w['name']}</b> [{lbl}]<br>Debljina: {w.get('thickness_mm', 250):.0f} mm",
+                hovertext=f"<b>Zid {w['name']}</b> [{lbl}]<br>Presjek: {w.get('prop_name', '—')}<br>Debljina: {thick:.0f} mm<br>Materijal: {w.get('material', '—')}",
                 hoverinfo="text",
                 showlegend=False,
             ))
@@ -1003,6 +1018,70 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 mode="lines",
                 line=dict(color="#64748b", width=3),
                 name="Grede",
+            ))
+
+    # Walls in 3D Wireframe
+    walls = etabs_data.get("walls", pd.DataFrame())
+    if not walls.empty:
+        w_xs, w_ys, w_zs = [], [], []
+        for _, w in walls.iterrows():
+            pts = w.get("pts_coords")
+            if isinstance(pts, (list, tuple)) and len(pts) >= 3:
+                for p in pts:
+                    w_xs.append(p[0])
+                    w_ys.append(p[1])
+                    w_zs.append(p[2])
+                w_xs.append(pts[0][0])
+                w_ys.append(pts[0][1])
+                w_zs.append(pts[0][2])
+                w_xs.append(None)
+                w_ys.append(None)
+                w_zs.append(None)
+            else:
+                x1 = w.get("x_start", w["centroid_x"])
+                y1 = w.get("y_start", w["centroid_y"])
+                x2 = w.get("x_end", w["centroid_x"])
+                y2 = w.get("y_end", w["centroid_y"])
+                cz = w.get("centroid_z", 0.0)
+                h = 3.0
+                w_xs.extend([x1, x2, x2, x1, x1, None])
+                w_ys.extend([y1, y2, y2, y1, y1, None])
+                w_zs.extend([cz - h/2, cz - h/2, cz + h/2, cz + h/2, cz - h/2, None])
+
+        if w_xs:
+            fig.add_trace(go.Scatter3d(
+                x=w_xs, y=w_ys, z=w_zs,
+                mode="lines",
+                line=dict(color="#0284c7" if etabs_color_mode else "#10b981", width=4),
+                name="Nosivi zidovi (ETABS)",
+                hoverinfo="skip",
+            ))
+
+    # Slabs in 3D Wireframe
+    slabs = etabs_data.get("slabs", pd.DataFrame())
+    if not slabs.empty:
+        s_xs, s_ys, s_zs = [], [], []
+        for _, s in slabs.iterrows():
+            pts = s.get("pts_coords")
+            if isinstance(pts, (list, tuple)) and len(pts) >= 3:
+                for p in pts:
+                    s_xs.append(p[0])
+                    s_ys.append(p[1])
+                    s_zs.append(p[2])
+                s_xs.append(pts[0][0])
+                s_ys.append(pts[0][1])
+                s_zs.append(pts[0][2])
+                s_xs.append(None)
+                s_ys.append(None)
+                s_zs.append(None)
+
+        if s_xs:
+            fig.add_trace(go.Scatter3d(
+                x=s_xs, y=s_ys, z=s_zs,
+                mode="lines",
+                line=dict(color="#f59e0b", width=3, dash="dash"),
+                name="Ploče (ETABS)",
+                hoverinfo="skip",
             ))
 
     # Base restraints (fixed / pinned foundation joints at Z=0)

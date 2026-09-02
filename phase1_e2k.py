@@ -668,18 +668,45 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         is_wall = (a["type_hint"] == "wall" or norm_z < 0.5)
         prop_display = prop_key or sec_data.get("sec_name") or (f"WALL_{int(thick_mm)}" if is_wall else f"SLAB_{int(thick_mm)}")
 
+        # Extract endpoints for 2D floorplan trajectory
+        xy_pts = []
+        for p in v_pts:
+            pt_xy = (round(p[0], 2), round(p[1], 2))
+            if pt_xy not in xy_pts:
+                xy_pts.append(pt_xy)
+
+        if len(xy_pts) >= 2:
+            max_d2 = -1.0
+            best_pair = (xy_pts[0], xy_pts[1])
+            for i in range(len(xy_pts)):
+                for j in range(i + 1, len(xy_pts)):
+                    d2 = (xy_pts[i][0] - xy_pts[j][0])**2 + (xy_pts[i][1] - xy_pts[j][1])**2
+                    if d2 > max_d2:
+                        max_d2 = d2
+                        best_pair = (xy_pts[i], xy_pts[j])
+            wx1, wy1 = best_pair[0]
+            wx2, wy2 = best_pair[1]
+        elif len(xy_pts) == 1:
+            wx1, wy1 = xy_pts[0]
+            wx2, wy2 = xy_pts[0]
+        else:
+            wx1, wy1, wx2, wy2 = cx, cy, cx, cy
+
         if is_wall:
             walls.append({
                 "name": a["name"],
                 "element_type": "wall",
                 "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                 "x_match": cx, "y_match": cy,
+                "x_start": wx1, "y_start": wy1,
+                "x_end": wx2, "y_end": wy2,
                 "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
                 "width_mm": None,
                 "height_mm": thick_mm,
                 "shape_type": "shell",
+                "pts_coords": v_pts,
             })
         else:
             slabs.append({
@@ -687,12 +714,15 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "element_type": "slab",
                 "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                 "x_match": cx, "y_match": cy,
+                "x_start": wx1, "y_start": wy1,
+                "x_end": wx2, "y_end": wy2,
                 "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
                 "width_mm": None,
                 "height_mm": thick_mm,
                 "shape_type": "shell",
+                "pts_coords": v_pts,
             })
 
     restraints = []
