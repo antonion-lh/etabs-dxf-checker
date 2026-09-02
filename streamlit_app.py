@@ -30,14 +30,18 @@ st.set_page_config(
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEMO_SKOLA_DXF = os.path.join(SCRIPT_DIR, "demo_skola.dxf")
+DEMO_SKOLA_E2K = os.path.join(SCRIPT_DIR, "demo_skola.e2k")
+DEMO_SKOLA_PDF = os.path.join(SCRIPT_DIR, "demo_projekt_skola.pdf")
+
 DEMO_COMMERCIAL_DXF = os.path.join(SCRIPT_DIR, "demo_commercial_building.dxf")
 DEMO_COMMERCIAL_E2K = os.path.join(SCRIPT_DIR, "demo_commercial_building.e2k")
 SMALL_SAMPLE_DXF = os.path.join(SCRIPT_DIR, "sample_building.dxf")
 SMALL_SAMPLE_E2K = os.path.join(SCRIPT_DIR, "sample_building.e2k")
 
-# Default demo files (multi-bay commercial building from actual ETABS model)
-SAMPLE_DXF = DEMO_COMMERCIAL_DXF
-SAMPLE_E2K = DEMO_COMMERCIAL_E2K
+# Default demo files
+SAMPLE_DXF = DEMO_SKOLA_DXF
+SAMPLE_E2K = DEMO_SKOLA_E2K
 
 # ─────────────────────────────────────────────────────────────
 # High-contrast, clean CSS
@@ -321,18 +325,31 @@ def _sidebar() -> tuple:
         )
         st.session_state["use_demo"] = use_demo
 
-        demo_model_choice = "commercial"
+        demo_model_choice = "school"
         if use_demo:
+            default_idx = 0
+            if st.session_state.get("demo_choice_key") == "commercial":
+                default_idx = 1
+            elif st.session_state.get("demo_choice_key") == "small":
+                default_idx = 2
+
             choice_label = st.selectbox(
                 "Odaberite demo model:",
                 [
-                    "🏢 Poslovna zgrada (18×7 polja, 2 etaže — stvarni model)",
+                    "🏫 OŠ J. J. Strossmayer (Zidana zgrada — Cjeloviti PDF elaborat s tehničkim opisom i nacrtima)",
+                    "🏢 Poslovna zgrada (18×7 polja, 2 etaže — 860 elemenata)",
                     "🏠 Manji ogledni model (3 polja, 1 etaža)",
                 ],
-                index=0,
+                index=default_idx,
                 key="demo_model_selector"
             )
-            demo_model_choice = "commercial" if choice_label.startswith("🏢") else "small"
+            if choice_label.startswith("🏫"):
+                demo_model_choice = "school"
+            elif choice_label.startswith("🏢"):
+                demo_model_choice = "commercial"
+            else:
+                demo_model_choice = "small"
+            st.session_state["demo_choice_key"] = demo_model_choice
 
         uploaded_dxf = uploaded_e2k = None
         if not use_demo:
@@ -438,32 +455,121 @@ def _sidebar() -> tuple:
 # ─────────────────────────────────────────────────────────────
 # Reference Drawing Viewer (PDF / JPEG / PNG / TIFF)
 # ─────────────────────────────────────────────────────────────
-def _render_drawing(uploaded_drawing):
-    """Renders uploaded PDF or image with page controls."""
+def _render_drawing(uploaded_drawing, active_story_z=None):
+    """Renders uploaded PDF or image with sheet selector, quick jump buttons, DPI zoom, and download."""
     if uploaded_drawing is None:
         return
 
-    name = uploaded_drawing.name.lower()
-    raw  = uploaded_drawing.getvalue()
+    if isinstance(uploaded_drawing, str):
+        file_path = uploaded_drawing
+        file_name = os.path.basename(file_path)
+        with open(file_path, "rb") as f:
+            raw = f.read()
+    else:
+        file_name = uploaded_drawing.name
+        raw = uploaded_drawing.getvalue()
+
+    name_lower = file_name.lower()
 
     try:
-        if name.endswith(".pdf"):
+        if name_lower.endswith(".pdf"):
             import fitz  # PyMuPDF
-            doc  = fitz.open(stream=raw, filetype="pdf")
+            doc = fitz.open(stream=raw, filetype="pdf")
             num_pages = len(doc)
 
-            selected_page = 0
-            if num_pages > 1:
-                selected_page = st.number_input(
-                    f"Stranica PDF nacrta (ukupno {num_pages}):",
-                    min_value=1, max_value=num_pages, value=1, step=1, key="pdf_page_selector"
-                ) - 1
+            # Known sheet mapping for OS Strossmayer project elaborat
+            SHEET_MAP = {
+                1: "📄 Str. 1: Tehnički opis - Općenito i opseg radova",
+                2: "📄 Str. 2: Situacija i građevinska parcela",
+                3: "📄 Str. 3: Funkcija i organizacija prostora",
+                4: "📄 Str. 4: Konstruktivno ojačanje stubišta (NPI 200)",
+                5: "📄 Str. 5: Konstrukcija, materijali i seizmika (VIII MCS)",
+                8: "📄 Str. 8: Iskaz neto površina po etažama",
+                10: "📄 Str. 10: Iskaz BRP građevine",
+                11: "📄 Str. 11: Slojevi podova, stropova i zidova",
+                14: "📐 Str. 14: Tlocrt PRIZEMLJA",
+                15: "📐 Str. 15: Tlocrt I. KATA",
+                16: "📐 Str. 16: Tlocrt II. KATA",
+                17: "📐 Str. 17: Plan KROVIŠTA (Drvena krovna konstrukcija)",
+                18: "📐 Str. 18: Tlocrt KROVA",
+                19: "📐 Str. 19: Presjeci 1-1 i 2-2 & Južno pročelje",
+                20: "📐 Str. 20: Sjeverno, Istočno i Zapadno pročelje",
+            }
 
-            page = doc[selected_page]
-            pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+            is_school_doc = num_pages == 20 or "skola" in name_lower or "strossmayer" in name_lower
+
+            # Default initial page: Page 14 (Prizemlje) for school drawings, else Page 1
+            if "active_pdf_page" not in st.session_state:
+                st.session_state["active_pdf_page"] = 14 if is_school_doc else 1
+
+            st.markdown(f"###### 📑 Projektni elaborat: **{file_name}** ({num_pages} str.)")
+
+            if is_school_doc:
+                # Quick jump buttons for structural drawings and description
+                c_b1, c_b2, c_b3, c_b4, c_b5 = st.columns(5)
+                with c_b1:
+                    if st.button("📐 Prizemlje (14)", key="btn_priz", use_container_width=True):
+                        st.session_state["active_pdf_page"] = 14
+                        st.rerun()
+                with c_b2:
+                    if st.button("📐 1. Kat (15)", key="btn_kat1", use_container_width=True):
+                        st.session_state["active_pdf_page"] = 15
+                        st.rerun()
+                with c_b3:
+                    if st.button("📐 2. Kat (16)", key="btn_kat2", use_container_width=True):
+                        st.session_state["active_pdf_page"] = 16
+                        st.rerun()
+                with c_b4:
+                    if st.button("📐 Presjeci (19)", key="btn_presjeci", use_container_width=True):
+                        st.session_state["active_pdf_page"] = 19
+                        st.rerun()
+                with c_b5:
+                    if st.button("📄 Teh. opis (5)", key="btn_opis", use_container_width=True):
+                        st.session_state["active_pdf_page"] = 5
+                        st.rerun()
+
+            ctrl1, ctrl2, ctrl3 = st.columns([2.2, 1.2, 1.4])
+            with ctrl1:
+                if is_school_doc:
+                    opts = [SHEET_MAP.get(p, f"Stranica {p}") for p in range(1, num_pages + 1)]
+                    cur_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
+                    chosen_opt = st.selectbox(
+                        "Brzi skok na nacrt / poglavlje:",
+                        opts,
+                        index=cur_idx,
+                        key="pdf_sheet_dropdown"
+                    )
+                    st.session_state["active_pdf_page"] = opts.index(chosen_opt) + 1
+                else:
+                    st.session_state["active_pdf_page"] = st.number_input(
+                        f"Stranica (ukupno {num_pages}):",
+                        min_value=1, max_value=num_pages,
+                        value=st.session_state["active_pdf_page"],
+                        step=1, key="pdf_direct_num"
+                    )
+
+            with ctrl2:
+                dpi_choice = st.selectbox("Oštrina prikaza:", ["120 DPI (Normalno)", "160 DPI (Oštro)", "200 DPI (Ultra)"], index=1, key="pdf_dpi_opt")
+                dpi_val = 120 if "120" in dpi_choice else (160 if "160" in dpi_choice else 200)
+
+            with ctrl3:
+                st.download_button(
+                    label=f"📥 Preuzmi PDF ({len(raw)/1024/1024:.1f} MB)",
+                    data=raw,
+                    file_name=file_name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="dl_original_pdf_btn"
+                )
+
+            sel_page_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
+            page = doc[sel_page_idx]
+            pix = page.get_pixmap(dpi=dpi_val, alpha=False)
             img_bytes = pix.tobytes("png")
-            st.image(img_bytes, use_container_width=True,
-                     caption=f"Nacrt: {uploaded_drawing.name} (stranica {selected_page + 1}/{num_pages})")
+
+            caption_txt = SHEET_MAP.get(sel_page_idx + 1, f"Stranica {sel_page_idx + 1}") if is_school_doc else f"Stranica {sel_page_idx + 1} od {num_pages}"
+            st.image(img_bytes, use_container_width=True, caption=f"📄 {file_name} — {caption_txt}")
+
         else:
             from PIL import Image
             import io as _io
@@ -472,7 +578,7 @@ def _render_drawing(uploaded_drawing):
             if img.width > max_w:
                 ratio = max_w / img.width
                 img = img.resize((max_w, int(img.height * ratio)), Image.LANCZOS)
-            st.image(img, use_container_width=True, caption=f"Nacrt: {uploaded_drawing.name}")
+            st.image(img, use_container_width=True, caption=f"Nacrt: {file_name}")
     except Exception as e:
         st.error(f"Pogreška pri učitavanju nacrta: {e}")
 
@@ -971,7 +1077,12 @@ def main():
     has_data, dxf_path, e2k_content = False, None, None
 
     if use_demo:
-        if demo_model_choice == "commercial":
+        if demo_model_choice == "school":
+            dxf_target = DEMO_SKOLA_DXF
+            e2k_target = DEMO_SKOLA_E2K
+            if uploaded_drawing is None and os.path.exists(DEMO_SKOLA_PDF):
+                uploaded_drawing = DEMO_SKOLA_PDF
+        elif demo_model_choice == "commercial":
             dxf_target = DEMO_COMMERCIAL_DXF
             e2k_target = DEMO_COMMERCIAL_E2K
         else:
@@ -1008,13 +1119,21 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # Big 1-click Demo Action
-        col_demo, col_empty = st.columns([1.5, 1])
-        with col_demo:
-            if st.button("🚀 Isprobaj odmah s modelom poslovne zgrade (1 klik)", type="primary", use_container_width=True):
+        # Big 1-click Demo Actions
+        c_demo1, c_demo2 = st.columns(2)
+        with c_demo1:
+            if st.button("🏫 Isprobaj s modelom škole i PDF elaboratom (1 klik)", type="primary", use_container_width=True):
                 st.session_state["use_demo"] = True
+                st.session_state["demo_choice_key"] = "school"
                 st.rerun()
-            st.caption("Učitava složeni model zgrade s 18×7 polja i 2 etaže (860 elemenata) prema stvarnom primjeru.")
+            st.caption("Učitava zgradu škole OŠ J. J. Strossmayer s 20-straničnim PDF elaboratom (Tehnički opis + glavni nacrti).")
+
+        with c_demo2:
+            if st.button("🏢 Isprobaj s modelom poslovne zgrade (18×7 raspona)", use_container_width=True):
+                st.session_state["use_demo"] = True
+                st.session_state["demo_choice_key"] = "commercial"
+                st.rerun()
+            st.caption("Učitava složeni model zgrade s 18×7 polja i 2 etaže (860 elemenata) prema ETABS 3D prikazu.")
 
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
