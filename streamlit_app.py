@@ -480,7 +480,7 @@ def _sidebar() -> tuple:
 # ─────────────────────────────────────────────────────────────
 # Reference Drawing Viewer (PDF / JPEG / PNG / TIFF)
 # ─────────────────────────────────────────────────────────────
-def _render_drawing(uploaded_drawing, active_story_z=None):
+def _render_drawing(uploaded_drawing, active_story_z=None, active_story_name=None):
     """Renders uploaded PDF or image with sheet selector, quick jump buttons, DPI zoom, and download."""
     if uploaded_drawing is None:
         return
@@ -522,6 +522,22 @@ def _render_drawing(uploaded_drawing, active_story_z=None):
             }
 
             is_school_doc = num_pages == 20 or any(k in name_lower for k in ("varsavska", "skola", "strossmayer", "stross", "os_"))
+
+            if is_school_doc and active_story_name:
+                s_lower = str(active_story_name).lower()
+                target_pg = None
+                if "priz" in s_lower:
+                    target_pg = 14
+                elif "1" in s_lower or "prvi" in s_lower:
+                    target_pg = 15
+                elif "2" in s_lower or "drugi" in s_lower:
+                    target_pg = 16
+                elif "krov" in s_lower or "potkrov" in s_lower or "tavan" in s_lower:
+                    target_pg = 17
+
+                if target_pg and st.session_state.get("_last_synced_story") != active_story_name:
+                    st.session_state["active_pdf_page"] = target_pg
+                    st.session_state["_last_synced_story"] = active_story_name
 
             # Default initial page: Page 14 (Prizemlje) for school drawings, else Page 1
             if "active_pdf_page" not in st.session_state:
@@ -705,7 +721,7 @@ def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = N
 # ─────────────────────────────────────────────────────────────
 # 2D Floorplan: True architectural layout with CAD axis bubbles
 # ─────────────────────────────────────────────────────────────
-def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
+def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None) -> go.Figure:
     COLOR_MAP = {
         Status.MATCH:            ("#10b981", "Usklađeno s nacrtom"),
         Status.SECTION_MISMATCH: ("#f59e0b", "Odstupanje dimenzija"),
@@ -721,13 +737,30 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
     slabs_all = etabs_data.get("slabs", pd.DataFrame())
     walls_all = etabs_data.get("walls", pd.DataFrame())
 
-    # Collect coordinates for bounding box
-    if not cols_all.empty:
-        all_x = sorted(set([round(float(x), 2) for x in cols_all["x_start"].dropna()]))
-        all_y = sorted(set([round(float(y), 2) for y in cols_all["y_start"].dropna()]))
+    # Infer active_story_name if not provided but df_res is filtered
+    if not active_story_name and not df_res.empty and "story" in df_res.columns:
+        u_st = [s for s in df_res["story"].dropna().unique() if s]
+        if len(u_st) == 1:
+            active_story_name = u_st[0]
+
+    # Collect coordinates for bounding box based on active elements
+    if active_story_name and not walls_all.empty and "story" in walls_all.columns:
+        st_walls = walls_all[walls_all["story"] == active_story_name]
+        if not st_walls.empty:
+            all_x = sorted(set([round(float(w["x_start"]), 2) for _, w in st_walls.iterrows()] + [round(float(w["x_end"]), 2) for _, w in st_walls.iterrows()]))
+            all_y = sorted(set([round(float(w["y_start"]), 2) for _, w in st_walls.iterrows()] + [round(float(w["y_end"]), 2) for _, w in st_walls.iterrows()]))
+        else:
+            all_x, all_y = [], []
     else:
-        all_x = sorted(set([round(float(r["etabs_x"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_x"))]))
-        all_y = sorted(set([round(float(r["etabs_y"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_y"))]))
+        all_x, all_y = [], []
+
+    if not all_x:
+        if not cols_all.empty:
+            all_x = sorted(set([round(float(x), 2) for x in cols_all["x_start"].dropna()]))
+            all_y = sorted(set([round(float(y), 2) for y in cols_all["y_start"].dropna()]))
+        else:
+            all_x = sorted(set([round(float(r["etabs_x"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_x"))]))
+            all_y = sorted(set([round(float(r["etabs_y"]), 2) for _, r in df_res.iterrows() if pd.notna(r.get("etabs_y"))]))
 
     min_x = min(all_x) if all_x else 0.0
     max_x = max(all_x) if all_x else 12.0
@@ -748,25 +781,23 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             fillcolor="rgba(241, 245, 249, 0.7)",
             line=dict(color="#cbd5e1", width=1, dash="dash"),
             name="Ploča konstrukcije",
-            hovertext=f"<b>Ploča konstrukcije</b><br>Raspon: {max_x - min_x:.1f} × {max_y - min_y:.1f} m",
+            hovertext=f"<b>Ploča konstrukcije ({active_story_name or 'Sve etaže'})</b><br>Raspon: {max_x - min_x:.1f} × {max_y - min_y:.1f} m",
             hoverinfo="text",
             showlegend=False,
         ))
 
     # 2. Beams: connecting grid lines
     if not beams_all.empty:
-        active_beam_names = set(df_res[df_res["element_type"] == "beam"]["etabs_name"].dropna().astype(str))
-        if active_beam_names:
-            beams_to_draw = beams_all[beams_all["name"].astype(str).isin(active_beam_names)]
-        elif not cols_all.empty:
-            active_z = df_res["etabs_z"].dropna()
-            max_z = active_z.max() if not active_z.empty else None
-            if max_z is not None and max_z > 0:
-                beams_to_draw = beams_all[abs(beams_all["z_start"] - max_z) <= 0.6]
-            else:
+        if active_story_name and "story" in beams_all.columns:
+            beams_to_draw = beams_all[beams_all["story"] == active_story_name]
+            if beams_to_draw.empty:
                 beams_to_draw = beams_all
         else:
-            beams_to_draw = beams_all
+            active_beam_names = set(df_res[df_res["element_type"] == "beam"]["etabs_name"].dropna().astype(str))
+            if active_beam_names:
+                beams_to_draw = beams_all[beams_all["name"].astype(str).isin(active_beam_names)]
+            else:
+                beams_to_draw = beams_all
 
         b_xs, b_ys = [], []
         for _, bm in beams_to_draw.iterrows():
@@ -799,8 +830,13 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
     # 3. Walls: True geometric baseline with solid physical thickness
     if not walls_all.empty:
-        active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str))
-        walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
+        if active_story_name and "story" in walls_all.columns:
+            walls_to_draw = walls_all[walls_all["story"] == active_story_name]
+            if walls_to_draw.empty:
+                walls_to_draw = walls_all
+        else:
+            active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str))
+            walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
 
         for _, w in walls_to_draw.iterrows():
             st_val = status_map.get(str(w["name"]), Status.MATCH)
@@ -864,7 +900,12 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             ))
 
     # 4. Columns: Sharp colored squares
-    col_records = df_res[df_res["element_type"] == "column"]
+    if active_story_name and "story" in df_res.columns:
+        col_records = df_res[(df_res["element_type"] == "column") & (df_res["story"] == active_story_name)]
+        if col_records.empty:
+            col_records = df_res[df_res["element_type"] == "column"]
+    else:
+        col_records = df_res[df_res["element_type"] == "column"]
     marker_size = 12 if len(col_records) > 50 else 22
     show_text_on_marker = len(col_records) <= 25
 
@@ -971,7 +1012,12 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
         ))
 
     fig.update_layout(
-        margin=dict(l=30, r=20, t=20, b=40),
+        title=dict(
+            text=f"<b>📐 Tlocrt: {active_story_name}</b>" if active_story_name else "<b>📐 Tlocrt numeričkog modela (Sve etaže)</b>",
+            x=0.02, y=0.98,
+            font=dict(size=14, color="#0f172a"),
+        ),
+        margin=dict(l=30, r=20, t=40, b=40),
         height=540,
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
@@ -1010,11 +1056,24 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 # ─────────────────────────────────────────────────────────────
 # 3D Model: Fast segmented wireframe matching ETABS appearance
 # ─────────────────────────────────────────────────────────────
-def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True) -> go.Figure:
+def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True, active_story_name: str = None) -> go.Figure:
     fig = go.Figure()
 
     cols = etabs_data.get("columns", pd.DataFrame())
     beams = etabs_data.get("beams", pd.DataFrame())
+    walls = etabs_data.get("walls", pd.DataFrame())
+    slabs = etabs_data.get("slabs", pd.DataFrame())
+
+    if active_story_name:
+        if not cols.empty and "story" in cols.columns:
+            cols = cols[cols["story"] == active_story_name]
+        if not beams.empty and "story" in beams.columns:
+            beams = beams[beams["story"] == active_story_name]
+        if not walls.empty and "story" in walls.columns:
+            walls = walls[walls["story"] == active_story_name]
+        if not slabs.empty and "story" in slabs.columns:
+            slabs = slabs[slabs["story"] == active_story_name]
+
     status_by = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
     if etabs_color_mode:
@@ -1481,6 +1540,7 @@ def main():
                                 "element_type": elem_type,
                                 "status": "Za provjeru s PDF-om",
                                 "etabs_name": row.get("name", ""),
+                                "story": row.get("story", ""),
                                 "etabs_x": row.get("x_start", row.get("centroid_x", 0.0)),
                                 "etabs_y": row.get("y_start", row.get("centroid_y", 0.0)),
                                 "etabs_z": row.get("z_end", row.get("centroid_z", row.get("z_start", 0.0))),
@@ -1495,7 +1555,7 @@ def main():
                                 "notes": "Vizualno provjeriti s tlocrtom u PDF elaboratu",
                             })
                 STANDARD_COLS = [
-                    "element_type", "status", "etabs_name", "etabs_x", "etabs_y", "etabs_z",
+                    "element_type", "status", "etabs_name", "story", "etabs_x", "etabs_y", "etabs_z",
                     "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
                     "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
                 ]
@@ -1519,61 +1579,50 @@ def main():
                 except: pass
 
     # ── Multi-Story / Story Filter ────────────────────────────
-    cols_data = etabs_data.get("columns", pd.DataFrame())
-    walls_data = etabs_data.get("walls", pd.DataFrame())
-    beams_data = etabs_data.get("beams", pd.DataFrame())
-    slabs_data = etabs_data.get("slabs", pd.DataFrame())
+    stories = etabs_data.get("stories", [])
+    if not stories:
+        stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
 
-    raw_z = []
-    if not cols_data.empty and "z_end" in cols_data.columns:
-        raw_z.extend(cols_data["z_end"].dropna().tolist())
-    if not walls_data.empty and "centroid_z" in walls_data.columns:
-        raw_z.extend(walls_data["centroid_z"].dropna().tolist())
-    if not beams_data.empty and "z_start" in beams_data.columns:
-        raw_z.extend(beams_data["z_start"].dropna().tolist())
-    if not slabs_data.empty and "centroid_z" in slabs_data.columns:
-        raw_z.extend(slabs_data["centroid_z"].dropna().tolist())
+    story_opts = [f"🏢 {s['name']} (Z = {s['z_bottom']:.2f} – {s['z_top']:.2f} m)" for s in stories]
+    story_opts.append("🌐 Sve etaže (Cijela zgrada)")
 
-    z_levels = sorted(set([round(float(z), 2) for z in raw_z if float(z) > 0.1]))
+    c_story, c_info = st.columns([2.4, 2.6])
+    with c_story:
+        choice_story = st.selectbox(
+            "📍 Odabir etaže za prikaz tlocrta i kontrolu:",
+            story_opts,
+            index=0,
+            key="active_story_filter"
+        )
+    with c_info:
+        st.caption("ℹ️ *Arhitektonski nacrti prikazuju pojedinačne etaže. Odabirom etaže tlocrt i tablice prikazuju isključivo elemente tog kata.*")
 
-    df_eval = df_res.copy()
-    if df_eval.empty or "element_type" not in df_eval.columns:
-        df_eval = pd.DataFrame(columns=[
-            "element_type", "status", "etabs_name", "etabs_x", "etabs_y", "etabs_z",
-            "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
-            "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
-        ])
+    active_story_name = None
     chosen_z = None
-    if len(z_levels) > 1:
-        st_opts = ["🏢 Sve etaže (Ukupni model)"]
-        for idx, zl in enumerate(z_levels):
-            st_name = "Prizemlje / 1. Kat" if idx == 0 else f"{idx + 1}. Kat / Krov"
-            st_opts.append(f"{idx + 1}️⃣ {st_name} (Z = {zl:.2f} m)")
+    selected_story_data = None
 
-        c_story, c_info = st.columns([1.8, 3.2])
-        with c_story:
-            choice_story = st.selectbox(
-                "Odabir etaže za provjeru s nacrtom:",
-                st_opts,
-                index=1 if len(st_opts) > 1 else 0,
-                key="active_story_filter"
-            )
-        with c_info:
-            st.caption("ℹ️ *Projektni nacrti se crtaju po etažama. Odabirom etaže provjeravaju se elementi tog kata.*")
+    if not choice_story.startswith("🌐"):
+        sel_idx = story_opts.index(choice_story)
+        selected_story_data = stories[sel_idx]
+        active_story_name = selected_story_data["name"]
+        chosen_z = selected_story_data["z_top"]
 
-        if not choice_story.startswith("🏢"):
-            chosen_z = z_levels[st_opts.index(choice_story) - 1]
-            cols_at_level = set(cols_data[abs(cols_data["z_end"] - chosen_z) <= 0.5]["name"].astype(str)) if not cols_data.empty else set()
-            beams_at_level = set(beams_data[abs(beams_data["z_start"] - chosen_z) <= 0.5]["name"].astype(str)) if not beams_data.empty else set()
-            slabs_at_level = set(slabs_data[abs(slabs_data["centroid_z"] - chosen_z) <= 0.5]["name"].astype(str)) if not slabs_data.empty else set()
-            walls_at_level = set(walls_data[abs(walls_data["centroid_z"] - chosen_z) <= 1.5]["name"].astype(str)) if not walls_data.empty else set()
-
-            valid_names = cols_at_level | beams_at_level | slabs_at_level | walls_at_level
+        if "story" in df_res.columns:
             df_eval = df_res[
-                (df_res["etabs_name"].astype(str).isin(valid_names)) |
+                (df_res["story"] == active_story_name) |
                 (df_res["status"] == Status.DXF_ONLY)
-            ]
-            df_eval.attrs = dict(df_res.attrs)
+            ].copy()
+        else:
+            z_bot = selected_story_data["z_bottom"] - 0.20
+            z_top = selected_story_data["z_top"] + 0.20
+            df_eval = df_res[
+                ((df_res["etabs_z"] >= z_bot) & (df_res["etabs_z"] <= z_top)) |
+                (df_res["status"] == Status.DXF_ONLY)
+            ].copy()
+        df_eval.attrs = dict(df_res.attrs)
+    else:
+        df_eval = df_res.copy()
+        df_eval.attrs = dict(df_res.attrs)
 
     # ── KPI Strip ─────────────────────────────────────────────
     _kpi_strip(df_eval, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
@@ -1631,7 +1680,10 @@ def main():
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
     with t_map:
-        st.info("📐 **Inženjerska definicija elemenata (Osi modela):** Elementi u numeričkom modelu (ETABS) zadani su duž **središnjih osi konstrukcije** (od sredine do sredine zida / sjecišta osi). U 2D tlocrtu bijela crtkana linija označava proračunsku os, a plava ploha puni fizički presjek zida sa stvarnom debljinom.")
+        if active_story_name and selected_story_data:
+            st.success(f"🏢 **Aktivna etaža: {active_story_name} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Tlocrt prikazuje isključivo nosive elemente ove etaže. Bijela crtkana linija označava proračunsku os zida (od sredine do sredine zida).")
+        else:
+            st.info("📐 **Prikaz cjelokupnog modela (Sve etaže):** Za izolirani pregled pojedinog kata, odaberite željenu etažu u gornjem izborniku.")
 
         has_drawing = uploaded_drawing is not None
 
@@ -1649,22 +1701,22 @@ def main():
                     st.markdown("##### Numerički model (ETABS)")
                     sub_m = st.radio("Tip prikaza:", ["2D Tlocrt", "3D Wireframe"], horizontal=True, key="sub_m1")
                     if sub_m == "3D Wireframe":
-                        st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+                        st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name), use_container_width=True)
                     else:
-                        st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
+                        st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
                 with col_d:
                     st.markdown("##### Referentni nacrt")
-                    _render_drawing(uploaded_drawing, active_story_z=chosen_z)
+                    _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
 
             elif view_mode.startswith("🏢"):
                 sub_m = st.radio("Tip prikaza:", ["2D Tlocrt s osima", "3D Wireframe"], horizontal=True, key="sub_m2")
                 if sub_m.startswith("3D"):
-                    st.plotly_chart(_fig_3d(df_res, etabs_data), use_container_width=True)
+                    st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name), use_container_width=True)
                 else:
-                    st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
+                    st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
 
             else:
-                _render_drawing(uploaded_drawing, active_story_z=chosen_z)
+                _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
 
         else:
             sub_col, col_mode_opt = st.columns([1.2, 1.8])
@@ -1673,17 +1725,21 @@ def main():
 
             if mode.startswith("3D"):
                 with col_mode_opt:
-                    c_mode = st.radio(
-                        "Bojanje 3D modela:",
-                        ["🟣 ETABS originalni prikaz (Magenta)", "🔍 Kontrola usklađenosti (Status)"],
-                        horizontal=True,
-                        key="color_mode_3d"
-                    )
-                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🟣")), use_container_width=True)
+                    c1_opt, c2_opt = st.columns(2)
+                    with c1_opt:
+                        c_mode = st.radio(
+                            "Bojanje 3D modela:",
+                            ["🟣 ETABS originalni prikaz (Magenta)", "🔍 Kontrola usklađenosti (Status)"],
+                            horizontal=True,
+                            key="color_mode_3d"
+                        )
+                    with c2_opt:
+                        iso_3d = st.checkbox(f"Izoliraj {active_story_name}" if active_story_name else "Izoliraj etažu", value=False, key="iso_3d_chk")
+                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🟣"), active_story_name=active_story_name if iso_3d else None), use_container_width=True)
             else:
                 with col_mode_opt:
                     st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
-                st.plotly_chart(_fig_2d(df_eval, etabs_data), use_container_width=True)
+                st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
 
     # ── TAB 2: Studentska & Nastavna revizijska lista ───────────
     with t_audit:

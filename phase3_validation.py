@@ -217,6 +217,7 @@ def _row(
         "etabs_x":        ex,
         "etabs_y":        ey,
         "etabs_z":        ez,
+        "story":          _first_valid(er, "story", default=""),
         "etabs_section":  _first_valid(er, "section", "prop_name", default=""),
         "etabs_material": etabs_mat,
         "etabs_shape":    _first_valid(er, "shape_type", default=""),

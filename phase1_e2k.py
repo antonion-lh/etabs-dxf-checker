@@ -110,6 +110,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     raw_frame_loads: list[dict] = []
     raw_hinges: list[dict] = []
     raw_grids: list[dict] = []
+    raw_stories: list[dict] = []
     line_assigns: dict[str, str] = {}
     area_assigns: dict[str, str] = {}
 
@@ -594,6 +595,34 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 except ValueError:
                     pass
 
+        # 13. STORIES / STORY DATA
+        elif "STOR" in current_block and not any(k in current_block for k in ("ASSIGN", "LOAD")):
+            s_name = _get_kw_val(tokens, "STORY") or _get_kw_val(tokens, "NAME") or (tokens[1] if len(tokens) > 1 and tokens[0].upper() == "STORY" else tokens[0])
+            h_str = _get_kw_val(tokens, "HEIGHT") or _get_kw_val(tokens, "H")
+            elev_str = _get_kw_val(tokens, "ELEV") or _get_kw_val(tokens, "ELEVATION")
+            if not elev_str and len(tokens) >= 3:
+                try:
+                    float(tokens[-1])
+                    elev_str = tokens[-1]
+                except ValueError:
+                    pass
+            if not h_str and len(tokens) >= 3:
+                try:
+                    float(tokens[-2])
+                    h_str = tokens[-2]
+                except ValueError:
+                    pass
+
+            if s_name and elev_str:
+                try:
+                    raw_stories.append({
+                        "name": s_name.strip('"').strip("'"),
+                        "height": float(h_str) if h_str else None,
+                        "elevation": float(elev_str),
+                    })
+                except ValueError:
+                    pass
+
     # Apply line and area section assignments
     for f in raw_frames:
         if not f.get("prop") and f["name"] in line_assigns:
@@ -601,6 +630,70 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     for a in raw_areas:
         if not a.get("prop") and a["name"] in area_assigns:
             a["prop"] = area_assigns[a["name"]]
+
+    # Build structured stories list (Level definitions)
+    all_z_vals = [p[2] for p in points.values()]
+    stories = []
+
+    if raw_stories:
+        sorted_st = sorted(raw_stories, key=lambda s: s["elevation"])
+        prev_elev = 0.0
+        for idx, s in enumerate(sorted_st):
+            elev = s["elevation"]
+            h = s.get("height") or (elev - prev_elev)
+            z_bot = elev - h if h and h > 0 else prev_elev
+            stories.append({
+                "name": s["name"],
+                "z_bottom": round(z_bot, 2),
+                "z_top": round(elev, 2),
+                "height": round(h if h else elev - prev_elev, 2),
+                "elevation": round(elev, 2),
+            })
+            prev_elev = elev
+    else:
+        # Auto-cluster Z coordinates into architectural stories
+        z_vals_clean = sorted(set([round(float(z), 2) for z in all_z_vals]))
+        if not z_vals_clean:
+            stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
+        else:
+            z_floors = [z_vals_clean[0]]
+            for z in z_vals_clean[1:]:
+                if z - z_floors[-1] >= 1.5:
+                    z_floors.append(z)
+            if z_vals_clean[-1] - z_floors[-1] >= 0.8:
+                z_floors.append(z_vals_clean[-1])
+
+            if len(z_floors) <= 1:
+                z_top = z_vals_clean[-1] if z_vals_clean[-1] > 0.5 else 4.0
+                stories = [{"name": "Prizemlje", "z_bottom": 0.0, "z_top": z_top, "height": z_top, "elevation": z_top}]
+            else:
+                has_basement = z_floors[0] < -0.5
+                for i in range(len(z_floors) - 1):
+                    z_bot = z_floors[i]
+                    z_tp = z_floors[i+1]
+                    if has_basement and i == 0:
+                        nm = "Podrum"
+                    elif (has_basement and i == 1) or (not has_basement and i == 0):
+                        nm = "Prizemlje"
+                    else:
+                        kat_num = i if has_basement else i
+                        nm = f"{kat_num}. Kat" if i < len(z_floors) - 2 else (f"{kat_num}. Kat / Krov" if i > 1 else f"{kat_num}. Kat")
+                    stories.append({
+                        "name": nm,
+                        "z_bottom": round(z_bot, 2),
+                        "z_top": round(z_tp, 2),
+                        "height": round(z_tp - z_bot, 2),
+                        "elevation": round(z_tp, 2),
+                    })
+
+    def _get_elem_story(z_mid):
+        if not stories:
+            return "Prizemlje"
+        for s in stories:
+            if s["z_bottom"] - 0.25 <= z_mid <= s["z_top"] + 0.25:
+                return s["name"]
+        closest = min(stories, key=lambda s: abs((s["z_bottom"] + s["z_top"])/2.0 - z_mid))
+        return closest["name"]
 
     # Post-process: Attach coordinates & classify elements
     columns, beams, braces = [], [], []
@@ -630,6 +723,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "x_start": x1, "y_start": y1, "z_start": min(z1, z2),
                 "x_end": x2, "y_end": y2, "z_end": max(z1, z2),
                 "x_match": x_match, "y_match": y_match,
+                "story": _get_elem_story((z1 + z2) / 2.0),
                 "section": f["prop"],
                 "material": mat_name,
                 "shape_type": sec_data.get("shape_type", "rectangular"),
@@ -646,6 +740,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "x_start": x1, "y_start": y1, "z_start": z1,
                 "x_end": x2, "y_end": y2, "z_end": z2,
                 "x_match": x_match, "y_match": y_match,
+                "story": _get_elem_story(z1),
                 "section": f["prop"],
                 "material": mat_name,
                 "shape_type": sec_data.get("shape_type", "rectangular"),
@@ -659,6 +754,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "element_type": "brace",
                 "x_match": (x1 + x2) / 2.0,
                 "y_match": (y1 + y2) / 2.0,
+                "story": _get_elem_story((z1 + z2) / 2.0),
                 "section": f["prop"],
                 "material": mat_name,
             })
@@ -734,6 +830,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "x_match": cx, "y_match": cy,
                 "x_start": wx1, "y_start": wy1,
                 "x_end": wx2, "y_end": wy2,
+                "story": _get_elem_story(cz),
                 "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
@@ -750,6 +847,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "x_match": cx, "y_match": cy,
                 "x_start": wx1, "y_start": wy1,
                 "x_end": wx2, "y_end": wy2,
+                "story": _get_elem_story(cz),
                 "prop_name": prop_display,
                 "material": mat_name,
                 "thickness_mm": thick_mm,
@@ -831,6 +929,8 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         "grids": pd.DataFrame(raw_grids),
         "all_points": points,
         "used_points": used_points,
+        "stories": stories,
+        "stories_df": pd.DataFrame(stories),
     }
 
     log.info("E2K Parsing Complete: %d cols, %d beams, %d walls, %d slabs",
