@@ -328,6 +328,31 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
         Status.DXF_ONLY: ("#06b6d4", "Samo u CAD-u (Nedostaje)"),
     }
 
+    all_x = []
+    all_y = []
+    for _, r in df_res.iterrows():
+        x = r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x")
+        y = r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y")
+        if pd.notna(x) and pd.notna(y):
+            all_x.append(float(x))
+            all_y.append(float(y))
+
+    min_x = min(all_x) if all_x else 0.0
+    max_x = max(all_x) if all_x else 12.0
+    min_y = min(all_y) if all_y else 0.0
+    max_y = max(all_y) if all_y else 6.0
+
+    pad_x = max((max_x - min_x) * 0.18, 2.0)
+    pad_y = max((max_y - min_y) * 0.18, 2.0)
+
+    # Subtle CAD Grid reference lines
+    for gx in [0.0, 6.0, 12.0]:
+        fig.add_shape(type="line", x0=gx, y0=min_y - pad_y*0.7, x1=gx, y1=max_y + pad_y*0.7,
+                      line=dict(color="#e2e8f0", width=1, dash="dash"))
+    for gy in [0.0, 6.0]:
+        fig.add_shape(type="line", x0=min_x - pad_x*0.7, y0=gy, x1=max_x + pad_x*0.7, y1=gy,
+                      line=dict(color="#e2e8f0", width=1, dash="dash"))
+
     # Plot floor outline / slab polygons first for backdrop
     slabs = df_res[df_res["element_type"] == "slab"]
     for _, s in slabs.iterrows():
@@ -336,9 +361,9 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
         fig.add_trace(go.Scatter(
             x=[sx], y=[sy],
             mode="markers",
-            marker=dict(size=24, symbol="square", color="rgba(59, 130, 246, 0.15)", line=dict(color="#2563eb", width=1.5)),
+            marker=dict(size=28, symbol="square", color="rgba(59, 130, 246, 0.15)", line=dict(color="#2563eb", width=1.5)),
             name="Ploča (Slab Contour)",
-            hovertext=f"<b>Ploča: {s.get('etabs_name','SLAB')}</b><br>Debljina: {s.get('etabs_h_mm', 200):.0f} mm<br>Koordinate: ({sx:.2f}, {sy:.2f})",
+            hovertext=f"<b>Ploča: {s.get('etabs_name','SLAB')}</b><br>Debljina: {s.get('etabs_h_mm', 200):.0f} mm<br>Koordinate: ({sx:.2f}, {sy:.2f}) m",
             hoverinfo="text",
             showlegend=False,
         ))
@@ -355,7 +380,7 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
             xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in cols_sub.iterrows()]
             ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in cols_sub.iterrows()]
             texts = []
-            for _, r in cols_sub.iterrows():
+            for idx_c, (_, r) in enumerate(cols_sub.iterrows()):
                 name = r.get("etabs_name") or "CAD Stup"
                 ew, eh = r.get("etabs_w_mm"), r.get("etabs_h_mm")
                 dw, dh = r.get("dxf_dim1_mm"), r.get("dxf_dim2_mm")
@@ -365,7 +390,7 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
                     f"Status: <b>{label}</b><br>"
                     f"ETABS model: {ew or '—'}x{eh or '—'} mm<br>"
                     f"CAD nacrt: {dw or '—'}x{dh or '—'} mm<br>"
-                    f"Položaj: ({xs[len(texts)]:.2f}, {ys[len(texts)]:.2f}) m<br>"
+                    f"Položaj: ({xs[idx_c]:.2f}, {ys[idx_c]:.2f}) m<br>"
                     f"Napomena: {notes}"
                 )
 
@@ -374,8 +399,8 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
                 mode="markers+text",
                 text=[str(r.get("etabs_name", "")) for _, r in cols_sub.iterrows()],
                 textposition="top center",
-                textfont=dict(size=10, color="#1e293b"),
-                marker=dict(size=14, color=col, line=dict(width=1.5, color="#0f172a")),
+                textfont=dict(size=11, color="#0f172a", family="Inter"),
+                marker=dict(size=15, color=col, line=dict(width=2, color="#0f172a")),
                 name=f"{label} ({len(cols_sub)})",
                 hovertext=texts,
                 hoverinfo="text",
@@ -390,7 +415,7 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
             fig.add_trace(go.Scatter(
                 x=[bx], y=[by],
                 mode="markers",
-                marker=dict(symbol="diamond", size=15, color=col, line=dict(width=1.5, color="#0f172a")),
+                marker=dict(symbol="diamond", size=16, color=col, line=dict(width=1.5, color="#0f172a")),
                 name=f"Greda: {bname}",
                 hovertext=f"<b>Greda: {bname}</b><br>Status: {label}<br>ETABS: {br.get('etabs_w_mm','—')}x{br.get('etabs_h_mm','—')} mm<br>CAD: {br.get('dxf_dim_text','—')}<br>Napomena: {br.get('notes','')}",
                 hoverinfo="text",
@@ -406,9 +431,9 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
             fig.add_trace(go.Scatter(
                 x=[wx], y=[wy],
                 mode="markers",
-                marker=dict(symbol="cross", size=16, color=col, line=dict(width=2, color="#0f172a")),
+                marker=dict(symbol="cross", size=18, color=col, line=dict(width=2.5, color="#0f172a")),
                 name=f"Zid: {wname}",
-                hovertext=f"<b>Armiranobetonski zid: {wname}</b><br>Status: {label}<br>Debljina: {wr.get('etabs_h_mm', 250):.0f} mm",
+                hovertext=f"<b>Armiranobetonski zid: {wname}</b><br>Status: {label}<br>Debljina: {wr.get('etabs_h_mm', 250):.0f} mm<br>Položaj: ({wx:.2f}, {wy:.2f}) m",
                 hoverinfo="text",
                 showlegend=False,
             ))
@@ -417,12 +442,22 @@ def _render_plotly_floorplan(df_res: pd.DataFrame, df_dxf: pd.DataFrame):
         title="<b>Interaktivni 2D Tlocrt Konstrukcije (Model Coordinate Overlay)</b>",
         xaxis_title="Global X (m)",
         yaxis_title="Global Y (m)",
-        yaxis=dict(scaleanchor="x", scaleratio=1, gridcolor="#f1f5f9", zerolinecolor="#cbd5e1"),
-        xaxis=dict(gridcolor="#f1f5f9", zerolinecolor="#cbd5e1"),
+        xaxis=dict(
+            range=[min_x - pad_x, max_x + pad_x],
+            gridcolor="#f1f5f9",
+            zerolinecolor="#cbd5e1",
+        ),
+        yaxis=dict(
+            range=[min_y - pad_y, max_y + pad_y],
+            scaleanchor="x",
+            scaleratio=1,
+            gridcolor="#f1f5f9",
+            zerolinecolor="#cbd5e1",
+        ),
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.85)"),
-        height=520,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, bgcolor="rgba(255,255,255,0.9)"),
+        height=580,
         margin=dict(l=30, r=30, t=60, b=30),
     )
     return fig
@@ -567,20 +602,32 @@ def main():
             "xy_dist_m", "notes"
         ]
         view_cols = [c for c in view_cols if c in df_disp.columns]
+        df_table = df_disp[view_cols].copy()
+
+        # Format numerical fields to string to eliminate JSON NaN serialization issues
+        for col in ["etabs_w_mm", "etabs_h_mm", "dxf_dim1_mm", "dxf_dim2_mm"]:
+            if col in df_table.columns:
+                df_table[col] = df_table[col].apply(lambda v: f"{v:.0f}" if pd.notna(v) and v is not None else "—")
+        if "xy_dist_m" in df_table.columns:
+            df_table["xy_dist_m"] = df_table["xy_dist_m"].apply(lambda v: f"{v:.2f}" if pd.notna(v) and v is not None else "—")
+        if "status" in df_table.columns:
+            df_table["status"] = df_table["status"].apply(lambda v: v.value if hasattr(v, "value") else str(v))
+        df_table = df_table.fillna("—")
+
         st.dataframe(
-            df_disp[view_cols],
+            df_table,
             use_container_width=True,
             column_config={
                 "status": st.column_config.TextColumn("Status"),
                 "element_type": st.column_config.TextColumn("Tip"),
                 "etabs_name": st.column_config.TextColumn("ETABS ID"),
                 "etabs_section": st.column_config.TextColumn("ETABS Presjek"),
-                "etabs_w_mm": st.column_config.NumberColumn("b (mm)", format="%.0f"),
-                "etabs_h_mm": st.column_config.NumberColumn("h (mm)", format="%.0f"),
+                "etabs_w_mm": st.column_config.TextColumn("b (mm)"),
+                "etabs_h_mm": st.column_config.TextColumn("h (mm)"),
                 "dxf_dim_text": st.column_config.TextColumn("CAD Kota"),
-                "dxf_dim1_mm": st.column_config.NumberColumn("CAD b (mm)", format="%.0f"),
-                "dxf_dim2_mm": st.column_config.NumberColumn("CAD h (mm)", format="%.0f"),
-                "xy_dist_m": st.column_config.NumberColumn("Odmicanje (m)", format="%.2f"),
+                "dxf_dim1_mm": st.column_config.TextColumn("CAD b (mm)"),
+                "dxf_dim2_mm": st.column_config.TextColumn("CAD h (mm)"),
+                "xy_dist_m": st.column_config.TextColumn("Odmicanje (m)"),
                 "notes": st.column_config.TextColumn("Napomene o odstupanjima"),
             },
             hide_index=True,
@@ -591,16 +638,22 @@ def main():
         st.markdown("##### 🧪 Klase betona i čelika zadane u numeričkom modelu")
         df_mats = pd.DataFrame(df_res.attrs.get("materials", []))
         if not df_mats.empty and "name" in df_mats.columns:
+            df_mats_disp = df_mats.copy()
+            for col in ["E_gpa", "fc_mpa", "fy_mpa", "fu_mpa"]:
+                if col in df_mats_disp.columns:
+                    df_mats_disp[col] = df_mats_disp[col].apply(lambda v: f"{v:.1f}" if pd.notna(v) and v is not None else "—")
+            df_mats_disp = df_mats_disp.fillna("—")
+            cols_show = [c for c in ["name", "type", "E_gpa", "fc_mpa", "fy_mpa", "fu_mpa"] if c in df_mats_disp.columns]
             st.dataframe(
-                df_mats,
+                df_mats_disp[cols_show],
                 use_container_width=True,
                 column_config={
                     "name": st.column_config.TextColumn("Naziv materijala"),
                     "type": st.column_config.TextColumn("Kategorija"),
-                    "E_gpa": st.column_config.NumberColumn("Modul elastičnosti E (GPa)", format="%.1f"),
-                    "fc_mpa": st.column_config.NumberColumn("Tlačna čvrstoća fc (MPa)", format="%.1f"),
-                    "fy_mpa": st.column_config.NumberColumn("Granica popuštanja fy (MPa)", format="%.1f"),
-                    "fu_mpa": st.column_config.NumberColumn("Vlačna čvrstoća fu (MPa)", format="%.1f"),
+                    "E_gpa": st.column_config.TextColumn("Modul elastičnosti E (GPa)"),
+                    "fc_mpa": st.column_config.TextColumn("Tlačna čvrstoća fc (MPa)"),
+                    "fy_mpa": st.column_config.TextColumn("Granica popuštanja fy (MPa)"),
+                    "fu_mpa": st.column_config.TextColumn("Vlačna čvrstoća fu (MPa)"),
                 },
                 hide_index=True,
             )
@@ -612,13 +665,17 @@ def main():
         st.markdown("##### ⚖️ Uzorci opterećenja i provjera dvostrukog uračunavanja vlastite težine")
         df_pats = pd.DataFrame(df_res.attrs.get("load_patterns", []))
         if not df_pats.empty and "name" in df_pats.columns:
+            df_pats_disp = df_pats.copy()
+            if "self_weight_mult" in df_pats_disp.columns:
+                df_pats_disp["self_weight_mult"] = df_pats_disp["self_weight_mult"].apply(lambda v: f"{v:.2f}" if pd.notna(v) else "0.00")
+            df_pats_disp = df_pats_disp.fillna("—")
             st.dataframe(
-                df_pats,
+                df_pats_disp,
                 use_container_width=True,
                 column_config={
                     "name": st.column_config.TextColumn("Uzorak"),
                     "type": st.column_config.TextColumn("Tip"),
-                    "self_weight_mult": st.column_config.NumberColumn("Faktor vlastite težine (1.0=Dead, 0.0=ostalo)", format="%.2f"),
+                    "self_weight_mult": st.column_config.TextColumn("Faktor vlastite težine (1.0=Dead, 0.0=ostalo)"),
                 },
                 hide_index=True,
             )
@@ -626,21 +683,28 @@ def main():
         df_aloads = pd.DataFrame(df_res.attrs.get("area_loads", []))
         if not df_aloads.empty:
             st.markdown("##### Zadana plošna opterećenja na pločama ($kN/m^2$):")
-            st.dataframe(df_aloads, use_container_width=True, hide_index=True)
+            df_aloads_disp = df_aloads.copy().fillna("—")
+            st.dataframe(df_aloads_disp, use_container_width=True, hide_index=True)
 
     # Tab 4: Restraints
     with tab_rest:
         st.markdown("##### 🧱 Temeljni ležajevi i rubni uvjeti (Boundary Restraints)")
         df_rest = pd.DataFrame(df_res.attrs.get("restraints", []))
         if not df_rest.empty and "joint_name" in df_rest.columns:
+            df_rest_disp = df_rest.copy()
+            for col in ["x", "y", "z"]:
+                if col in df_rest_disp.columns:
+                    df_rest_disp[col] = df_rest_disp[col].apply(lambda v: f"{v:.2f}" if pd.notna(v) and v is not None else "—")
+            df_rest_disp = df_rest_disp.fillna("—")
+            cols_r = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in df_rest_disp.columns]
             st.dataframe(
-                df_rest,
+                df_rest_disp[cols_r],
                 use_container_width=True,
                 column_config={
                     "joint_name": st.column_config.TextColumn("Čvor (Joint ID)"),
-                    "x": st.column_config.NumberColumn("X (m)", format="%.2f"),
-                    "y": st.column_config.NumberColumn("Y (m)", format="%.2f"),
-                    "z": st.column_config.NumberColumn("Z (m)", format="%.2f"),
+                    "x": st.column_config.TextColumn("X (m)"),
+                    "y": st.column_config.TextColumn("Y (m)"),
+                    "z": st.column_config.TextColumn("Z (m)"),
                     "restraint_type": st.column_config.TextColumn("Tip ležaja"),
                     "is_supported": st.column_config.CheckboxColumn("Poduprt"),
                 },
@@ -654,13 +718,18 @@ def main():
         st.markdown("##### 🔴 Nelinearni plastični zglobovi (Frame Plastic Hinges)")
         df_hinges = etabs_data.get("hinges", pd.DataFrame())
         if not df_hinges.empty and "frame_name" in df_hinges.columns:
+            df_hinges_disp = df_hinges.copy()
+            if "rel_dist" in df_hinges_disp.columns:
+                df_hinges_disp["rel_dist"] = df_hinges_disp["rel_dist"].apply(lambda v: f"{v:.2f}" if pd.notna(v) and v is not None else "—")
+            df_hinges_disp = df_hinges_disp.fillna("—")
+            cols_h = [c for c in ["frame_name", "hinge_prop", "rel_dist", "dof"] if c in df_hinges_disp.columns]
             st.dataframe(
-                df_hinges,
+                df_hinges_disp[cols_h],
                 use_container_width=True,
                 column_config={
                     "frame_name": st.column_config.TextColumn("Element (Frame ID)"),
                     "hinge_prop": st.column_config.TextColumn("Tip zgloba (Property)"),
-                    "rel_dist": st.column_config.NumberColumn("Relativna pozicija (L)", format="%.2f"),
+                    "rel_dist": st.column_config.TextColumn("Relativna pozicija (L)"),
                     "dof": st.column_config.TextColumn("Stupanj slobode"),
                 },
                 hide_index=True,
