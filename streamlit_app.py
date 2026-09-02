@@ -519,7 +519,7 @@ def _render_drawing(uploaded_drawing, active_story_z=None):
                 20: "📐 Str. 20: Sjeverno, Istočno i Zapadno pročelje",
             }
 
-            is_school_doc = num_pages == 20 or "skola" in name_lower or "strossmayer" in name_lower
+            is_school_doc = num_pages == 20 or any(k in name_lower for k in ("varsavska", "skola", "strossmayer", "stross", "os_"))
 
             # Default initial page: Page 14 (Prizemlje) for school drawings, else Page 1
             if "active_pdf_page" not in st.session_state:
