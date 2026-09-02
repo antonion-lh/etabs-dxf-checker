@@ -795,9 +795,12 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=False,
         ))
 
-    # 3. Walls: True geometric baseline orientation
+    # 3. Walls: True geometric baseline with solid physical thickness
     if not walls_all.empty:
-        for _, w in walls_all.iterrows():
+        active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str))
+        walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
+
+        for _, w in walls_to_draw.iterrows():
             st_val = status_map.get(str(w["name"]), Status.MATCH)
             col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
             x1 = w.get("x_start", w.get("centroid_x", 0.0))
@@ -805,23 +808,39 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             x2 = w.get("x_end", w.get("centroid_x", 0.0))
             y2 = w.get("y_end", w.get("centroid_y", 0.0))
 
-            if pd.isna(x1) or pd.isna(x2) or (x1 == x2 and y1 == y2):
-                cx, cy = w.get("centroid_x", 0.0), w.get("centroid_y", 0.0)
-                x_pts = [cx, cx]
-                y_pts = [cy - 0.5, cy + 0.5]
-            else:
-                x_pts = [x1, x2]
-                y_pts = [y1, y2]
+            thick_m = float(w.get("thickness_mm", 250.0)) / 1000.0
+            dx = x2 - x1
+            dy = y2 - y1
+            L = math.hypot(dx, dy)
 
-            thick = w.get("thickness_mm", 250.0)
-            line_w = max(min(int(thick / 40.0), 12), 5)
+            if L < 0.05:
+                cx, cy = w.get("centroid_x", 0.0), w.get("centroid_y", 0.0)
+                ht = max(thick_m / 2.0, 0.15)
+                poly_x = [cx - ht, cx + ht, cx + ht, cx - ht, cx - ht]
+                poly_y = [cy - ht, cy - ht, cy + ht, cy + ht, cy - ht]
+            else:
+                nx = -dy / L
+                ny = dx / L
+                ht = max(thick_m / 2.0, 0.12)
+                poly_x = [
+                    x1 + nx * ht, x2 + nx * ht,
+                    x2 - nx * ht, x1 - nx * ht,
+                    x1 + nx * ht
+                ]
+                poly_y = [
+                    y1 + ny * ht, y2 + ny * ht,
+                    y2 - ny * ht, y1 - ny * ht,
+                    y1 + ny * ht
+                ]
 
             fig.add_trace(go.Scatter(
-                x=x_pts, y=y_pts,
+                x=poly_x, y=poly_y,
+                fill="toself",
+                fillcolor=col,
+                line=dict(color="#0369a1", width=1.5),
                 mode="lines",
-                line=dict(color=col, width=line_w),
                 name="Zidovi",
-                hovertext=f"<b>Zid {w['name']}</b> [{lbl}]<br>Presjek: {w.get('prop_name', '—')}<br>Debljina: {thick:.0f} mm<br>Materijal: {w.get('material', '—')}",
+                hovertext=f"<b>Zid {w['name']}</b> [{lbl}]<br>Presjek: {w.get('prop_name', '—')}<br>Debljina: {thick_m*1000:.0f} mm<br>Materijal: {w.get('material', '—')}",
                 hoverinfo="text",
                 showlegend=False,
             ))
@@ -872,10 +891,21 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=True,
         ))
 
-    # 5. Dynamic Architectural CAD Grid Bubbles
-    # Along X: A, B, C, D... S
-    step_bubble_x = max(1, len(all_x) // 19) if len(all_x) > 26 else 1
-    bubble_xs = all_x[::step_bubble_x]
+    # 5. Clean Architectural Grid Bubbles (Never overlapping)
+    def _cluster_coords(coords, min_gap=3.5):
+        if not coords:
+            return []
+        sorted_c = sorted(coords)
+        out = [sorted_c[0]]
+        for c in sorted_c[1:]:
+            if c - out[-1] >= min_gap:
+                out.append(c)
+        if sorted_c[-1] - out[-1] > min_gap * 0.6:
+            out.append(sorted_c[-1])
+        return out
+
+    # Along X: A, B, C, D...
+    bubble_xs = _cluster_coords(all_x, min_gap=4.0)
     labels_x = [chr(65 + i) if i < 26 else f"A{i}" for i in range(len(bubble_xs))]
     y_bubble = max_y + pad_y * 0.45
 
@@ -892,9 +922,8 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
             showlegend=False,
         ))
 
-    # Along Y: 1, 2, 3... 8
-    step_bubble_y = max(1, len(all_y) // 10) if len(all_y) > 15 else 1
-    bubble_ys = all_y[::step_bubble_y]
+    # Along Y: 1, 2, 3...
+    bubble_ys = _cluster_coords(all_y, min_gap=4.0)
     labels_y = [str(i + 1) for i in range(len(bubble_ys))]
     x_bubble = min_x - pad_x * 0.45
 
@@ -1020,10 +1049,14 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 name="Grede",
             ))
 
-    # Walls in 3D Wireframe
+    # Walls in 3D: Shaded structural panels & wireframe contours
     walls = etabs_data.get("walls", pd.DataFrame())
     if not walls.empty:
         w_xs, w_ys, w_zs = [], [], []
+        mesh_x, mesh_y, mesh_z = [], [], []
+        mesh_i, mesh_j, mesh_k = [], [], []
+        v_offset = 0
+
         for _, w in walls.iterrows():
             pts = w.get("pts_coords")
             if isinstance(pts, (list, tuple)) and len(pts) >= 3:
@@ -1037,6 +1070,25 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 w_xs.append(None)
                 w_ys.append(None)
                 w_zs.append(None)
+
+                if len(pts) == 4:
+                    for p in pts:
+                        mesh_x.append(p[0])
+                        mesh_y.append(p[1])
+                        mesh_z.append(p[2])
+                    mesh_i.extend([v_offset, v_offset])
+                    mesh_j.extend([v_offset + 1, v_offset + 2])
+                    mesh_k.extend([v_offset + 2, v_offset + 3])
+                    v_offset += 4
+                elif len(pts) == 3:
+                    for p in pts:
+                        mesh_x.append(p[0])
+                        mesh_y.append(p[1])
+                        mesh_z.append(p[2])
+                    mesh_i.append(v_offset)
+                    mesh_j.append(v_offset + 1)
+                    mesh_k.append(v_offset + 2)
+                    v_offset += 3
             else:
                 x1 = w.get("x_start", w["centroid_x"])
                 y1 = w.get("y_start", w["centroid_y"])
@@ -1048,19 +1100,33 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 w_ys.extend([y1, y2, y2, y1, y1, None])
                 w_zs.extend([cz - h/2, cz - h/2, cz + h/2, cz + h/2, cz - h/2, None])
 
+        if mesh_x:
+            fig.add_trace(go.Mesh3d(
+                x=mesh_x, y=mesh_y, z=mesh_z,
+                i=mesh_i, j=mesh_j, k=mesh_k,
+                color="#0284c7" if etabs_color_mode else "#10b981",
+                opacity=0.22,
+                name="Plohe zidova (ETABS)",
+                hoverinfo="skip",
+            ))
+
         if w_xs:
             fig.add_trace(go.Scatter3d(
                 x=w_xs, y=w_ys, z=w_zs,
                 mode="lines",
-                line=dict(color="#0284c7" if etabs_color_mode else "#10b981", width=4),
-                name="Nosivi zidovi (ETABS)",
+                line=dict(color="#0369a1" if etabs_color_mode else "#059669", width=2.5),
+                name="Konture zidova (ETABS)",
                 hoverinfo="skip",
             ))
 
-    # Slabs in 3D Wireframe
+    # Slabs in 3D: Shaded plane & borders
     slabs = etabs_data.get("slabs", pd.DataFrame())
     if not slabs.empty:
         s_xs, s_ys, s_zs = [], [], []
+        s_mesh_x, s_mesh_y, s_mesh_z = [], [], []
+        s_mesh_i, s_mesh_j, s_mesh_k = [], [], []
+        s_v_offset = 0
+
         for _, s in slabs.iterrows():
             pts = s.get("pts_coords")
             if isinstance(pts, (list, tuple)) and len(pts) >= 3:
@@ -1075,11 +1141,31 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 s_ys.append(None)
                 s_zs.append(None)
 
+                if len(pts) >= 4:
+                    for p in pts[:4]:
+                        s_mesh_x.append(p[0])
+                        s_mesh_y.append(p[1])
+                        s_mesh_z.append(p[2])
+                    s_mesh_i.extend([s_v_offset, s_v_offset])
+                    s_mesh_j.extend([s_v_offset + 1, s_v_offset + 2])
+                    s_mesh_k.extend([s_v_offset + 2, s_v_offset + 3])
+                    s_v_offset += 4
+
+        if s_mesh_x:
+            fig.add_trace(go.Mesh3d(
+                x=s_mesh_x, y=s_mesh_y, z=s_mesh_z,
+                i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
+                color="#f59e0b",
+                opacity=0.18,
+                name="Međukatna ploča",
+                hoverinfo="skip",
+            ))
+
         if s_xs:
             fig.add_trace(go.Scatter3d(
                 x=s_xs, y=s_ys, z=s_zs,
                 mode="lines",
-                line=dict(color="#f59e0b", width=3, dash="dash"),
+                line=dict(color="#d97706", width=2, dash="dash"),
                 name="Ploče (ETABS)",
                 hoverinfo="skip",
             ))
