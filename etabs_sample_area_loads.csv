@@ -1,0 +1,3 @@
+area_name,load_pattern,val_kpa,direction,floor_label,x,y
+SLAB_BAY1,SDL,2.0,3,FLOOR_1,3.0,3.0
+SLAB_BAY1,LIVE,3.0,3,FLOOR_1,3.0,3.0

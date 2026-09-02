@@ -1,0 +1,5 @@
+name,type,E_gpa,nu,fc_mpa,fy_mpa,fu_mpa
+C30/37,Concrete,33.0,0.2,30.0,,
+C25/30,Concrete,31.0,0.2,25.0,,
+B500B,Rebar,200.0,0.3,,500.0,550.0
+S355,Steel,210.0,0.3,,355.0,510.0

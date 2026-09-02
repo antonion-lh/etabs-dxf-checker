@@ -1,0 +1,5 @@
+name,element_type,x_start,y_start,z_start,x_end,y_end,z_end,x_match,y_match,section,material,shape_type,width_mm,height_mm,diameter_mm
+C1,column,0.0,0.0,0.0,0.0,0.0,3.2,0.0,0.0,COL_40x50,C30/37,rectangular,400.0,500.0,
+C2,column,6.0,0.0,0.0,6.0,0.0,3.2,6.0,0.0,COL_CIRC_45,C30/37,circular,450.0,450.0,450.0
+C3,column,12.0,0.0,0.0,12.0,0.0,3.2,12.0,0.0,COL_30x60,C30/37,rectangular,300.0,600.0,
+C4_ROOF,column,0.0,12.0,0.0,0.0,12.0,3.2,0.0,12.0,COL_40x40,C30/37,rectangular,400.0,400.0,

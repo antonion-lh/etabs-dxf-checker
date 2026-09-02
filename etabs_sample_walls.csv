@@ -1,0 +1,2 @@
+name,element_type,centroid_x,centroid_y,centroid_z,x_match,y_match,prop_name,material,thickness_mm,width_mm,height_mm,shape_type
+W1,wall,0.0,4.25,1.6,0.0,4.25,WALL_25,C30/37,250.0,,250.0,shell

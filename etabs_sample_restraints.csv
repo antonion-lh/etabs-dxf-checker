@@ -1,0 +1,5 @@
+joint_name,x,y,z,restraint_type,is_supported,u1,u2,u3,r1,r2,r3
+J1,0.0,0.0,0.0,Fixed,True,True,True,True,True,True,True
+J2,6.0,0.0,0.0,Fixed,True,True,True,True,True,True,True
+J3,12.0,0.0,0.0,Pinned,True,True,True,True,False,False,False
+J4,0.0,12.0,0.0,Fixed,True,True,True,True,True,True,True

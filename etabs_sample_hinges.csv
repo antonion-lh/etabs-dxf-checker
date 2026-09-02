@@ -1,0 +1,5 @@
+frame_name,hinge_prop,rel_dist,dof,hinge_id
+C1,P-M2-M3_Auto,0.05,P-M2-M3,1
+C1,P-M2-M3_Auto,0.95,P-M2-M3,2
+B101,M3_FEMA356,0.08,M3,3
+B101,M3_FEMA356,0.92,M3,4

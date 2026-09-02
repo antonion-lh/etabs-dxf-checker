@@ -1,0 +1,22 @@
+# Virtual environment & libraries
+.venv/
+Library/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.log
+
+# Local Streamlit credentials
+.streamlit/credentials.toml
+
+# Local test outputs & reports
+test_*.pdf
+test_*.html
+validation_report.pdf
+validation_report.html
+sample_reportlab_report.pdf
+
+# OS artifacts
+.DS_Store
+Thumbs.db

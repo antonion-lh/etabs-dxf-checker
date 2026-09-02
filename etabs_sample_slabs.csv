@@ -1,0 +1,2 @@
+name,element_type,centroid_x,centroid_y,centroid_z,x_match,y_match,prop_name,material,thickness_mm,width_mm,height_mm,shape_type
+SLAB_BAY1,slab,3.0,3.0,3.2,3.0,3.0,SLAB_20,C30/37,200.0,,200.0,shell

@@ -1,0 +1,43 @@
+================================================================================
+  ETABS v23 ↔ DXF Automated Structural Validator - Quick Start Guide
+================================================================================
+
+HOW TO OPEN THE APP:
+--------------------------------------------------------------------------------
+  👉 Just double-click:  Launch_App.bat
+
+  That's all! A graphical desktop window will appear with:
+    1. An ETABS connection status indicator and "Test Connection" button.
+    2. A "Browse DXF..." button to select your CAD drawing.
+    3. Checkboxes for Columns, Beams, Walls, Slabs, and Plastic Hinges.
+    4. A big green "▶ Run Validation" button.
+    5. A button to open and view the generated PDF report!
+
+  *NOTE: The very first time you double-click Launch_App.bat, it will
+         automatically install the required libraries (takes ~1 minute).
+         Subsequent launches open instantly!
+
+--------------------------------------------------------------------------------
+PREREQUISITES:
+--------------------------------------------------------------------------------
+  1. Windows PC with ETABS v23 installed.
+  2. Python 3.10+ installed (Make sure "Add Python to PATH" was checked).
+     Download if needed: https://www.python.org/downloads/
+
+--------------------------------------------------------------------------------
+USING THE DESKTOP APP:
+--------------------------------------------------------------------------------
+  Step 1: Open your model in ETABS v23.
+  Step 2: Double-click "Launch_App.bat".
+  Step 3: In the app, click "Test Connection" to confirm it connects to ETABS.
+  Step 4: Click "Browse DXF..." and select your drawing file (or click "Use Sample").
+  Step 5: Click "▶ Run Validation".
+
+  When processing completes, the PDF report will automatically open!
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING TIP:
+--------------------------------------------------------------------------------
+  If ETABS was opened with "Run as Administrator", make sure to also right-click
+  "Launch_App.bat" and choose "Run as administrator".
+================================================================================

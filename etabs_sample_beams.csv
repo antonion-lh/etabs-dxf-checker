@@ -1,0 +1,2 @@
+name,element_type,x_start,y_start,z_start,x_end,y_end,z_end,x_match,y_match,section,material,shape_type,width_mm,height_mm,diameter_mm
+B101,beam,0.0,0.0,3.2,6.0,0.0,3.2,3.0,0.0,BM_30x40,C25/30,rectangular,300.0,400.0,
