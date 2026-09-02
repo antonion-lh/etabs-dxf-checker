@@ -254,9 +254,9 @@ def extract_all_dimension_texts(msp, cfg: Config) -> list[dict]:
 # Step 4 — Closed polyline collection
 # ---------------------------------------------------------------------------
 
-def collect_closed_polylines(msp) -> list[dict]:
+def collect_closed_polylines(msp, doc=None) -> list[dict]:
     """
-    Collect all closed LWPOLYLINE and legacy POLYLINE entities.
+    Collect all closed LWPOLYLINE, legacy POLYLINE, and block reference (INSERT) entities.
     Returns list of {centroid_x, centroid_y, verts, area_dxf, aspect_ratio, entity}
     """
     polys = []
@@ -314,6 +314,42 @@ def collect_closed_polylines(msp) -> list[dict]:
             "layer": getattr(e.dxf, "layer", "0"),
             "entity": e,
         })
+
+    # Block references (INSERT)
+    if doc is not None:
+        for ins in msp.query("INSERT"):
+            try:
+                bdef = doc.blocks.get(ins.dxf.name)
+                if not bdef:
+                    continue
+                sx = getattr(ins.dxf, "xscale", 1.0)
+                sy = getattr(ins.dxf, "yscale", 1.0)
+                ix, iy = ins.dxf.insert.x, ins.dxf.insert.y
+                ins_layer = getattr(ins.dxf, "layer", "0")
+
+                for be in bdef.query("LWPOLYLINE"):
+                    closed = getattr(be, "is_closed", False) or getattr(be, "closed", False)
+                    pts = [(p[0] * sx + ix, p[1] * sy + iy) for p in be]
+                    if not closed and len(pts) >= 3 and _dist2(*pts[0], *pts[-1]) < 1.0:
+                        closed = True
+                    if not closed or len(pts) < 3:
+                        continue
+                    cen = _polygon_centroid(pts)
+                    if cen is None:
+                        continue
+                    area = _polygon_area(pts)
+                    xmin, ymin, xmax, ymax = _bounding_box(pts)
+                    w, h = xmax - xmin, ymax - ymin
+                    polys.append({
+                        "centroid_x": cen[0], "centroid_y": cen[1],
+                        "verts": pts, "area_dxf": area,
+                        "width_dxf": w, "height_dxf": h,
+                        "aspect_ratio": max(w, h) / max(min(w, h), 1e-3),
+                        "layer": ins_layer,
+                        "entity": ins,
+                    })
+            except Exception:
+                continue
 
     log.info("Closed polylines found: %d", len(polys))
     return polys
@@ -463,6 +499,46 @@ def associate_and_classify(
             "poly_aspect":   None,
         })
 
+    # 4. Handle unassigned structural closed polylines (drawn without explicit text tags)
+    STRUCTURAL_KEYWORDS = ("stup", "col", "gred", "beam", "zid", "wall", "ploc", "slab", "beton", "armat")
+    for p_idx, poly in enumerate(closed_polys):
+        if p_idx in assigned_polys:
+            continue
+
+        layer_lower = poly["layer"].lower()
+        geom_type = _classify_polyline(poly, scale, cfg)
+        area_m2 = poly["area_dxf"] * scale * scale
+
+        # Check if layer name indicates structure OR geometry is a clear column/wall
+        layer_is_structural = any(kw in layer_lower for kw in STRUCTURAL_KEYWORDS)
+        shape_is_column = (geom_type == "column" and 0.04 <= area_m2 <= 2.5)
+
+        if layer_is_structural or shape_is_column:
+            assigned_polys.add(p_idx)
+            cx_m = poly["centroid_x"] * scale + ox
+            cy_m = poly["centroid_y"] * scale + oy
+            floor_label = _layer_to_floor(poly["layer"], floor_map)
+            grid_ref = _nearest_grid_label(poly["centroid_x"], poly["centroid_y"], grid_lines, cfg.max_grid_label_distance)
+
+            w_mm = round(poly["width_dxf"] * scale * 1000.0)
+            h_mm = round(poly["height_dxf"] * scale * 1000.0)
+            dim_txt = f"{w_mm}×{h_mm}"
+
+            elements.append({
+                "element_type":  geom_type,
+                "centroid_x_m":  cx_m,
+                "centroid_y_m":  cy_m,
+                "dim_text":      dim_txt,
+                "hint_type":     "geometry",
+                "dim1_mm":       w_mm,
+                "dim2_mm":       h_mm,
+                "floor_label":   floor_label,
+                "grid_ref":      grid_ref,
+                "layer":         poly["layer"],
+                "poly_area_m2":  round(area_m2, 4),
+                "poly_aspect":   round(poly["aspect_ratio"], 2),
+            })
+
     log.info("DXF elements associated: %d", len(elements))
     return elements
 
@@ -539,7 +615,7 @@ def parse_dxf(path: str, cfg: Config = DEFAULT_CONFIG) -> pd.DataFrame:
     floor_map    = detect_floor_layers(doc, cfg)
     grid_lines   = reconstruct_grid(msp, cfg)
     dim_texts    = extract_all_dimension_texts(msp, cfg)
-    closed_polys = collect_closed_polylines(msp)
+    closed_polys = collect_closed_polylines(msp, doc=doc)
     elements     = associate_and_classify(dim_texts, closed_polys, grid_lines, floor_map, cfg)
 
     # Extract materials and loads from drawing notes

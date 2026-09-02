@@ -554,18 +554,32 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict) -> go.Figure:
 
     # 2. Beams: connecting grid lines
     if not beams_all.empty:
+        active_beam_names = set(df_res[df_res["element_type"] == "beam"]["etabs_name"].dropna().astype(str))
+        if active_beam_names:
+            beams_to_draw = beams_all[beams_all["name"].astype(str).isin(active_beam_names)]
+        elif not cols_all.empty:
+            active_z = df_res["etabs_z"].dropna()
+            max_z = active_z.max() if not active_z.empty else None
+            if max_z is not None and max_z > 0:
+                beams_to_draw = beams_all[abs(beams_all["z_start"] - max_z) <= 0.6]
+            else:
+                beams_to_draw = beams_all
+        else:
+            beams_to_draw = beams_all
+
         b_xs, b_ys = [], []
-        for _, bm in beams_all.iterrows():
+        for _, bm in beams_to_draw.iterrows():
             b_xs.extend([bm["x_start"], bm["x_end"], None])
             b_ys.extend([bm["y_start"], bm["y_end"], None])
-        fig.add_trace(go.Scatter(
-            x=b_xs, y=b_ys,
-            mode="lines",
-            line=dict(color="#cbd5e1", width=2),
-            name="Mreža greda",
-            hoverinfo="skip",
-            showlegend=False,
-        ))
+        if b_xs:
+            fig.add_trace(go.Scatter(
+                x=b_xs, y=b_ys,
+                mode="lines",
+                line=dict(color="#cbd5e1", width=2),
+                name="Mreža greda",
+                hoverinfo="skip",
+                showlegend=False,
+            ))
 
     # Any DXF-only beams
     dxf_only_beams = df_res[(df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "beam")]
@@ -997,9 +1011,17 @@ def main():
         if not choice_story.startswith("🏢"):
             chosen_z = z_levels[st_opts.index(choice_story) - 1]
             cols_at_level = set(cols_data[abs(cols_data["z_end"] - chosen_z) <= 0.5]["name"].astype(str))
+            beams_data = etabs_data.get("beams", pd.DataFrame())
+            beams_at_level = set(beams_data[abs(beams_data["z_start"] - chosen_z) <= 0.5]["name"].astype(str)) if not beams_data.empty else set()
+            slabs_data = etabs_data.get("slabs", pd.DataFrame())
+            slabs_at_level = set(slabs_data[abs(slabs_data["centroid_z"] - chosen_z) <= 0.5]["name"].astype(str)) if not slabs_data.empty else set()
+            walls_data = etabs_data.get("walls", pd.DataFrame())
+            walls_at_level = set(walls_data[abs(walls_data["centroid_z"] - chosen_z) <= 1.5]["name"].astype(str)) if not walls_data.empty else set()
+
+            valid_names = cols_at_level | beams_at_level | slabs_at_level | walls_at_level
             df_eval = df_res[
-                (df_res["etabs_name"].astype(str).isin(cols_at_level)) |
-                ((df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "column"))
+                (df_res["etabs_name"].astype(str).isin(valid_names)) |
+                (df_res["status"] == Status.DXF_ONLY)
             ]
 
     # ── KPI Strip ─────────────────────────────────────────────
@@ -1112,11 +1134,12 @@ def main():
             dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
 
         vcols = [
-            "element_type", "status", "etabs_name", "etabs_section",
+            "element_type", "status", "etabs_name", "etabs_z", "etabs_section",
             "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
         ]
         vcols = [c for c in vcols if c in dfd.columns]
         tbl = _safe_df(dfd[vcols], {
+            "etabs_z": "{:.2f}",
             "etabs_w_mm": "{:.0f}", "etabs_h_mm": "{:.0f}",
             "dxf_dim1_mm": "{:.0f}", "dxf_dim2_mm": "{:.0f}",
             "xy_dist_m": "{:.2f}",
@@ -1130,6 +1153,7 @@ def main():
                 "element_type": st.column_config.TextColumn("Tip"),
                 "status":       st.column_config.TextColumn("Status"),
                 "etabs_name":   st.column_config.TextColumn("ETABS ID"),
+                "etabs_z":      st.column_config.TextColumn("Kota Z (m)"),
                 "etabs_section":st.column_config.TextColumn("Presjek"),
                 "etabs_w_mm":   st.column_config.TextColumn("ETABS b (mm)"),
                 "etabs_h_mm":   st.column_config.TextColumn("ETABS h (mm)"),

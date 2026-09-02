@@ -454,10 +454,10 @@ def validate(
     for et in dxf_by_type.keys():
         if et in VALID_ELEMENT_TYPES:
             active_types.add(et)
-    for et in cfg.extract_elements:
-        s = et.rstrip("s")
-        if s in VALID_ELEMENT_TYPES:
-            active_types.add(s)
+    # Restrict to user-selected element types if cfg.extract_elements is provided
+    if cfg.extract_elements:
+        allowed = {et.rstrip("s") for et in cfg.extract_elements if et.rstrip("s") in VALID_ELEMENT_TYPES}
+        active_types = active_types.intersection(allowed)
 
     for singular in sorted(active_types):
         plural = f"{singular}s"
