@@ -692,48 +692,61 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     all_z_vals = [p[2] for p in points.values()]
     stories = []
 
-    valid_raw = []
-    base_elev = 0.0
     if raw_stories:
-        for s in sorted(raw_stories, key=lambda x: x["elevation"]):
+        # Detect if raw_stories is listed top-down (ETABS standard: Story4, Story3, Story2, Story1, Base)
+        is_top_down = False
+        names_low = [s["name"].lower() for s in raw_stories]
+        if "base" in names_low and names_low.index("base") > 0:
+            is_top_down = True
+        elif any("4" in names_low[i] or "3" in names_low[i] for i in range(min(2, len(names_low)))) and any("1" in names_low[j] for j in range(len(names_low)) if j > 1):
+            is_top_down = True
+
+        ordered_raw = list(reversed(raw_stories)) if is_top_down else list(raw_stories)
+
+        # Filter out Base / zero-height levels
+        valid_raw = []
+        base_elev = 0.0
+        for s in ordered_raw:
             nm_low = s["name"].lower()
             h = s.get("height")
             if (nm_low in ("base", "podnozje", "podnožje", "temelj", "temelji", "foundation") and (h is None or h <= 0.1)) or (h is not None and h <= 0.05):
-                base_elev = s["elevation"]
+                base_elev = s["elevation"] if s.get("elevation") is not None else 0.0
             else:
                 valid_raw.append(s)
 
-    if valid_raw:
-        prev_elev = base_elev
-        for idx, s in enumerate(valid_raw):
-            elev = s["elevation"]
-            h = s.get("height") or (elev - prev_elev)
-            z_bot = elev - h if h and h > 0 else prev_elev
+        if valid_raw:
+            curr_z = base_elev
+            num_floors = len(valid_raw)
+            for idx, s in enumerate(valid_raw):
+                h = s.get("height")
+                elev = s.get("elevation")
+                if elev is not None and elev > curr_z:
+                    h = round(elev - curr_z, 2)
+                    z_top = round(elev, 2)
+                else:
+                    if h is None or h <= 0.1:
+                        h = 3.50
+                    z_top = round(curr_z + h, 2)
 
-            nm = s["name"]
-            nm_low = nm.lower()
-            if nm_low in ("story1", "st1", "s1", "base"):
-                disp_nm = "Prizemlje"
-            elif nm_low in ("story2", "st2", "s2"):
-                disp_nm = "1. Kat"
-            elif nm_low in ("story3", "st3", "s3"):
-                disp_nm = "2. Kat"
-            elif nm_low in ("story4", "st4", "s4"):
-                disp_nm = "Krovište / Potkrovlje"
-            elif nm_low in ("story5", "st5", "s5"):
-                disp_nm = "Krov"
-            else:
-                disp_nm = nm
+                z_bot = round(curr_z, 2)
+                curr_z = z_top
 
-            stories.append({
-                "name": s["name"],
-                "display_name": disp_nm,
-                "z_bottom": round(z_bot, 2),
-                "z_top": round(elev, 2),
-                "height": round(h if h else elev - prev_elev, 2),
-                "elevation": round(elev, 2),
-            })
-            prev_elev = elev
+                # Standardized Croatian civil engineering display names
+                if idx == 0:
+                    disp_nm = "Prizemlje"
+                elif idx == num_floors - 1 and num_floors > 2:
+                    disp_nm = f"{idx}. Kat / Krovište" if idx > 1 else "Krovište / Potkrovlje"
+                else:
+                    disp_nm = f"{idx}. Kat"
+
+                stories.append({
+                    "name": s["name"],
+                    "display_name": disp_nm,
+                    "z_bottom": z_bot,
+                    "z_top": z_top,
+                    "height": round(h, 2),
+                    "elevation": z_top,
+                })
     else:
         # Auto-cluster Z coordinates into architectural stories (min 2.5m gap between floors)
         z_vals_clean = sorted(set([round(float(z), 2) for z in all_z_vals if float(z) > -10.0]))
