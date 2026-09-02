@@ -325,8 +325,9 @@ def _sidebar() -> tuple:
             uploaded_e2k = st.file_uploader(
                 "ETABS model (.e2k, .$et):",
                 type=["e2k", "$et", "txt"],
-                help="Tekstualni izvoz modela iz ETABS-a (File → Export → ETABS .e2k Text File).",
+                help="Tekstualni izvoz iz ETABS-a: File → Export → ETABS .e2k Text File...\n(Napomena: .edb je binarna baza podataka koju ETABS zaključava i ne može se čitati na webu bez instaliranog ETABS-a).",
             )
+            st.caption("ℹ️ *Izvoz iz ETABS-a: File → Export → .e2k*")
 
         st.markdown("---")
 
