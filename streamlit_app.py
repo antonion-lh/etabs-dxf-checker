@@ -1378,6 +1378,7 @@ def main():
                 (df_res["etabs_name"].astype(str).isin(valid_names)) |
                 (df_res["status"] == Status.DXF_ONLY)
             ]
+            df_eval.attrs = dict(df_res.attrs)
 
     # ── KPI Strip ─────────────────────────────────────────────
     _kpi_strip(df_eval, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
@@ -1598,7 +1599,7 @@ def main():
 
         with sc:
             st.markdown("##### 🧱 Temeljni oslonci (Rubni uvjeti)")
-            rests = pd.DataFrame(df_res.attrs.get("restraints", []))
+            rests = etabs_data.get("restraints", pd.DataFrame()) if etabs_data else pd.DataFrame(df_res.attrs.get("restraints", []))
             if not rests.empty and "joint_name" in rests.columns:
                 rcols = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in rests.columns]
                 st.dataframe(

@@ -340,4 +340,28 @@ $ LOAD PATTERNS
         except: pass
 
 
+def test_auto_detect_base_restraints():
+    """Verify that when an e2k has no explicit restraints block, base foundation supports are auto-detected."""
+    import io
+    from phase1_e2k import parse_e2k
+
+    e2k_no_restraints = """
+$ POINT COORDINATES
+  POINT "J1" X 0.0 Y 0.0 Z 0.0
+  POINT "J2" X 10.0 Y 0.0 Z 0.0
+  POINT "J1_T" X 0.0 Y 0.0 Z 4.0
+  POINT "J2_T" X 10.0 Y 0.0 Z 4.0
+
+$ AREA CONNECTIVITIES
+  AREA "WALL_1" TYPE "WALL" PT J1 J2 J2_T J1_T
+"""
+    parsed = parse_e2k(io.StringIO(e2k_no_restraints))
+    rests = parsed["restraints"]
+    assert len(rests) == 2
+    assert set(rests["joint_name"]) == {"J1", "J2"}
+    assert all(rests["z"] == 0.0)
+    assert all(rests["is_supported"] == True)
+
+
+
 

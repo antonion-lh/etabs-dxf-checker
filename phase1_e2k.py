@@ -471,32 +471,72 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "val2_kn_m": v2,
                 })
 
-        # 10. RESTRAINTS / SUPPORTS
-        elif (("POINT" in current_block and "ASSIGN" in current_block) or "RESTRAINT" in current_block) and "HINGE" not in current_block:
-            jname = _get_kw_val(tokens, "POINT") or (tokens[1] if len(tokens) > 1 and tokens[0].upper() == "RESTRAINT" else "")
-            if jname:
-                u1 = _get_kw_val(tokens, "U1", "NO").upper() == "YES"
-                u2 = _get_kw_val(tokens, "U2", "NO").upper() == "YES"
-                u3 = _get_kw_val(tokens, "U3", "NO").upper() == "YES"
-                r1 = _get_kw_val(tokens, "R1", "NO").upper() == "YES"
-                r2 = _get_kw_val(tokens, "R2", "NO").upper() == "YES"
-                r3 = _get_kw_val(tokens, "R3", "NO").upper() == "YES"
+        # 10. RESTRAINTS / SUPPORTS / BOUNDARY CONDITIONS
+        elif (
+            any(k in current_block for k in ("RESTRAINT", "SUPPORT", "SPRING", "BOUNDARY", "BASE"))
+            or (any(k in current_block for k in ("POINT", "JOINT")) and any(k in current_block for k in ("ASSIGN", "RESTRAINT", "PROP", "DATA")))
+        ) and "HINGE" not in current_block and "LOAD" not in current_block:
+            tokens_upper = [t.upper() for t in tokens]
+            jname = ""
+            if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "SPRING", "POINT", "JOINT"):
+                jname = tokens[1] if len(tokens) > 1 else ""
+            elif _get_kw_val(tokens, "POINT") or _get_kw_val(tokens, "JOINT") or _get_kw_val(tokens, "NAME"):
+                jname = _get_kw_val(tokens, "POINT") or _get_kw_val(tokens, "JOINT") or _get_kw_val(tokens, "NAME")
+            else:
+                t0_clean = tokens[0].strip('"').strip("'")
+                if _get_pt(t0_clean) is not None:
+                    jname = tokens[0]
 
-                if all([u1, u2, u3, r1, r2, r3]):
-                    rtype = "Fixed"
-                elif u1 and u2 and u3 and not any([r1, r2, r3]):
-                    rtype = "Pinned"
-                elif u3 and not any([u1, u2, r1, r2, r3]):
-                    rtype = "Roller"
-                elif not any([u1, u2, u3, r1, r2, r3]):
-                    rtype = "FREE"
-                else:
+            if jname:
+                jname = jname.strip('"').strip("'")
+                u1 = (_get_kw_val(tokens, "U1") or "").upper() in ("YES", "1", "TRUE")
+                u2 = (_get_kw_val(tokens, "U2") or "").upper() in ("YES", "1", "TRUE")
+                u3 = (_get_kw_val(tokens, "U3") or "").upper() in ("YES", "1", "TRUE")
+                r1 = (_get_kw_val(tokens, "R1") or "").upper() in ("YES", "1", "TRUE")
+                r2 = (_get_kw_val(tokens, "R2") or "").upper() in ("YES", "1", "TRUE")
+                r3 = (_get_kw_val(tokens, "R3") or "").upper() in ("YES", "1", "TRUE")
+
+                if not any([u1, u2, u3, r1, r2, r3]):
+                    if any(k in tokens_upper for k in ("FIXED", "FIX", "UPETOST")):
+                        u1, u2, u3, r1, r2, r3 = True, True, True, True, True, True
+                    elif any(k in tokens_upper for k in ("PINNED", "PIN", "ZGLOB")):
+                        u1, u2, u3 = True, True, True
+                    elif any(k in tokens_upper for k in ("ROLLER", "KLIZNI")):
+                        u3 = True
+                    else:
+                        start_dof = 2 if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "POINT", "JOINT", "SPRING") else 1
+                        dof_toks = tokens[start_dof:start_dof + 6]
+                        flags = [dt.upper().strip('"').strip("'") in ("1", "YES", "TRUE", "Y") for dt in dof_toks]
+                        if len(flags) >= 1: u1 = flags[0]
+                        if len(flags) >= 2: u2 = flags[1]
+                        if len(flags) >= 3: u3 = flags[2]
+                        if len(flags) >= 4: r1 = flags[3]
+                        if len(flags) >= 5: r2 = flags[4]
+                        if len(flags) >= 6: r3 = flags[5]
+
+                if any(k in tokens_upper for k in ("SPRING", "K1", "K2", "K3")):
                     rtype = "Partial / Spring"
+                    is_supp = True
+                elif all([u1, u2, u3, r1, r2, r3]):
+                    rtype = "Fixed"
+                    is_supp = True
+                elif u1 and u2 and u3:
+                    rtype = "Pinned"
+                    is_supp = True
+                elif u3:
+                    rtype = "Roller"
+                    is_supp = True
+                elif any([u1, u2, u3]):
+                    rtype = "Partial / Spring"
+                    is_supp = True
+                else:
+                    rtype = "FREE"
+                    is_supp = False
 
                 raw_restraints.append({
                     "joint_name": jname,
                     "restraint_type": rtype,
-                    "is_supported": any([u1, u2, u3]),
+                    "is_supported": is_supp,
                     "u1": u1, "u2": u2, "u3": u3,
                     "r1": r1, "r2": r2, "r3": r3,
                 })
@@ -667,6 +707,40 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "u1": r["u1"], "u2": r["u2"], "u3": r["u3"],
                 "r1": r["r1"], "r2": r["r2"], "r3": r["r3"],
             })
+
+    # If no explicit discrete point restraints were defined in the file (common in masonry models),
+    # auto-detect the foundation boundary conditions from all base joints (Z_min)
+    # supporting the foundation walls / columns:
+    if not restraints and points:
+        all_pts_connected = []
+        for w in raw_areas:
+            for pt_name in w.get("pts", []):
+                pt = _get_pt(pt_name)
+                if pt:
+                    all_pts_connected.append((pt_name, pt))
+        for c in raw_frames:
+            for pt_name in (c.get("i_pt"), c.get("j_pt")):
+                if pt_name:
+                    pt = _get_pt(pt_name)
+                    if pt:
+                        all_pts_connected.append((pt_name, pt))
+
+        if all_pts_connected:
+            min_z = min(p[1][2] for p in all_pts_connected)
+            base_joints_seen = set()
+            for pt_name, pt in all_pts_connected:
+                if abs(pt[2] - min_z) <= 0.25:
+                    p_clean = pt_name.strip('"').strip("'")
+                    if p_clean not in base_joints_seen:
+                        base_joints_seen.add(p_clean)
+                        restraints.append({
+                            "joint_name": p_clean,
+                            "x": pt[0], "y": pt[1], "z": pt[2],
+                            "restraint_type": "Fixed",
+                            "is_supported": True,
+                            "u1": True, "u2": True, "u3": True,
+                            "r1": True, "r2": True, "r3": True,
+                        })
 
     result = {
         "columns": pd.DataFrame(columns),
