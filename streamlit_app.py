@@ -5,6 +5,7 @@ full CAD/PDF/image drawing support, multi-story filtering, and zero visual clutt
 """
 
 import io
+import math
 import os
 import tempfile
 
