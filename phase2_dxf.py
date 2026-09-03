@@ -18,7 +18,17 @@ from __future__ import annotations
 import logging
 import math
 import re
+import warnings
 from typing import Optional
+
+# Suppress PyParsing deprecation warnings raised by ezdxf internally
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="ezdxf")
+warnings.filterwarnings("ignore", message=".*addParseAction.*")
+warnings.filterwarnings("ignore", message=".*setResultsName.*")
+warnings.filterwarnings("ignore", message=".*parseString.*")
+warnings.filterwarnings("ignore", message=".*parseAll.*")
+warnings.filterwarnings("ignore", message=".*oneOf.*")
+warnings.filterwarnings("ignore", message=".*infixNotation.*")
 
 import pandas as pd
 

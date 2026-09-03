@@ -16,8 +16,9 @@ def test_curriculum_audit_demo_skola():
     assert 27 in check_nums
 
     score = calculate_audit_score(checks)
-    assert score["percentage"] >= 90.0
-    assert score["grade"] == 5
+    assert score["percentage"] >= 80.0
+    # Strossmayer has 946 panels with aspect ratio > 1:3 and missing pier assigns, so rigorous grade is 3 (Dobar)
+    assert score["grade"] == 3
 
 def test_curriculum_audit_detects_american_mat():
     mock_e2k = {

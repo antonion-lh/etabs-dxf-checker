@@ -1360,25 +1360,26 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
             "n_info": 0,
         }
 
-    total_weight = sum(a.get("weight", 5) for a in audit_results)
-    if total_weight == 0:
-        total_weight = 1.0
+    # Only evaluate active checks (PASS, WARNING, FAIL) so that optional/informational checks don't distort the score
+    eval_checks = [a for a in audit_results if a.get("status") in ("PASS", "WARNING", "FAIL")]
+    total_eval_weight = sum(a.get("weight", 5) for a in eval_checks)
+    if total_eval_weight == 0:
+        total_eval_weight = 1.0
 
     earned_weight = 0.0
-    for a in audit_results:
-        st = a.get("status", "INFO")
+    for a in eval_checks:
+        st = a.get("status")
         w = a.get("weight", 5)
         if st == "PASS":
             earned_weight += w * 1.0
         elif st == "WARNING":
-            earned_weight += w * 0.65
-        elif st == "INFO":
-            earned_weight += w * 0.90
+            earned_weight += w * 0.35  # Rigorous deduction for structural modeling warnings
         elif st == "FAIL":
             earned_weight += 0.0
 
-    pct = round((earned_weight / total_weight) * 100, 1)
+    pct = round((earned_weight / total_eval_weight) * 100, 1)
 
+    # Base academic grade from compliance percentage
     if pct >= 90.0:
         grade = 5
         grade_label = "Izvrstan (5) — Model profesionalno pripremljen"
@@ -1399,6 +1400,31 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
         grade = 1
         grade_label = "Nedovoljan (1) — Model ima kritične pogreške"
         badge_color = "#dc2626"
+
+    # Engineering Dealbreaker Rules (Curriculum Integrity Guardrails)
+    crit_fails = [a for a in audit_results if a.get("status") == "FAIL" and a.get("weight", 0) >= 8]
+    c11 = next((a for a in audit_results if a.get("num") == 11), None)
+    c25 = next((a for a in audit_results if a.get("num") == 25), None)
+    c11_bad = bool(c11 and c11.get("status") in ("WARNING", "FAIL") and ("panela" in c11.get("finding", "").lower() or "omjer" in c11.get("finding", "").lower()))
+    c25_bad = bool(c25 and c25.get("status") in ("WARNING", "FAIL") and ("nisu pridruženi" in c25.get("finding", "").lower() or "niti jedan zid" in c25.get("finding", "").lower()))
+
+    if len(crit_fails) >= 2:
+        grade = min(grade, 2)
+        grade_label = "Dovoljan (2) — Više kritičnih propusta u opterećenjima ili kombinacijama"
+        badge_color = "#ea580c"
+    elif len(crit_fails) == 1:
+        grade = min(grade, 3)
+        grade_label = f"Dobar (3) — Kritičan nedostatak: {crit_fails[0].get('title', 'Osnovno pravilo')}"
+        badge_color = "#d97706"
+    elif c11_bad and c25_bad:
+        grade = min(grade, 3)
+        grade_label = "Dobar (3) — Zidovi nisu dodijeljeni Pier-ovima i izduženi omjeri stranica (>1:3)"
+        badge_color = "#d97706"
+    elif c11_bad or c25_bad:
+        grade = min(grade, 4)
+        if grade == 4:
+            grade_label = "Vrlo dobar (4) — Manje opaske na diskretizaciju ili oznake zidova"
+            badge_color = "#2563eb"
 
     return {
         "percentage": pct,
