@@ -149,47 +149,51 @@ html, body, [class*="css"] {
     border: 1px solid #a7f3d0;
 }
 
-/* ─── KPI Strip ─── */
+/* ─── KPI Strip: Clean Minimalist Engineering Cards ─── */
 .kpi-strip {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
-    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
     margin-bottom: 20px;
 }
 .kpi-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 12px;
+    border-radius: 10px;
     padding: 14px 18px;
     position: relative;
-    overflow: hidden;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    transition: transform 0.1s ease, border-color 0.1s ease;
+}
+.kpi-card:hover {
+    border-color: #cbd5e1;
+    transform: translateY(-1px);
 }
 .kpi-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
-    height: 4px;
-    border-radius: 12px 12px 0 0;
+    height: 3px;
+    border-radius: 10px 10px 0 0;
 }
 .kpi-card.green::before  { background: #10b981; }
 .kpi-card.amber::before  { background: #f59e0b; }
 .kpi-card.red::before    { background: #ef4444; }
-.kpi-card.blue::before   { background: #3b82f6; }
+.kpi-card.blue::before   { background: #0284c7; }
 .kpi-card.slate::before  { background: #64748b; }
 .kpi-label {
     font-size: 11px;
     font-weight: 700;
     color: #64748b;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 6px;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
 }
 .kpi-number {
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 800;
     color: #0f172a;
-    line-height: 1;
+    line-height: 1.1;
 }
 .kpi-sub {
     font-size: 11px;
@@ -198,58 +202,55 @@ html, body, [class*="css"] {
     font-weight: 500;
 }
 
-/* ─── Legend / Explanations ─── */
-.legend-banner {
+/* ─── Modern Toolbar & Control Badges ─── */
+.story-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    height: 38px;
+    width: 100%;
+}
+
+/* ─── Modern Audit Hero Card ─── */
+.audit-hero-card {
     background: #ffffff;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 12px 18px;
-    margin-bottom: 20px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 18px;
-    font-size: 12px;
-    color: #334155;
-    align-items: center;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin-bottom: 18px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03);
 }
-.legend-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-.dot-green { color: #10b981; font-weight: 700; }
-.dot-amber { color: #f59e0b; font-weight: 700; }
-.dot-red   { color: #ef4444; font-weight: 700; }
-.dot-blue  { color: #3b82f6; font-weight: 700; }
 
-/* ─── Warning Pills ─── */
-.warn-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: #fefce8;
-    border: 1px solid #fef08a;
-    color: #854d0e;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: 999px;
-    margin-right: 6px;
-    margin-bottom: 6px;
+/* ─── Tabs Modern Styling ─── */
+[data-baseweb="tab-list"] {
+    gap: 12px !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    padding-bottom: 0px !important;
+    margin-bottom: 18px !important;
 }
-.error-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #991b1b;
-    font-size: 12px;
-    font-weight: 600;
-    padding: 4px 12px;
-    border-radius: 999px;
-    margin-right: 6px;
-    margin-bottom: 6px;
+[data-baseweb="tab"] {
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    color: #64748b !important;
+    padding: 10px 16px !important;
+    background: transparent !important;
+    border: none !important;
+    border-bottom: 2px solid transparent !important;
+}
+[data-baseweb="tab"]:hover {
+    color: #0f172a !important;
+}
+[aria-selected="true"] {
+    color: #0284c7 !important;
+    border-bottom: 2px solid #0284c7 !important;
+    font-weight: 700 !important;
 }
 
 /* ─── Welcome / Empty State ─── */
@@ -673,29 +674,24 @@ def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = N
         st.markdown(f"""
         <div class="kpi-strip">
           <div class="kpi-card green">
-            <div class="kpi-label">🏢 Elementi modela</div>
+            <div class="kpi-label">Elementi modela</div>
             <div class="kpi-number">{n_total}</div>
             <div class="kpi-sub">{sub_desc}</div>
           </div>
           <div class="kpi-card amber">
-            <div class="kpi-label">📐 Poprečni presjeci</div>
+            <div class="kpi-label">Poprečni presjeci</div>
             <div class="kpi-number">{n_secs}</div>
             <div class="kpi-sub">Različitih profila</div>
           </div>
           <div class="kpi-card blue">
-            <div class="kpi-label">🧪 Materijali modela</div>
+            <div class="kpi-label">Materijali</div>
             <div class="kpi-number">{n_mats}</div>
-            <div class="kpi-sub">Klasa betona / čelika / opeke</div>
+            <div class="kpi-sub">Klasa betona / čelika</div>
           </div>
           <div class="kpi-card slate">
-            <div class="kpi-label">🧱 Temeljni ležajevi</div>
+            <div class="kpi-label">Temeljni ležajevi</div>
             <div class="kpi-number">{n_rests}</div>
-            <div class="kpi-sub">Pridržanih točaka baze</div>
-          </div>
-          <div class="kpi-card purple" style="border-left: 4px solid #8b5cf6;">
-            <div class="kpi-label">📑 Način kontrole</div>
-            <div class="kpi-number" style="font-size: 18px; font-weight: 700; color: #8b5cf6; padding-top: 4px;">PDF Dokument</div>
-            <div class="kpi-sub">Usporedba s PDF nacrtom</div>
+            <div class="kpi-sub">Pridržane točke baze</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1538,10 +1534,10 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Mesh3d(
                 x=s_mesh_x, y=s_mesh_y, z=s_mesh_z,
                 i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
-                color="#e2e8f0",
-                opacity=0.92 if active_story_name else 0.25,
+                color="#cbd5e1" if active_story_name else "#94a3b8",
+                opacity=0.88 if active_story_name else 0.55,
                 flatshading=True,
-                lighting=dict(ambient=0.92, diffuse=0.1, specular=0.0),
+                lighting=dict(ambient=0.88, diffuse=0.15, specular=0.0),
                 name="Podna ploča (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1550,7 +1546,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Scatter3d(
                 x=s_xs, y=s_ys, z=s_zs,
                 mode="lines",
-                line=dict(color="#94a3b8", width=1.5),
+                line=dict(color="#334155", width=2.0),
                 name="Rub ploče (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1922,55 +1918,21 @@ def main():
     # ── KPI Strip ─────────────────────────────────────────────
     _kpi_strip(df_eval, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
 
-    # ── Legend / Color Explanations ───────────────────────────
-    if is_pdf_mode:
-        st.markdown("""
-        <div class="legend-banner">
-          <span style="font-weight: 700; color: #0f172a;">Način rada:</span>
-          <span>📑 <b>Vizualna revizija uz PDF elaborat</b> — Usporedite geometriju i dimenzije modela s nacrtom etaže u desnom prozoru (Tab 1).</span>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        st.markdown("""
-        <div class="legend-banner">
-          <span style="font-weight: 700; color: #0f172a;">Tumač statusa:</span>
-          <span class="legend-item"><span class="dot-green">● Zeleno</span> Usklađeno (lokacija i presjek odgovaraju nacrtu)</span>
-          <span class="legend-item"><span class="dot-amber">● Narančasto</span> Odstupanje u dimenzijama presjeka</span>
-          <span class="legend-item"><span class="dot-red">● Crveno</span> Samo u ETABS-u (nema na CAD nacrtu)</span>
-          <span class="legend-item"><span class="dot-blue">● Plavo</span> Samo u CAD-u (nedostaje u numeričkom modelu)</span>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # ── Inženjerska kontrola modela (Sanity Alerts) ───────────
+    # ── Inženjerska kontrola modela (prikazuje se samo kod stvarnih grešaka) ──
     alerts = df_res.attrs.get("sanity_alerts", [])
     if alerts:
-        seen_alerts = set()
-        dedup_alerts = []
-        for a in alerts:
-            k = (a.get("category"), a.get("element"), a.get("issue"))
-            if k not in seen_alerts:
-                seen_alerts.add(k)
-                dedup_alerts.append(a)
+        err_alerts = [a for a in alerts if a.get("severity") == "ERROR"]
+        if err_alerts:
+            with st.expander(f"⚠️ Kritična odstupanja numeričkog modela ({len(err_alerts)})", expanded=False):
+                for a in err_alerts:
+                    st.markdown(f"🔴 **[{a.get('category','')}] {a.get('element','')}**: {a.get('issue','')}")
 
-        err_count = sum(1 for a in dedup_alerts if a.get("severity") == "ERROR")
-        warn_count = sum(1 for a in dedup_alerts if a.get("severity") == "WARNING")
-
-        if err_count > 0 or warn_count > 0:
-            exp_title = f"⚠️ Inženjerska kontrola modela ({err_count} upozorenja, {warn_count} napomena)" if err_count > 0 else f"ℹ️ Inženjerske napomene za model ({warn_count})"
-            with st.expander(exp_title, expanded=False):
-                for a in dedup_alerts:
-                    icon = "🔴" if a.get("severity") == "ERROR" else ("⚠️" if a.get("severity") == "WARNING" else "ℹ️")
-                    st.markdown(f"{icon} **[{a.get('category','')}] {a.get('element','')}**: {a.get('issue','')}")
-
-    # ── Tab Navigation: Clear, descriptive titles ─────────────
-    t_map, t_audit, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([
-        "🗺️ 1. Vizualni model (2D/3D)",
-        "🎓 2. Nastavna & Studentska revizija (1–51)",
-        "📊 3. Tablica odstupanja",
-        "🧪 4. Materijali & Opterećenja",
-        "🧱 5. Oslonci & Zglobovi",
-        "📄 6. Službeni PDF Elaborat",
-        "📖 7. Upute za rad & Vodič",
+    # ── Tab Navigation: 4 Clean, Focused Sections ─────────────
+    t_map, t_audit, t_elements, t_report = st.tabs([
+        "📐 Model i Nacrt",
+        "🎓 Inženjerska revizija (1–51)",
+        "📋 Elementi i svojstva",
+        "📑 Službeni izvještaj",
     ])
 
     # ── TAB 1: Visual Model & Reference Drawing ───────────────
@@ -1979,50 +1941,64 @@ def main():
         if not stories:
             stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0}]
 
-        tab1_story_opts = [s.get("display_name", s["name"]) for s in stories] + ["🌐 Sve etaže (Cijeli model)"]
+        tab1_story_opts = [s.get("display_name", s["name"]) for s in stories] + ["🌐 Sve etaže"]
 
+        # Default to first occupied floor (Story1 / Prizemlje), not Sve etaže
         def_idx = 0
-        if active_story_name:
+        if len(stories) > 0:
             for i, s in enumerate(stories):
-                if s["name"] == active_story_name:
+                sn = s.get("name", "").lower()
+                sd = s.get("display_name", "").lower()
+                if "base" not in sn and "podno" not in sd:
                     def_idx = i
                     break
 
-        c_t1_l, c_t1_r = st.columns([3.2, 1.8])
-        with c_t1_l:
-            sel_tab1_label = st.radio(
-                "🏢 **Odabir etaže za prikaz tlocrta:**",
-                tab1_story_opts,
-                index=def_idx,
-                horizontal=True,
-                key="tab1_story_radio"
-            )
-        with c_t1_r:
-            if not sel_tab1_label.startswith("🌐"):
-                curr_idx = tab1_story_opts.index(sel_tab1_label)
-                s_info = stories[curr_idx]
-                disp_s = s_info.get("display_name", s_info["name"])
-                if disp_s.lower() in ("base", "podnozje", "podnožje"):
-                    disp_s = "Prizemlje"
-                st.info(f"📍 **{disp_s}**: Z = **{s_info['z_bottom']:.2f} do {s_info['z_top']:.2f} m** (h = {s_info['height']:.2f} m)")
-            else:
-                st.info("🌐 Prikazani su elementi svih etaža.")
+        has_drawing = uploaded_drawing is not None
+        view_opts = ["📐 2D Tlocrt", "🏢 3D Model"]
+        if has_drawing:
+            view_opts.extend(["📑 Usporedno s nacrtom", "📄 Samo nacrt"])
 
-        if not sel_tab1_label.startswith("🌐"):
-            curr_idx = tab1_story_opts.index(sel_tab1_label)
+        # Modern Compact Unified Toolbar
+        tb_col1, tb_col2 = st.columns([3.2, 2.0], gap="medium")
+        with tb_col1:
+            sel_view = st.segmented_control(
+                "Prikaz modela:",
+                options=view_opts,
+                default="📐 2D Tlocrt",
+                key="toolbar_view_mode",
+                label_visibility="collapsed",
+            ) or "📐 2D Tlocrt"
+
+        with tb_col2:
+            s_col1, s_col2 = st.columns([1.6, 1.2], gap="small")
+            with s_col1:
+                sel_story = st.selectbox(
+                    "Odabir etaže:",
+                    options=tab1_story_opts,
+                    index=def_idx,
+                    key="toolbar_story_sel",
+                    label_visibility="collapsed",
+                )
+            with s_col2:
+                if not sel_story.startswith("🌐"):
+                    curr_idx = tab1_story_opts.index(sel_story)
+                    s_info = stories[curr_idx]
+                    st.markdown(f"<div class='story-badge'>Z={s_info['z_bottom']:.1f}–{s_info['z_top']:.1f}m</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div class='story-badge'>Cijela zgrada</div>", unsafe_allow_html=True)
+
+        if not sel_story.startswith("🌐"):
+            curr_idx = tab1_story_opts.index(sel_story)
             selected_story_data = stories[curr_idx]
             active_story_name = selected_story_data["name"]
             chosen_z = selected_story_data["z_top"]
             disp_story_title = selected_story_data.get("display_name", active_story_name)
-            if disp_story_title.lower() in ("base", "podnozje", "podnožje"):
-                disp_story_title = "Prizemlje"
 
             if "story" in df_res.columns:
                 df_eval = df_res[
                     (df_res["story"] == active_story_name) |
                     (df_res["status"] == Status.DXF_ONLY)
                 ].copy()
-                # Ako su sve etaže iste (tipski kat) i odabrani kat nema zasebne elemente, prikaži tipski tlocrt
                 if df_eval[df_eval["status"] != Status.DXF_ONLY].empty and not df_res.empty:
                     df_eval = df_res.copy()
             else:
@@ -2035,7 +2011,6 @@ def main():
                 if df_eval[df_eval["status"] != Status.DXF_ONLY].empty and not df_res.empty:
                     df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
-            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Prikazan je numerički model etaže s nosivim zidovima, otvorima prozora i podnim pločama.")
         else:
             active_story_name = None
             disp_story_title = "Sve etaže"
@@ -2043,67 +2018,20 @@ def main():
             chosen_z = None
             df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
-            st.info("📐 **Prikaz cjelokupnog modela (Sve etaže):** Za izolirani pregled pojedinog kata, odaberite željenu etažu u gornjim gumbima.")
 
-        has_drawing = uploaded_drawing is not None
-
-        if has_drawing:
-            view_mode = st.radio(
-                "Način prikaza:",
-                ["📐 Usporedni prikaz (Model + Referentni nacrt)", "🏢 Samo numerički model", "📑 Samo referentni nacrt"],
-                horizontal=True,
-                key="drawing_view_mode",
-            )
-
-            if view_mode.startswith("📐"):
-                col_m, col_d = st.columns(2, gap="medium")
-                with col_m:
-                    st.markdown("##### Numerički model (ETABS)")
-                    sub_m = st.radio("Tip prikaza:", ["🏢 3D Ekstrudirani ETABS model", "📐 2D Arhitektonski Tlocrt"], horizontal=True, key="sub_m1")
-                    if sub_m.startswith("🏢 3D"):
-                        st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
-                    else:
-                        st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
-                with col_d:
-                    st.markdown("##### Referentni nacrt")
-                    _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
-
-            elif view_mode.startswith("🏢"):
-                sub_m = st.radio("Tip prikaza:", ["🏢 3D Ekstrudirani ETABS model", "📐 2D Arhitektonski Tlocrt"], horizontal=True, key="sub_m2")
-                if sub_m.startswith("🏢 3D"):
-                    st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
-                else:
-                    st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
-
-            else:
-                _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
-
-        else:
-            sub_col, col_mode_opt = st.columns([1.5, 1.5])
-            with sub_col:
-                mode = st.radio("Tip prikaza modela:", ["🏢 3D Ekstrudirani ETABS model (kao u ETABS-u)", "📐 2D Arhitektonski Tlocrt s osima"], horizontal=True, key="mode_full")
-
-            if mode.startswith("🏢 3D"):
-                with col_mode_opt:
-                    c1_opt, c2_opt = st.columns(2)
-                    with c1_opt:
-                        c_mode = st.radio(
-                            "Bojanje 3D modela:",
-                            ["🔴 ETABS originalni prikaz (Zidovi + Ploče)", "🔍 Kontrola usklađenosti (Status)"],
-                            horizontal=True,
-                            key="color_mode_3d"
-                        )
-                    with c2_opt:
-                        iso_3d = st.checkbox(
-                            f"Izoliraj etažu ({disp_story_title})" if active_story_name else "Prikaži samo odabranu etažu",
-                            value=True,
-                            key="iso_3d_chk"
-                        )
-                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🔴"), active_story_name=active_story_name if iso_3d else None), use_container_width=True)
-            else:
-                with col_mode_opt:
-                    st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
+        # Viewport Rendering based on Toolbar Selection
+        if sel_view == "📐 2D Tlocrt":
+            st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
+        elif sel_view == "🏢 3D Model":
+            st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
+        elif sel_view == "📑 Usporedno s nacrtom":
+            col_m, col_d = st.columns(2, gap="medium")
+            with col_m:
                 st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
+            with col_d:
+                _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
+        elif sel_view == "📄 Samo nacrt":
+            _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
 
     # ── TAB 2: Studentska & Nastavna revizijska lista ───────────
     with t_audit:
@@ -2118,19 +2046,19 @@ def main():
         c51 = next((a for a in audit_results if a["num"] == 51), None)
 
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+        <div class="audit-hero-card">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
             <div>
-              <div style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; font-weight: 700;">Građevinski fakultet · Kontrola numeričkih modela zgrada</div>
-              <div style="font-size: 1.55rem; font-weight: 800; color: #ffffff; margin-top: 4px;">🎓 Nastavne napomene za pregled modela (Točke 1–51)</div>
-              <div style="font-size: 0.95rem; color: #cbd5e1; margin-top: 4px;">
-                Indeks usklađenosti: <strong style="color: #38bdf8;">{score_data['percentage']}%</strong> · 
+              <div style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748b; font-weight: 700;">Eurocode HRN EN · Inženjerska kontrola modela</div>
+              <div style="font-size: 1.45rem; font-weight: 800; color: #0f172a; margin-top: 4px;">Nastavna i stručna revizija modela (Točke 1–51)</div>
+              <div style="font-size: 0.92rem; color: #475569; margin-top: 4px;">
+                Indeks usklađenosti: <strong style="color: #0284c7;">{score_data['percentage']}%</strong> · 
                 Ocjena: <strong style="color: {score_data['badge_color']};">{score_data['grade_label']}</strong>
               </div>
             </div>
-            <div style="background: rgba(255,255,255,0.08); padding: 12px 24px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.15);">
-              <div style="font-size: 0.78rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Ocjena modela</div>
-              <div style="font-size: 2.3rem; font-weight: 900; color: {score_data['badge_color']}; line-height: 1.1;">{score_data['grade']}<span style="font-size: 1.1rem; color: #94a3b8;">/5</span></div>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 24px; border-radius: 10px; text-align: center;">
+              <div style="font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700;">Ocjena modela</div>
+              <div style="font-size: 2.2rem; font-weight: 900; color: {score_data['badge_color']}; line-height: 1.1;">{score_data['grade']}<span style="font-size: 1.1rem; color: #94a3b8;">/5</span></div>
             </div>
           </div>
         </div>
@@ -2173,14 +2101,14 @@ def main():
         if results_data and results_data.get("has_results"):
             res_sum = results_data.get("summary", {})
             st.markdown("""
-            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; border-radius: 10px; padding: 16px 20px; margin: 16px 0 12px 0;">
+            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px 20px; margin: 16px 0 12px 0; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
               <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
                 <div>
-                  <div style="font-size: 0.78rem; text-transform: uppercase; color: #38bdf8; font-weight: 700; letter-spacing: 0.05em;">Faza 2 · Analiza rezultata proračuna</div>
-                  <div style="font-size: 1.22rem; font-weight: 800; color: #ffffff;">📊 Izlazne tablice: Katni pomaci, poprečne sile i reakcije tla</div>
+                  <div style="font-size: 0.72rem; text-transform: uppercase; color: #0284c7; font-weight: 700; letter-spacing: 0.06em;">Faza 2 · Analiza rezultata proračuna</div>
+                  <div style="font-size: 1.2rem; font-weight: 800; color: #0f172a;">📊 Katni pomaci, poprečne potresne sile i pritisak na tlo</div>
                 </div>
-                <div style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; color: #38bdf8; font-weight: 600;">
-                  ✅ Tablice uspješno obrađene
+                <div style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 5px 12px; border-radius: 6px; font-size: 0.82rem; color: #1d4ed8; font-weight: 600;">
+                  ✅ Tablice obrađene
                 </div>
               </div>
             </div>
@@ -2348,174 +2276,171 @@ def main():
             )
             st.markdown(card_html, unsafe_allow_html=True)
 
-    # ── TAB 3: Deviations & Geometry Table ────────────────────
-    with t_geo:
-        if is_pdf_mode:
-            st.markdown("##### 📋 Kontrolni inventar elemenata modela za provjeru s PDF-om")
-            st.caption("Popis nosivih elemenata po etažama s točnim dimenzijama presjeka i materijalima iz ETABS-a.")
-        else:
-            st.markdown("##### Detaljna usporedba dimenzija i položaja elemenata")
+    # ── TAB 3: Elementi, Presjeci i Svojstva ───────────────────
+    with t_elements:
+        sub_elem = st.segmented_control(
+            "Prikaz svojstava:",
+            options=["📐 Geometrija i presjeci", "🧪 Materijali i opterećenja", "🧱 Oslonci i zglobovi"],
+            default="📐 Geometrija i presjeci",
+            key="sub_elem_segmented",
+            label_visibility="collapsed"
+        ) or "📐 Geometrija i presjeci"
 
-        f1, f2, f3 = st.columns([1.5, 1.5, 2])
-        dfd = df_eval.copy()
-
-        with f1:
+        if sub_elem.startswith("📐"):
             if is_pdf_mode:
-                st.info("ℹ️ Način kontrole: PDF elaborat")
+                st.markdown("##### 📋 Kontrolni inventar elemenata modela za provjeru s PDF-om")
+                st.caption("Popis nosivih elemenata po etažama s točnim dimenzijama presjeka i materijalima iz ETABS-a.")
             else:
-                st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
-                if st_f != "Svi statusi":
-                    dfd = dfd[dfd["status"].astype(str) == st_f]
+                st.markdown("##### Detaljna usporedba dimenzija i položaja elemenata")
 
-        with f2:
-            ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_eval["element_type"].unique()), key="geo_type")
-            if ty_f != "Svi tipovi":
-                dfd = dfd[dfd["element_type"] == ty_f]
+            f1, f2, f3 = st.columns([1.5, 1.5, 2])
+            dfd = df_eval.copy()
 
-        with f3:
-            search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, W_JUG, 50x50...", key="geo_search")
-            if search:
-                q = search.lower()
-                dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
+            with f1:
+                if is_pdf_mode:
+                    st.caption("Način: PDF elaborat")
+                else:
+                    st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
+                    if st_f != "Svi statusi":
+                        dfd = dfd[dfd["status"].astype(str) == st_f]
 
-        vcols = [
-            "element_type", "status", "etabs_name", "etabs_z", "etabs_section",
-            "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
-        ]
-        vcols = [c for c in vcols if c in dfd.columns]
-        tbl = _safe_df(dfd[vcols], {
-            "etabs_z": "{:.2f}",
-            "etabs_w_mm": "{:.0f}", "etabs_h_mm": "{:.0f}",
-            "dxf_dim1_mm": "{:.0f}", "dxf_dim2_mm": "{:.0f}",
-            "xy_dist_m": "{:.2f}",
-        })
-        if "status" in tbl.columns:
-            tbl["status"] = tbl["status"].apply(lambda v: v.value if hasattr(v, "value") else str(v))
+            with f2:
+                ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_eval["element_type"].unique()), key="geo_type")
+                if ty_f != "Svi tipovi":
+                    dfd = dfd[dfd["element_type"] == ty_f]
 
-        st.dataframe(
-            tbl, use_container_width=True, hide_index=True,
-            column_config={
-                "element_type": st.column_config.TextColumn("Tip"),
-                "status":       st.column_config.TextColumn("Status"),
-                "etabs_name":   st.column_config.TextColumn("ETABS ID"),
-                "etabs_z":      st.column_config.TextColumn("Kota Z (m)"),
-                "etabs_section":st.column_config.TextColumn("Presjek"),
-                "etabs_w_mm":   st.column_config.TextColumn("ETABS b (mm)"),
-                "etabs_h_mm":   st.column_config.TextColumn("ETABS h (mm)"),
-                "dxf_dim_text": st.column_config.TextColumn("CAD oznaka"),
-                "dxf_dim1_mm":  st.column_config.TextColumn("CAD b (mm)"),
-                "dxf_dim2_mm":  st.column_config.TextColumn("CAD h (mm)"),
-                "xy_dist_m":    st.column_config.TextColumn("Odmak (m)"),
-                "notes":        st.column_config.TextColumn("Inženjerska napomena"),
-            }
-        )
+            with f3:
+                search = st.text_input("Pretraga po oznaci:", placeholder="C1, B101, W_JUG, 50x50...", key="geo_search")
+                if search:
+                    q = search.lower()
+                    dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
 
-    # ── TAB 3: Materials & Loads ──────────────────────────────
-    with t_mat:
-        mc, lc = st.columns(2, gap="large")
+            vcols = [
+                "element_type", "status", "etabs_name", "etabs_z", "etabs_section",
+                "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
+            ]
+            vcols = [c for c in vcols if c in dfd.columns]
+            tbl = _safe_df(dfd[vcols], {
+                "etabs_z": "{:.2f}",
+                "etabs_w_mm": "{:.0f}", "etabs_h_mm": "{:.0f}",
+                "dxf_dim1_mm": "{:.0f}", "dxf_dim2_mm": "{:.0f}",
+                "xy_dist_m": "{:.2f}",
+            })
+            if "status" in tbl.columns:
+                tbl["status"] = tbl["status"].apply(lambda v: v.value if hasattr(v, "value") else str(v))
 
-        with mc:
-            st.markdown("##### 🧪 Klase materijala (Beton / Čelik)")
-            mats = pd.DataFrame(df_res.attrs.get("materials", []))
-            if not mats.empty:
-                st.dataframe(
-                    _safe_df(mats, {"E_gpa": "{:.1f}", "fc_mpa": "{:.1f}", "fy_mpa": "{:.1f}", "fu_mpa": "{:.1f}"}),
-                    use_container_width=True, hide_index=True,
-                    column_config={
-                        "name":   st.column_config.TextColumn("Naziv materijala"),
-                        "type":   st.column_config.TextColumn("Tip"),
-                        "E_gpa":  st.column_config.TextColumn("Modul E (GPa)"),
-                        "fc_mpa": st.column_config.TextColumn("fck (MPa)"),
-                        "fy_mpa": st.column_config.TextColumn("fyk (MPa)"),
-                        "fu_mpa": st.column_config.TextColumn("fuk (MPa)"),
-                    }
-                )
-            else:
-                st.info("Nema definiranih materijala u modelu.")
+            st.dataframe(
+                tbl, use_container_width=True, hide_index=True,
+                column_config={
+                    "element_type": st.column_config.TextColumn("Tip"),
+                    "status":       st.column_config.TextColumn("Status"),
+                    "etabs_name":   st.column_config.TextColumn("ETABS ID"),
+                    "etabs_z":      st.column_config.TextColumn("Kota Z (m)"),
+                    "etabs_section":st.column_config.TextColumn("Presjek"),
+                    "etabs_w_mm":   st.column_config.TextColumn("ETABS b (mm)"),
+                    "etabs_h_mm":   st.column_config.TextColumn("ETABS h (mm)"),
+                    "dxf_dim_text": st.column_config.TextColumn("CAD oznaka"),
+                    "dxf_dim1_mm":  st.column_config.TextColumn("CAD b (mm)"),
+                    "dxf_dim2_mm":  st.column_config.TextColumn("CAD h (mm)"),
+                    "xy_dist_m":    st.column_config.TextColumn("Odmak (m)"),
+                    "notes":        st.column_config.TextColumn("Inženjerska napomena"),
+                }
+            )
 
-        with lc:
-            st.markdown("##### ⚖️ Uzorci opterećenja (Load Patterns)")
-            pats = pd.DataFrame(df_res.attrs.get("load_patterns", []))
-            if not pats.empty:
-                st.dataframe(
-                    _safe_df(pats, {"self_weight_mult": "{:.2f}"}),
-                    use_container_width=True, hide_index=True,
-                    column_config={
-                        "name":             st.column_config.TextColumn("Uzorak"),
-                        "type":             st.column_config.TextColumn("Tip opterećenja"),
-                        "self_weight_mult": st.column_config.TextColumn("Faktor vl. težine"),
-                    }
-                )
-            else:
-                st.info("Nema definiranih uzoraka opterećenja.")
+        elif sub_elem.startswith("🧪"):
+            mc, lc = st.columns(2, gap="large")
+            with mc:
+                st.markdown("##### 🧪 Klase materijala (Beton / Čelik)")
+                mats = pd.DataFrame(df_res.attrs.get("materials", []))
+                if not mats.empty:
+                    st.dataframe(
+                        _safe_df(mats, {"E_gpa": "{:.1f}", "fc_mpa": "{:.1f}", "fy_mpa": "{:.1f}", "fu_mpa": "{:.1f}"}),
+                        use_container_width=True, hide_index=True,
+                        column_config={
+                            "name":   st.column_config.TextColumn("Naziv materijala"),
+                            "type":   st.column_config.TextColumn("Tip"),
+                            "E_gpa":  st.column_config.TextColumn("Modul E (GPa)"),
+                            "fc_mpa": st.column_config.TextColumn("fck (MPa)"),
+                            "fy_mpa": st.column_config.TextColumn("fyk (MPa)"),
+                            "fu_mpa": st.column_config.TextColumn("fuk (MPa)"),
+                        }
+                    )
+                else:
+                    st.info("Nema definiranih materijala u modelu.")
 
-            aloads = pd.DataFrame(df_res.attrs.get("area_loads", []))
-            if not aloads.empty:
-                st.markdown("##### Plošna opterećenja na pločama (kN/m²)")
-                st.dataframe(_safe_df(aloads), use_container_width=True, hide_index=True)
+            with lc:
+                st.markdown("##### ⚖️ Uzorci opterećenja (Load Patterns)")
+                pats = pd.DataFrame(df_res.attrs.get("load_patterns", []))
+                if not pats.empty:
+                    st.dataframe(
+                        _safe_df(pats, {"self_weight_mult": "{:.2f}"}),
+                        use_container_width=True, hide_index=True,
+                        column_config={
+                            "name":             st.column_config.TextColumn("Uzorak"),
+                            "type":             st.column_config.TextColumn("Tip opterećenja"),
+                            "self_weight_mult": st.column_config.TextColumn("Faktor vl. težine"),
+                        }
+                    )
+                else:
+                    st.info("Nema definiranih uzoraka opterećenja.")
 
-    # ── TAB 4: Supports & Hinges ──────────────────────────────
-    with t_sup:
-        sc, hc = st.columns(2, gap="large")
+                aloads = pd.DataFrame(df_res.attrs.get("area_loads", []))
+                if not aloads.empty:
+                    st.markdown("##### Plošna opterećenja na pločama (kN/m²)")
+                    st.dataframe(_safe_df(aloads), use_container_width=True, hide_index=True)
 
-        with sc:
-            st.markdown("##### 🧱 Temeljni oslonci (Rubni uvjeti)")
-            rests = etabs_data.get("restraints", pd.DataFrame()) if etabs_data else pd.DataFrame(df_res.attrs.get("restraints", []))
-            if not rests.empty and "joint_name" in rests.columns:
-                rcols = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in rests.columns]
-                st.dataframe(
-                    _safe_df(rests[rcols], {"x": "{:.2f}", "y": "{:.2f}", "z": "{:.2f}"}),
-                    use_container_width=True, hide_index=True,
-                    column_config={
-                        "joint_name":     st.column_config.TextColumn("Čvor"),
-                        "x":              st.column_config.TextColumn("X (m)"),
-                        "y":              st.column_config.TextColumn("Y (m)"),
-                        "z":              st.column_config.TextColumn("Z (m)"),
-                        "restraint_type": st.column_config.TextColumn("Tip oslonca"),
-                        "is_supported":   st.column_config.CheckboxColumn("Poduprt"),
-                    }
-                )
-            else:
-                st.info("Nema podataka o osloncima.")
+        else:
+            sc, hc = st.columns(2, gap="large")
+            with sc:
+                st.markdown("##### 🧱 Temeljni oslonci (Rubni uvjeti)")
+                rests = etabs_data.get("restraints", pd.DataFrame()) if etabs_data else pd.DataFrame(df_res.attrs.get("restraints", []))
+                if not rests.empty and "joint_name" in rests.columns:
+                    rcols = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in rests.columns]
+                    st.dataframe(
+                        _safe_df(rests[rcols], {"x": "{:.2f}", "y": "{:.2f}", "z": "{:.2f}"}),
+                        use_container_width=True, hide_index=True,
+                        column_config={
+                            "joint_name":     st.column_config.TextColumn("Čvor"),
+                            "x":              st.column_config.TextColumn("X (m)"),
+                            "y":              st.column_config.TextColumn("Y (m)"),
+                            "z":              st.column_config.TextColumn("Z (m)"),
+                            "restraint_type": st.column_config.TextColumn("Tip oslonca"),
+                            "is_supported":   st.column_config.CheckboxColumn("Poduprt"),
+                        }
+                    )
+                else:
+                    st.info("Nema podataka o osloncima.")
 
-        with hc:
-            st.markdown("##### 🔗 Nelinearni plastični zglobovi")
-            hinges = etabs_data.get("hinges", pd.DataFrame())
-            if not hinges.empty and "frame_name" in hinges.columns:
-                hcols = [c for c in ["frame_name", "hinge_prop", "rel_dist", "dof"] if c in hinges.columns]
-                st.dataframe(
-                    _safe_df(hinges[hcols], {"rel_dist": "{:.2f}"}),
-                    use_container_width=True, hide_index=True,
-                    column_config={
-                        "frame_name": st.column_config.TextColumn("Element"),
-                        "hinge_prop": st.column_config.TextColumn("Svojstvo zgloba"),
-                        "rel_dist":   st.column_config.TextColumn("Pozicija"),
-                        "dof":        st.column_config.TextColumn("DOF"),
-                    }
-                )
-            else:
-                st.info("U modelu nisu definirani plastični zglobovi (linearni proračun).")
+            with hc:
+                st.markdown("##### 🔗 Nelinearni plastični zglobovi")
+                hinges = etabs_data.get("hinges", pd.DataFrame())
+                if not hinges.empty and "frame_name" in hinges.columns:
+                    hcols = [c for c in ["frame_name", "hinge_prop", "rel_dist", "dof"] if c in hinges.columns]
+                    st.dataframe(
+                        _safe_df(hinges[hcols], {"rel_dist": "{:.2f}"}),
+                        use_container_width=True, hide_index=True,
+                        column_config={
+                            "frame_name": st.column_config.TextColumn("Element"),
+                            "hinge_prop": st.column_config.TextColumn("Svojstvo zgloba"),
+                            "rel_dist":   st.column_config.TextColumn("Pozicija"),
+                            "dof":        st.column_config.TextColumn("DOF"),
+                        }
+                    )
+                else:
+                    st.info("U modelu nisu definirani plastični zglobovi (linearni proračun).")
 
-    # ── TAB 5: PDF Elaborat ───────────────────────────────────
-    with t_pdf:
+    # ── TAB 4: Službeni PDF Elaborat i Izvještaj ───────────────
+    with t_report:
         st.markdown("""
         <div class="dl-card">
           <div style="font-size: 38px; margin-bottom: 8px;">📄</div>
           <h3 style="margin: 0 0 6px 0; color: #0f172a; font-weight: 800;">Službeni Revizijski Elaborat</h3>
           <p style="margin: 0 auto 12px auto; color: #64748b; font-size: 13px; max-width: 650px; line-height: 1.5;">
-            Ova stranica služi za <b>automatsko generiranje i preuzimanje službenog inženjerskog elaborata</b> (A4 Landscape PDF).
-            Elaborat služi kao službena tehnička dokumentacija za investitora, glavnog projektanta, revidenta ili tehnički arhiv.
+            Automatsko generiranje i preuzimanje službenog inženjerskog elaborata (A4 Landscape PDF).
+            Elaborat služi kao službena tehnička dokumentacija za investitora, glavnog projektanta, revidenta ili arhiv.
           </p>
         </div>
         """, unsafe_allow_html=True)
-
-        i1, i2, i3 = st.columns(3)
-        with i1:
-            st.info("📋 **1. Naslovnica & Parametri**\n\nPodaci o projektu, inženjerske tolerancije (±50 mm), datum revizije i globalni sažetak elemenata.")
-        with i2:
-            st.info("📐 **2. Matrica geometrije (Str. 1–6)**\n\nSvih 110 elemenata (zidovi W108–W581, ploča F1), točne koordinate centroida, debljine i materijali.")
-        with i3:
-            st.info("🧱 **3. Materijali & Opterećenja (Str. 7)**\n\nVerifikacija svih 6 materijala, modula elastičnosti i potpuna revizija ravnoteže opterećenja (G, VT, Q, Potres).")
 
         d1, d2 = st.columns(2)
         html_content = ""
@@ -2555,12 +2480,11 @@ def main():
         if html_content:
             st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
             with st.expander("👁️ Interaktivni pretpregled elaborata u aplikaciji (Uživo)", expanded=True):
-                st.caption("ℹ️ *Ispod je izravan prikaz generiranog elaborata. Identičan sadržaj nalazi se u preuzetom PDF dokumentu:*")
                 st.components.v1.html(html_content, height=550, scrolling=True)
 
-    # ── TAB 6: User Guide & Instructions ──────────────────────
-    with t_guide:
-        _render_instructions()
+        st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+        with st.expander("📖 Otvori detaljne inženjerske upute za pripremu modela i nacrta", expanded=False):
+            _render_instructions()
 
 
 if __name__ == "__main__":
