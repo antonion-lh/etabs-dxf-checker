@@ -994,11 +994,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "pts_coords": w_pts_3d,
                 })
             else:
-                s_pts_3d = [(p[0], p[1], z_top) for p in v_pts]
+                s_pts_3d = [(p[0], p[1], z_bot) for p in v_pts]
                 slabs.append({
                     "name": aname,
                     "element_type": "slab",
-                    "centroid_x": cx, "centroid_y": cy, "centroid_z": z_top,
+                    "centroid_x": cx, "centroid_y": cy, "centroid_z": z_bot,
                     "x_match": cx, "y_match": cy,
                     "x_start": wx1, "y_start": wy1,
                     "x_end": wx2, "y_end": wy2,

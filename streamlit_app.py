@@ -1278,6 +1278,9 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
         mesh_i, mesh_j, mesh_k = [], [], []
         v_offset = 0
 
+        drawn_openings_3d = set()
+        drawn_walls_3d = set()
+
         for _, w in walls.iterrows():
             x1 = w.get("x_start", w["centroid_x"])
             y1 = w.get("y_start", w["centroid_y"])
@@ -1288,13 +1291,23 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             L = math.hypot(x2 - x1, y2 - y1)
             is_opening = w.get("is_opening", False) or (1.45 <= L <= 1.75)
 
+            loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
-                # 3D Window cutout: parapet + lintel, leaving the window hole open!
+                if loc_key in drawn_openings_3d:
+                    continue
+                drawn_openings_3d.add(loc_key)
+            else:
+                if loc_key in drawn_walls_3d:
+                    continue
+                drawn_walls_3d.add(loc_key)
+
+            if is_opening:
+                # 3D Window cutout: parapet at bottom + open hole in middle + lintel at top!
                 z_p = z_bot + 0.85
                 z_l = min(z_bot + 2.30, z_top - 0.20)
                 sub_panels = [
-                    [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],
-                    [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],
+                    [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],  # Parapet panel
+                    [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel panel
                 ]
             else:
                 pts = w.get("pts_coords")
@@ -1324,12 +1337,27 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 mesh_k.extend([v_offset + 2, v_offset + 3])
                 v_offset += 4
 
+        # Add entrance portal lintel panel above front doorway (X in [18.10, 20.90], Y=0)
+        has_entrance = any(abs(w.get("y_start", 99)) < 0.1 and abs(w.get("y_end", 99)) < 0.1 for _, w in walls.iterrows())
+        if has_entrance:
+            ent_p = [(18.10, 0.0, 2.40), (20.90, 0.0, 2.40), (20.90, 0.0, 3.50), (18.10, 0.0, 3.50)]
+            for p in ent_p:
+                w_xs.append(p[0]); w_ys.append(p[1]); w_zs.append(p[2])
+            w_xs.append(ent_p[0][0]); w_ys.append(ent_p[0][1]); w_zs.append(ent_p[0][2])
+            w_xs.append(None); w_ys.append(None); w_zs.append(None)
+            for p in ent_p:
+                mesh_x.append(p[0]); mesh_y.append(p[1]); mesh_z.append(p[2])
+            mesh_i.extend([v_offset, v_offset])
+            mesh_j.extend([v_offset + 1, v_offset + 2])
+            mesh_k.extend([v_offset + 2, v_offset + 3])
+            v_offset += 4
+
         if mesh_x:
             fig.add_trace(go.Mesh3d(
                 x=mesh_x, y=mesh_y, z=mesh_z,
                 i=mesh_i, j=mesh_j, k=mesh_k,
                 color="#dc2626" if etabs_color_mode else "#10b981",
-                opacity=0.72,
+                opacity=0.75,
                 name="Plohe zidova (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1338,12 +1366,12 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             fig.add_trace(go.Scatter3d(
                 x=w_xs, y=w_ys, z=w_zs,
                 mode="lines",
-                line=dict(color="#ffffff" if etabs_color_mode else "#059669", width=1.5),
+                line=dict(color="#ffffff" if etabs_color_mode else "#059669", width=2.0),
                 name="Mreža zidova (ETABS)",
                 hoverinfo="skip",
             ))
 
-    # Slabs in 3D: Shaded plane & borders matching ETABS gray floor slabs
+    # Slabs in 3D: Light gray concrete floor panels matching ETABS
     if not slabs.empty:
         s_xs, s_ys, s_zs = [], [], []
         s_mesh_x, s_mesh_y, s_mesh_z = [], [], []
@@ -1379,8 +1407,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 x=s_mesh_x, y=s_mesh_y, z=s_mesh_z,
                 i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
                 color="#e2e8f0",
-                opacity=0.85,
-                name="Međukatna ploča",
+                opacity=0.92,
+                name="Podna ploča (ETABS)",
                 hoverinfo="skip",
             ))
 
@@ -1393,41 +1421,21 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 hoverinfo="skip",
             ))
 
-    # Base restraints (fixed / pinned foundation joints at Z=0)
-    rests = etabs_data.get("restraints", pd.DataFrame())
-    if not rests.empty and "x" in rests.columns:
-        fig.add_trace(go.Scatter3d(
-            x=rests["x"], y=rests["y"], z=rests["z"],
-            mode="markers",
-            marker=dict(size=4, color="#0284c7", symbol="square"),
-            name="Oslonci temelja (Base)",
-        ))
-
-    # Slabs
-    if not cols.empty:
-        max_x = cols["x_end"].max()
-        max_y = cols["y_end"].max()
-        z_levels = sorted(set(cols["z_end"].dropna().tolist()))
-        for zl in z_levels:
-            fig.add_trace(go.Mesh3d(
-                x=[0, max_x, max_x, 0],
-                y=[0, 0, max_y, max_y],
-                z=[zl, zl, zl, zl],
-                i=[0, 0], j=[1, 2], k=[2, 3],
-                color="#0284c7", opacity=0.10, showlegend=False,
-                hovertext=f"Ploča etaže Z = {zl:.2f} m", hoverinfo="text",
-            ))
-
     fig.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
-        height=540,
+        height=580,
         paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
         scene=dict(
             aspectmode="data",
-            camera=dict(eye=dict(x=-1.6, y=-1.6, z=0.9)),
-            xaxis=dict(title="X (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
-            yaxis=dict(title="Y (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
-            zaxis=dict(title="Z (m)", gridcolor="#e2e8f0", backgroundcolor="#f8fafc"),
+            camera=dict(
+                eye=dict(x=-1.25, y=-1.75, z=1.35),
+                center=dict(x=0, y=0, z=-0.15),
+                up=dict(x=0, y=0, z=1)
+            ),
+            xaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
+            yaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
+            zaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
         ),
     )
     return fig
@@ -1878,7 +1886,7 @@ def main():
                 if df_eval[df_eval["status"] != Status.DXF_ONLY].empty and not df_res.empty:
                     df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
-            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Sve etaže zgrade su identične (tipski kat). Prikazan je puni raspored nosivih zidova i otvora.")
+            st.success(f"🏢 **Aktivna etaža: {disp_story_title} (Z = {selected_story_data['z_bottom']:.2f} do {selected_story_data['z_top']:.2f} m)** | Prikazan je numerički model etaže s nosivim zidovima, otvorima prozora i podnim pločama.")
         else:
             active_story_name = None
             disp_story_title = "Sve etaže"
@@ -1902,9 +1910,9 @@ def main():
                 col_m, col_d = st.columns(2, gap="medium")
                 with col_m:
                     st.markdown("##### Numerički model (ETABS)")
-                    sub_m = st.radio("Tip prikaza:", ["2D Tlocrt", "3D Wireframe"], horizontal=True, key="sub_m1")
-                    if sub_m == "3D Wireframe":
-                        st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name), use_container_width=True)
+                    sub_m = st.radio("Tip prikaza:", ["🏢 3D Ekstrudirani ETABS model", "📐 2D Arhitektonski Tlocrt"], horizontal=True, key="sub_m1")
+                    if sub_m.startswith("🏢 3D"):
+                        st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
                     else:
                         st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
                 with col_d:
@@ -1912,9 +1920,9 @@ def main():
                     _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
 
             elif view_mode.startswith("🏢"):
-                sub_m = st.radio("Tip prikaza:", ["2D Tlocrt s osima", "3D Wireframe"], horizontal=True, key="sub_m2")
-                if sub_m.startswith("3D"):
-                    st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name), use_container_width=True)
+                sub_m = st.radio("Tip prikaza:", ["🏢 3D Ekstrudirani ETABS model", "📐 2D Arhitektonski Tlocrt"], horizontal=True, key="sub_m2")
+                if sub_m.startswith("🏢 3D"):
+                    st.plotly_chart(_fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
                 else:
                     st.plotly_chart(_fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
 
