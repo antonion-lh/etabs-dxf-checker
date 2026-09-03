@@ -115,7 +115,7 @@ def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
 
 @st.cache_data(show_spinner=False)
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
-    return run_curriculum_audit(_etabs_data, _results_data)
+    return run_curriculum_audit(_etabs_data, results_data=_results_data)
 
 # ─────────────────────────────────────────────────────────────
 # Sidebar: Minimal, Focused Engineering Controls (Task 1)
@@ -465,7 +465,7 @@ def main():
                     results_data = None
             df_res.attrs["results_data"] = results_data
 
-            audit_quick = _cached_curriculum_audit(etabs_data, None)
+            audit_quick = _cached_curriculum_audit(etabs_data, results_data)
             score_quick = calculate_audit_score(audit_quick)
             g = score_quick.get("grade", 1)
             badge_colors = {5:"#16A34A", 4:"#2563EB", 3:"#D97706",
