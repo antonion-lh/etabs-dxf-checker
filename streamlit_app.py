@@ -355,7 +355,7 @@ def _sidebar() -> tuple:
                 demo_model_choice = "small"
             st.session_state["demo_choice_key"] = demo_model_choice
 
-        uploaded_dxf = uploaded_pdf_doc = uploaded_e2k = None
+        uploaded_dxf = uploaded_pdf_doc = uploaded_e2k = uploaded_results = None
         if not use_demo:
             doc_type = st.radio(
                 "Vrsta izvedbenog nacrta / dokumentacije:",
@@ -496,7 +496,7 @@ def _sidebar() -> tuple:
         st.markdown("---")
         st.caption("Inženjerska kontrola · Eurocode HRN EN 1992/1993")
 
-    return use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg
+    return use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg, uploaded_results
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1660,7 +1660,7 @@ def _render_instructions():
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
-    use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg = _sidebar()
+    use_demo, demo_model_choice, uploaded_dxf, uploaded_e2k, uploaded_drawing, cfg, uploaded_results = _sidebar()
 
     # ── Header Card ──────────────────────────────────────────
     st.markdown("""
