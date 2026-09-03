@@ -86,7 +86,7 @@ STROSSMAYER_SHEET_MAP = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# Performance Caching (Deterministic Hashable Keys)
+# Performance Caching (Task 9b)
 # ─────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
 def _cached_parse_e2k(e2k_content: str, cfg: Config):
@@ -104,31 +104,15 @@ def _cached_parse_dxf_bytes(dxf_bytes: bytes, cfg: Config):
         except Exception: pass
 
 @st.cache_data(show_spinner=False)
-def _cached_validate(e2k_content: str, dxf_bytes: bytes, cfg: Config):
-    etabs_data = parse_e2k(io.StringIO(e2k_content), cfg)
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
-    try:
-        tmp.write(dxf_bytes)
-        tmp.close()
-        df_dxf = parse_dxf(tmp.name, cfg)
-    finally:
-        try: os.unlink(tmp.name)
-        except Exception: pass
-    return validate(etabs_data, df_dxf, cfg)
+def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
+    return validate(_etabs_data, _df_dxf, _cfg)
 
 @st.cache_data(show_spinner=False)
-def _cached_curriculum_audit(e2k_content: str, has_results: bool = False):
-    etabs_data = parse_e2k(io.StringIO(e2k_content), Config())
-    results_data = None
-    if has_results:
-        try:
-            results_data = parse_etabs_results(create_demo_etabs_results(etabs_data))
-        except Exception:
-            results_data = None
-    return run_curriculum_audit(etabs_data, results_data)
+def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
+    return run_curriculum_audit(_etabs_data, _results_data)
 
 # ─────────────────────────────────────────────────────────────
-# Sidebar: Minimal, Focused Engineering Controls
+# Sidebar: Minimal, Focused Engineering Controls (Task 1)
 # ─────────────────────────────────────────────────────────────
 def _sidebar() -> tuple:
     with st.sidebar:
@@ -176,7 +160,7 @@ def _sidebar() -> tuple:
 
         st.markdown("---")
 
-        # Tolerances & Scale
+        # Tolerances & Scale (Task 1a)
         st.markdown("### Tolerancije i mjerilo")
         col_t1, col_t2 = st.columns(2)
         with col_t1:
@@ -187,18 +171,26 @@ def _sidebar() -> tuple:
             tol_sec_val = st.selectbox("Presjek (mm)", ["1", "2", "5", "10", "20"], index=2, key="sb_tol_sec")
             tol_sec = float(tol_sec_val)
 
-        dxf_scale_label = st.selectbox(
-            "Jedinica DXF nacrta",
-            ["Centimetri (cm, 0.01)", "Milimetri (mm, 0.001)", "Metri (m, 1.0)"],
-            index=0,
-            key="sb_dxf_unit_scale"
+        is_dxf_selected = (
+            (st.session_state.get("use_demo") and st.session_state.get("demo_choice_key") in ("commercial", "small"))
+            or (not st.session_state.get("use_demo") and uploaded_drawing_file is not None and uploaded_drawing_file.name.lower().endswith(".dxf"))
         )
-        scale_map = {
-            "Centimetri (cm, 0.01)": 0.01,
-            "Milimetri (mm, 0.001)": 0.001,
-            "Metri (m, 1.0)": 1.0,
-        }
-        dxf_scale = scale_map[dxf_scale_label]
+        if is_dxf_selected:
+            unit_label = st.selectbox(
+                "Jedinica u CAD crtežu (.dxf):",
+                ["Centimetri (cm)", "Milimetri (mm)", "Metri (m)"],
+                index=0,
+                key="sb_dxf_unit_scale"
+            )
+            scale_map = {
+                "Centimetri (cm)": 0.01,
+                "Milimetri (mm)": 0.001,
+                "Metri (m)": 1.0,
+            }
+            unit_scale = scale_map[unit_label]
+        else:
+            unit_scale = 0.01
+            st.caption("Koordinate ETABS modela čitaju se iz .e2k zaglavlja. PDF nacrti koriste cm.")
 
         st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -216,8 +208,29 @@ def _sidebar() -> tuple:
             (["slabs"]   if chk_slabs else [])
         )
 
+        # Phase 2 uploader (Task 1b)
+        st.markdown("---")
+        uploaded_results = None
+        if not st.session_state.get("use_demo"):
+            st.markdown("### Rezultati proračuna")
+            st.caption("Opcija — Display → Show Tables → Export to Excel")
+            uploaded_results = st.file_uploader(
+                "ETABS tablice (.xlsx, .csv):",
+                type=["xlsx", "xls", "csv"],
+                key="sb_results_up",
+                label_visibility="collapsed"
+            )
+        else:
+            st.markdown("### Rezultati proračuna")
+            demo_include_results = st.checkbox(
+                "Uključi demo rezultate (Faza 2)",
+                value=True,
+                key="demo_include_results_chk"
+            )
+            st.session_state["demo_include_results"] = demo_include_results
+
         cfg = Config(
-            dxf_unit_scale=dxf_scale,
+            dxf_unit_scale=unit_scale,
             spatial_tolerance_frame=tol_frame,
             spatial_tolerance_area=tol_area,
             section_tolerance_mm=tol_sec,
@@ -235,13 +248,13 @@ def _sidebar() -> tuple:
                 st.session_state["demo_choice_key"] = "strossmayer"
                 st.rerun()
 
-    return uploaded_e2k, uploaded_drawing_file, cfg
+    return uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results
 
 # ─────────────────────────────────────────────────────────────
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
-    uploaded_e2k, uploaded_drawing_file, cfg = _sidebar()
+    uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results = _sidebar()
 
     # Determine Active Data Source
     use_demo = st.session_state.get("use_demo", False)
@@ -277,7 +290,6 @@ def main():
                 has_data = True
                 is_pdf_mode = False
                 project_label = "Poslovni centar"
-                # Commercial demo DXF is a column layout plan
                 cfg.extract_elements = ["columns"]
         elif demo_choice == "small":
             dxf_target = SMALL_SAMPLE_DXF
@@ -370,13 +382,21 @@ def main():
                 df_res.attrs["restraints"] = etabs_data.get("restraints", pd.DataFrame())
                 df_res.attrs["hinges"] = etabs_data.get("hinges", pd.DataFrame())
             else:
-                df_res = _cached_validate(e2k_content, dxf_bytes, cfg)
+                df_dxf = _cached_parse_dxf_bytes(dxf_bytes, cfg)
+                df_res = _cached_validate(etabs_data, df_dxf, cfg)
 
-            # Optional Phase 2 results
+            # Phase 2 results handling (Task 4a)
             results_data = None
-            if use_demo:
+            if use_demo and st.session_state.get("demo_include_results", True):
                 try:
                     results_data = parse_etabs_results(create_demo_etabs_results(etabs_data))
+                    df_res.attrs["is_demo_results"] = True
+                except Exception:
+                    results_data = None
+            elif uploaded_results is not None:
+                try:
+                    results_data = parse_etabs_results(uploaded_results)
+                    df_res.attrs["is_demo_results"] = False
                 except Exception:
                     results_data = None
             df_res.attrs["results_data"] = results_data
@@ -398,12 +418,18 @@ def main():
         "Izvještaj",
     ])
 
-    # ── TAB 1: Model ──────────────────────────────────────────
+    # ── TAB 1: Model (Task 2) ─────────────────────────────────
     with t_model:
         story_names = [s.get("display_name", s["name"]) for s in stories]
         story_opts = story_names + ["Sve etaže"]
+        has_drawing = (uploaded_drawing is not None)
 
-        tb_col1, tb_col2 = st.columns([3.5, 1.5])
+        if has_drawing:
+            view_opts = ["2D Tlocrt", "3D Model", "Usporedno s nacrtom", "Samo nacrt"]
+        else:
+            view_opts = ["2D Tlocrt", "3D Model"]
+
+        tb_col1, tb_col_z, tb_col2 = st.columns([2.8, 1.2, 3.0])
         with tb_col1:
             sel_story = st.segmented_control(
                 "Odabir etaže:",
@@ -413,15 +439,38 @@ def main():
                 label_visibility="collapsed"
             ) or story_opts[0]
 
-        with tb_col2:
-            is_3d_active = st.toggle("3D prikaz modela", value=False, key="t1_3d_toggle")
-
         if sel_story != "Sve etaže":
             curr_idx = story_names.index(sel_story)
             selected_story_data = stories[curr_idx]
             active_story_name = selected_story_data["name"]
             chosen_z = selected_story_data["z_top"]
+        else:
+            active_story_name = None
+            selected_story_data = None
+            chosen_z = None
 
+        with tb_col_z:
+            if sel_story != "Sve etaže" and selected_story_data:
+                z_bot = selected_story_data.get("z_bottom", 0.0)
+                z_top = selected_story_data.get("z_top", 4.0)
+                st.markdown(
+                    f"<div class='mono' style='font-size:11px; color:#6B7280;"
+                    f"padding:4px 8px; background:#F9FAFB; border:1px solid"
+                    f"#E5E7EB; border-radius:4px; display:inline-block; margin-top:2px;'>"
+                    f"Z = {z_bot:.1f} – {z_top:.1f} m</div>",
+                    unsafe_allow_html=True
+                )
+
+        with tb_col2:
+            sel_view = st.segmented_control(
+                "Prikaz modela:",
+                options=view_opts,
+                default="2D Tlocrt",
+                key="tab1_view_pills",
+                label_visibility="collapsed"
+            ) or "2D Tlocrt"
+
+        if sel_story != "Sve etaže" and selected_story_data:
             if "story" in df_res.columns:
                 df_eval = df_res[
                     (df_res["story"] == active_story_name) |
@@ -440,30 +489,28 @@ def main():
                     df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
         else:
-            active_story_name = None
-            selected_story_data = None
-            chosen_z = None
             df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
 
-        # Layout: Split View (ETABS on Left, Drawing on Right)
-        has_drawing = (uploaded_drawing is not None)
-        if has_drawing and not is_3d_active:
+        # Viewport rendering by sel_view (Task 2b)
+        if sel_view == "3D Model":
+            st.plotly_chart(fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
+        elif sel_view == "Usporedno s nacrtom" and has_drawing:
             col_m, col_d = st.columns(2, gap="medium")
             with col_m:
                 st.markdown("<div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px;'>Numerički model (ETABS)</div>", unsafe_allow_html=True)
                 st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
             with col_d:
                 render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name, demo_sheet_map=demo_sheet_map)
-        elif is_3d_active:
-            st.plotly_chart(fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
+        elif sel_view == "Samo nacrt" and has_drawing:
+            render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name, demo_sheet_map=demo_sheet_map)
         else:
             st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
 
-    # ── TAB 2: Revizija (Triage Code-Review) ───────────────────
+    # ── TAB 2: Revizija (Triage Code-Review) (Tasks 3, 4, 5, 6) ─
     with t_audit:
-        has_res = (df_res.attrs.get("results_data") is not None)
-        audit_results = _cached_curriculum_audit(e2k_content, has_results=has_res)
+        results_data = df_res.attrs.get("results_data")
+        audit_results = _cached_curriculum_audit(etabs_data, results_data)
         score_data = calculate_audit_score(audit_results)
 
         # Summary Bar
@@ -484,113 +531,389 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        attention_items = [a for a in audit_results if a.get("status") in ("FAIL", "WARNING")]
-        pass_items = [a for a in audit_results if a.get("status") == "PASS"]
-        info_items = [a for a in audit_results if a.get("status") == "INFO"]
+        # Task 3: Engineering KPI cards (T30, T31, T34, T51)
+        c30 = next((a for a in audit_results if a["num"] == 30), None)
+        c31 = next((a for a in audit_results if a["num"] == 31), None)
+        c34 = next((a for a in audit_results if a["num"] == 34), None)
+        c51 = next((a for a in audit_results if a["num"] == 51), None)
 
-        # Triage 1: Zahtijeva pažnju (Always expanded at top!)
+        card_data = [
+            ("Površina zidova",    "T31",  c31, "Ciljano 3.0–4.0% tlocrta"),
+            ("Masa zgrade",        "T30",  c30, "Procjena W_est"),
+            ("Faktor prevrtanja",  "T34",  c34, "SF ≥ 1.50"),
+            ("Torzija / Simetrija","T51",  c51, "Ekscentričnost ex, ey"),
+        ]
+
+        cols = st.columns(4)
+        for col, (label, tnum, item, hint) in zip(cols, card_data):
+            finding_short = item["finding"][:60] + "..." if item else "—"
+            status_color = "#16A34A" if (item and item["status"] == "PASS") else                            "#D97706" if (item and item["status"] == "WARNING") else                            "#DC2626" if (item and item["status"] == "FAIL") else "#6B7280"
+            col.markdown(f"""
+            <div style="border:1px solid #E5E7EB; border-left:3px solid {status_color};
+                 border-radius:4px; padding:10px 12px; background:#FAFAFA;">
+              <div style="font-size:10px; font-weight:700; color:#6B7280;
+                   text-transform:uppercase; letter-spacing:0.05em;">
+                   {tnum} · {label}</div>
+              <div style="font-size:12px; color:#111827; margin:4px 0;
+                   line-height:1.4;">{finding_short}</div>
+              <div style="font-size:10px; color:{status_color};">{hint}</div>
+            </div>""", unsafe_allow_html=True)
+
+        # Task 4: Faza 2 Dashboard
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        if results_data and results_data.get("has_results"):
+            if df_res.attrs.get("is_demo_results"):
+                st.info("Demo rezultati: generirani automatski za prikaz Faze 2.")
+
+            res_sum = results_data.get("summary", {})
+            d_val = res_sum.get("max_drift_overall", 0.0)
+            rc1, rc2, rc3, rc4 = st.columns(4)
+            rc1.metric(
+                "Maks. katni pomak",
+                f"{d_val:.4f}",
+                "unutar EC8" if d_val <= 0.0050 else "prelazi limit"
+            )
+            v_max = max(res_sum.get("base_shear_x_kn", 0), res_sum.get("base_shear_y_kn", 0))
+            rc2.metric("V_base", f"{v_max:,.0f} kN")
+            rc3.metric(
+                "Pritisak na tlo",
+                f"{res_sum.get('max_soil_pressure_kpa', 0):.0f} kPa",
+                "odizanje" if res_sum.get("has_soil_uplift") else "bez odizanja"
+            )
+            rc4.metric(
+                "PMM kritični stup",
+                f"{res_sum.get('max_pmm_ratio', 0.0):.2f}",
+                res_sum.get("critical_frame", "—")
+            )
+
+            drifts = res_sum.get("drift_by_story", [])
+            df_sf = results_data.get("story_forces", pd.DataFrame())
+            c_g1, c_g2 = st.columns(2)
+            with c_g1:
+                if drifts:
+                    fig_drift = go.Figure()
+                    fig_drift.add_trace(go.Scatter(
+                        x=[d["drift"] for d in drifts],
+                        y=[d["story"] for d in drifts],
+                        mode="lines+markers",
+                        line=dict(color="#2563EB", width=2),
+                        marker=dict(size=7, color="#2563EB"),
+                        name="Katni pomak"
+                    ))
+                    fig_drift.add_vline(
+                        x=0.0050, line_dash="dash", line_color="#DC2626",
+                        annotation_text="EC8 ≤ 5.0‰"
+                    )
+                    fig_drift.update_layout(
+                        title="Katni pomaci (Story Drift)",
+                        xaxis_title="dr [-]", yaxis_title="Etaža",
+                        height=260, margin=dict(l=40, r=20, t=36, b=30),
+                        plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF"
+                    )
+                    st.plotly_chart(fig_drift, use_container_width=True)
+            with c_g2:
+                if not df_sf.empty:
+                    col_v = next((c for c in ["VX", "vx", "Vx"] if c in df_sf.columns), None)
+                    col_s = next((c for c in ["Story", "story"] if c in df_sf.columns), None)
+                    if col_v and col_s:
+                        grp = df_sf.groupby(col_s)[col_v].apply(lambda s: s.abs().max()).reset_index()
+                        fig_sf = go.Figure(go.Bar(
+                            x=grp[col_s], y=grp[col_v],
+                            marker_color="#374151"
+                        ))
+                        fig_sf.update_layout(
+                            title="Poprečne sile po etažama (kN)",
+                            xaxis_title="Etaža", yaxis_title="Vx (kN)",
+                            height=260, margin=dict(l=40, r=20, t=36, b=30),
+                            plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF"
+                        )
+                        st.plotly_chart(fig_sf, use_container_width=True)
+        else:
+            st.caption("Opcija — učitajte ETABS tablice u sidebar za prikaz katnih pomaka, poprečnih sila i provjere armature.")
+
+        # Task 5: Category filter and Markdown download
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        c_f1, c_f2, c_f3 = st.columns([1.8, 1.8, 1.4])
+
+        with c_f1:
+            all_cats = ["Sve kategorije"] + sorted(set(
+                a.get("category", "") for a in audit_results if a.get("category")
+            ))
+            selected_cat = st.selectbox(
+                "Kategorija:", all_cats, key="audit_cat_filter",
+                label_visibility="collapsed"
+            )
+
+        with c_f2:
+            flt_status = st.selectbox(
+                "Status:",
+                ["Sve točke", "Upozorenja i pogreške", "Usklađene točke"],
+                key="audit_filter_status",
+                label_visibility="collapsed"
+            )
+
+        with c_f3:
+            audit_md = (
+                f"# Evaluacija modela\n\n"
+                f"Ocjena: {score_data['grade']}/5 ({score_data['grade_label']})\n"
+                f"Indeks: {score_data['percentage']}%\n\n---\n\n"
+            )
+            for item in audit_results:
+                audit_md += f"### T{item['num']} — {item['title']} [{item['status']}]\n"
+                audit_md += f"- Nalaz: {item['finding']}\n"
+                audit_md += f"- Pravilo: {item['rule']}\n"
+                if item.get("recommendation"):
+                    audit_md += f"- Preporuka: {item['recommendation']}\n"
+                audit_md += "\n"
+            st.download_button(
+                "Preuzmi izvješće (.md)",
+                data=audit_md,
+                file_name="evaluacija_modela.md",
+                mime="text/markdown",
+                use_container_width=True,
+                key="dl_audit_md"
+            )
+
+        if selected_cat != "Sve kategorije":
+            audit_results_filtered = [
+                a for a in audit_results if a.get("category") == selected_cat
+            ]
+        else:
+            audit_results_filtered = audit_results
+
+        if "Upozorenja" in flt_status:
+            audit_results_filtered = [
+                a for a in audit_results_filtered
+                if a["status"] in ("WARNING", "FAIL")
+            ]
+        elif "Usklađene" in flt_status:
+            audit_results_filtered = [
+                a for a in audit_results_filtered if a["status"] == "PASS"
+            ]
+
+        attention_items = [a for a in audit_results_filtered
+                           if a.get("status") in ("FAIL", "WARNING")]
+        pass_items      = [a for a in audit_results_filtered
+                           if a.get("status") == "PASS"]
+        info_items      = [a for a in audit_results_filtered
+                           if a.get("status") == "INFO"]
+
+        # Task 6: Triage details with st.expander
         if attention_items:
             st.markdown(f"<div style='font-size: 14px; font-weight: 600; color: #111827; margin: 12px 0 8px 0;'>Zahtijeva pažnju ({len(attention_items)})</div>", unsafe_allow_html=True)
             for item in attention_items:
-                is_fail = (item.get("status") == "FAIL")
-                icon = "✗" if is_fail else "⚠"
-                css_cls = "triage-fail" if is_fail else "triage-warn"
-                icon_color = "#DC2626" if is_fail else "#D97706"
-
-                rec_txt = item.get("recommendation", "")
-                st.markdown(f"""
-                <div class="triage-item {css_cls}">
-                  <div class="triage-title">
-                    <span style="color: {icon_color}; font-weight: 700;">{icon} &nbsp; T{item['num']} · {item['title']}</span>
-                    <span class="mono" style="font-size: 11px; font-weight: normal; color: #6B7280;">Težina: {item.get('weight', 5)}</span>
-                  </div>
-                  <div class="triage-finding">{item.get('finding', '')}</div>
-                  {f'<div class="triage-action"><span class="triage-action-arrow">→ </span>{rec_txt}</div>' if rec_txt else ''}
-                </div>
-                """, unsafe_allow_html=True)
+                border_col = "#DC2626" if item["status"] == "FAIL" else "#D97706"
+                with st.expander(
+                    f"{'✗' if item['status'] == 'FAIL' else '⚠'} "
+                    f"T{item['num']} · {item['title']}",
+                    expanded=(item["status"] == "FAIL")
+                ):
+                    st.markdown(f"**Nalaz u modelu:** {item['finding']}")
+                    st.markdown(f"*Pravilo:* {item['rule']}")
+                    if item.get("bullets"):
+                        for b in item["bullets"]:
+                            st.markdown(f"- {b}")
+                    if item.get("recommendation"):
+                        st.info(f"Uputa za ispravak: {item['recommendation']}")
         else:
             st.markdown("<div style='color: #16A34A; font-weight: 600; margin: 12px 0;'>✓ Nema uočenih grešaka ni upozorenja u modelu.</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
-        # Triage 2: Zadovoljava (Collapsed)
         with st.expander(f"Zadovoljava ({len(pass_items)})", expanded=False):
             for item in pass_items:
-                st.markdown(f"""
-                <div style="padding: 4px 0; font-size: 13px; color: #374151; border-bottom: 1px solid #F3F4F6;">
-                  <span style="color: #16A34A; font-weight: 700;">✓</span> &nbsp;
-                  <strong>T{item['num']} · {item['title']}</strong>:
-                  <span style="color: #4B5563;">{item.get('finding', '')}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f"✓ **T{item['num']}** {item['title']} — "
+                    f"<span style='color:#6B7280'>{item['finding'][:80]}</span>",
+                    unsafe_allow_html=True
+                )
 
-        # Triage 3: Info / ne primjenjuje se (Collapsed)
         with st.expander(f"Info / ne primjenjuje se ({len(info_items)})", expanded=False):
             for item in info_items:
-                st.markdown(f"""
-                <div style="padding: 4px 0; font-size: 13px; color: #4B5563; border-bottom: 1px solid #F3F4F6;">
-                  <span style="color: #6B7280;">○</span> &nbsp;
-                  <strong>T{item['num']} · {item['title']}</strong>:
-                  <span style="color: #6B7280;">{item.get('finding', '')}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f"○ **T{item['num']}** {item['title']} — "
+                    f"<span style='color:#9CA3AF'>{item['finding'][:80]}</span>",
+                    unsafe_allow_html=True
+                )
 
-    # ── TAB 3: Elementi ───────────────────────────────────────
+    # ── TAB 3: Elementi (Task 7) ───────────────────────────────
     with t_elements:
-        n_match = len(df_res[df_res["status"] == Status.MATCH]) if "status" in df_res.columns else 0
-        n_mis   = len(df_res[df_res["status"] == Status.SECTION_MISMATCH]) if "status" in df_res.columns else 0
-        n_etabs = len(df_res[df_res["status"] == Status.ETABS_ONLY]) if "status" in df_res.columns else 0
-        n_dxf   = len(df_res[df_res["status"] == Status.DXF_ONLY]) if "status" in df_res.columns else 0
+        sub_view = st.segmented_control(
+            "Prikaz:",
+            options=["Geometrija i presjeci", "Materijali i opterećenja", "Oslonci i zglobovi"],
+            default="Geometrija i presjeci",
+            key="sub_elem_view",
+            label_visibility="collapsed"
+        ) or "Geometrija i presjeci"
 
-        pill_opts = ["Svi"]
-        if not is_pdf_mode:
-            pill_opts.extend([
-                f"✓ Usklađeno ({n_match})",
-                f"⚠ Odstupanje ({n_mis})",
-                f"✗ Samo ETABS ({n_etabs})",
-                f"○ Samo nacrt ({n_dxf})"
-            ])
+        if sub_view == "Geometrija i presjeci":
+            n_match = len(df_res[df_res["status"] == Status.MATCH]) if "status" in df_res.columns else 0
+            n_mis   = len(df_res[df_res["status"] == Status.SECTION_MISMATCH]) if "status" in df_res.columns else 0
+            n_etabs = len(df_res[df_res["status"] == Status.ETABS_ONLY]) if "status" in df_res.columns else 0
+            n_dxf   = len(df_res[df_res["status"] == Status.DXF_ONLY]) if "status" in df_res.columns else 0
 
-        col_f1, col_f2 = st.columns([3.5, 1.5])
-        with col_f1:
-            sel_pill = st.segmented_control(
-                "Status elementa:",
-                options=pill_opts,
-                default="Svi",
-                key="elem_status_pills",
-                label_visibility="collapsed"
-            ) or "Svi"
-        with col_f2:
-            search_txt = st.text_input("Pretraga", placeholder="Naziv, presjek...", label_visibility="collapsed", key="tb_srch")
+            pill_opts = ["Svi"]
+            if not is_pdf_mode:
+                pill_opts.extend([
+                    f"✓ Usklađeno ({n_match})",
+                    f"⚠ Odstupanje ({n_mis})",
+                    f"✗ Samo ETABS ({n_etabs})",
+                    f"○ Samo nacrt ({n_dxf})"
+                ])
 
-        dfd = df_res.copy()
-        if "Usklađeno" in sel_pill:
-            dfd = dfd[dfd["status"] == Status.MATCH]
-        elif "Odstupanje" in sel_pill:
-            dfd = dfd[dfd["status"] == Status.SECTION_MISMATCH]
-        elif "Samo ETABS" in sel_pill:
-            dfd = dfd[dfd["status"] == Status.ETABS_ONLY]
-        elif "Samo nacrt" in sel_pill:
-            dfd = dfd[dfd["status"] == Status.DXF_ONLY]
+            col_f1, col_f2, col_f3 = st.columns([2.5, 1.5, 1.5])
+            with col_f1:
+                sel_pill = st.segmented_control(
+                    "Status elementa:",
+                    options=pill_opts,
+                    default="Svi",
+                    key="elem_status_pills",
+                    label_visibility="collapsed"
+                ) or "Svi"
 
-        if search_txt:
-            q = search_txt.lower()
-            dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
+            dfd = df_res.copy()
+            if "Usklađeno" in sel_pill:
+                dfd = dfd[dfd["status"] == Status.MATCH]
+            elif "Odstupanje" in sel_pill:
+                dfd = dfd[dfd["status"] == Status.SECTION_MISMATCH]
+            elif "Samo ETABS" in sel_pill:
+                dfd = dfd[dfd["status"] == Status.ETABS_ONLY]
+            elif "Samo nacrt" in sel_pill:
+                dfd = dfd[dfd["status"] == Status.DXF_ONLY]
 
-        # Display table
-        vcols = [
-            "element_type", "status", "etabs_name", "story", "etabs_section",
-            "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "xy_dist_m", "notes"
-        ]
-        vcols = [c for c in vcols if c in dfd.columns]
-        tbl = safe_df(dfd[vcols], {
-            "etabs_w_mm": "{:.0f}",
-            "etabs_h_mm": "{:.0f}",
-            "xy_dist_m": "{:.2f}",
-        })
-        st.dataframe(tbl, use_container_width=True, hide_index=True)
+            with col_f2:
+                ty_opts = ["Svi tipovi"] + sorted(
+                    dfd["element_type"].dropna().unique().tolist()
+                ) if "element_type" in dfd.columns else ["Svi tipovi"]
+                ty_f = st.selectbox("Tip:", ty_opts, key="geo_type", label_visibility="collapsed")
+                if ty_f != "Svi tipovi":
+                    dfd = dfd[dfd["element_type"] == ty_f]
 
-    # ── TAB 4: Izvještaj ──────────────────────────────────────
+            with col_f3:
+                search_txt = st.text_input("Pretraga", placeholder="Naziv, presjek...", label_visibility="collapsed", key="tb_srch")
+
+            if search_txt:
+                q = search_txt.lower()
+                dfd = dfd[dfd.apply(lambda r: q in str(r.to_dict()).lower(), axis=1)]
+
+            # Display table
+            vcols = [
+                "element_type", "status", "etabs_name", "story", "etabs_section",
+                "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "xy_dist_m", "notes"
+            ]
+            vcols = [c for c in vcols if c in dfd.columns]
+            tbl = safe_df(dfd[vcols], {
+                "etabs_w_mm": "{:.0f}",
+                "etabs_h_mm": "{:.0f}",
+                "xy_dist_m": "{:.2f}",
+            })
+            st.dataframe(
+                tbl,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "element_type":  st.column_config.TextColumn("Tip"),
+                    "etabs_name":    st.column_config.TextColumn("ETABS ID"),
+                    "story":         st.column_config.TextColumn("Etaža"),
+                    "etabs_section": st.column_config.TextColumn("Presjek"),
+                    "etabs_w_mm":    st.column_config.TextColumn("b (mm)"),
+                    "etabs_h_mm":    st.column_config.TextColumn("h (mm)"),
+                    "dxf_dim_text":  st.column_config.TextColumn("CAD oznaka"),
+                    "xy_dist_m":     st.column_config.TextColumn("Odmak (m)"),
+                    "notes":         st.column_config.TextColumn("Napomena"),
+                }
+            )
+
+        elif sub_view == "Materijali i opterećenja":
+            mc, lc = st.columns(2, gap="large")
+            with mc:
+                st.markdown("**Klase materijala**")
+                mats = pd.DataFrame(df_res.attrs.get("materials", []))
+                if not mats.empty:
+                    st.dataframe(
+                        safe_df(mats, {
+                            "E_gpa": "{:.1f}", "fc_mpa": "{:.1f}",
+                            "fy_mpa": "{:.1f}", "fu_mpa": "{:.1f}"
+                        }),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "name":   st.column_config.TextColumn("Naziv"),
+                            "type":   st.column_config.TextColumn("Tip"),
+                            "E_gpa":  st.column_config.TextColumn("E (GPa)"),
+                            "fc_mpa": st.column_config.TextColumn("fck (MPa)"),
+                            "fy_mpa": st.column_config.TextColumn("fyk (MPa)"),
+                            "fu_mpa": st.column_config.TextColumn("fuk (MPa)"),
+                        }
+                    )
+                else:
+                    st.caption("Nema definiranih materijala.")
+
+            with lc:
+                st.markdown("**Uzorci opterećenja**")
+                pats = pd.DataFrame(df_res.attrs.get("load_patterns", []))
+                if not pats.empty:
+                    st.dataframe(
+                        safe_df(pats, {"self_weight_mult": "{:.2f}"}),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "name":             st.column_config.TextColumn("Uzorak"),
+                            "type":             st.column_config.TextColumn("Tip"),
+                            "self_weight_mult": st.column_config.TextColumn("SW faktor"),
+                        }
+                    )
+
+                aloads = pd.DataFrame(df_res.attrs.get("area_loads", []))
+                if not aloads.empty:
+                    st.markdown("**Plošna opterećenja (kN/m²)**")
+                    st.dataframe(safe_df(aloads), use_container_width=True, hide_index=True)
+
+        elif sub_view == "Oslonci i zglobovi":
+            sc, hc = st.columns(2, gap="large")
+            with sc:
+                st.markdown("**Temeljni oslonci**")
+                rests = etabs_data.get("restraints", pd.DataFrame())
+                if isinstance(rests, list):
+                    rests = pd.DataFrame(rests)
+                if not rests.empty and "joint_name" in rests.columns:
+                    rcols = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in rests.columns]
+                    st.dataframe(
+                        safe_df(rests[rcols], {"x": "{:.2f}", "y": "{:.2f}", "z": "{:.2f}"}),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "joint_name":     st.column_config.TextColumn("Čvor"),
+                            "x":              st.column_config.TextColumn("X (m)"),
+                            "y":              st.column_config.TextColumn("Y (m)"),
+                            "z":              st.column_config.TextColumn("Z (m)"),
+                            "restraint_type": st.column_config.TextColumn("Tip"),
+                            "is_supported":   st.column_config.CheckboxColumn("Poduprt"),
+                        }
+                    )
+                else:
+                    st.caption("Nema podataka o osloncima.")
+
+            with hc:
+                st.markdown("**Plastični zglobovi (Pushover)**")
+                hinges = etabs_data.get("hinges", pd.DataFrame())
+                if not hinges.empty and "frame_name" in hinges.columns:
+                    hcols = [c for c in ["frame_name", "hinge_prop", "rel_dist", "dof"] if c in hinges.columns]
+                    st.dataframe(
+                        safe_df(hinges[hcols], {"rel_dist": "{:.2f}"}),
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "frame_name": st.column_config.TextColumn("Element"),
+                            "hinge_prop": st.column_config.TextColumn("Svojstvo"),
+                            "rel_dist":   st.column_config.TextColumn("Pozicija"),
+                            "dof":        st.column_config.TextColumn("DOF"),
+                        }
+                    )
+                else:
+                    st.caption("Nema plastičnih zglobova (linearni proračun).")
+
+    # ── TAB 4: Izvještaj (Task 8) ──────────────────────────────
     with t_report:
         st.markdown("<div style='font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 12px;'>Revizijski elaborat</div>", unsafe_allow_html=True)
 
@@ -598,8 +921,8 @@ def main():
             st.info("Nema podataka za generiranje elaborata. Učitajte model ili odaberite demo projekt.")
         else:
             date_str = datetime.now().strftime("%d.%m.%Y.")
-            has_res = (df_res.attrs.get("results_data") is not None)
-            score_data = calculate_audit_score(_cached_curriculum_audit(e2k_content, has_results=has_res))
+            results_data = df_res.attrs.get("results_data")
+            score_data = calculate_audit_score(_cached_curriculum_audit(etabs_data, results_data))
             grade_num = score_data.get("grade", 1)
             grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
 
@@ -657,6 +980,11 @@ def main():
             with meta_col2:
                 st.markdown("<div style='font-size: 12px; font-weight: 600; color: #6B7280; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
                 st.components.v1.html(html_code, height=480, scrolling=True)
+
+            # Task 8: Expander with engineering instructions
+            st.markdown("---")
+            with st.expander("Inženjerske upute za pripremu modela i nacrta", expanded=False):
+                render_instructions()
 
 if __name__ == "__main__":
     main()

@@ -34,14 +34,17 @@ class Config:
         else:
             self.spatial_tolerance = self.spatial_tolerance_frame
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash((
             self.spatial_tolerance_frame,
             self.spatial_tolerance_area,
             self.section_tolerance_mm,
             self.dxf_unit_scale,
             tuple(sorted(self.extract_elements)),
-            self.dxf_origin_offset,
+            self.audit_materials,
+            self.audit_loads,
+            self.audit_restraints,
+            self.report_hinges,
         ))
 
     # ------------------------------------------------------------------ #
