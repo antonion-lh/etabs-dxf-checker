@@ -111,6 +111,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     raw_hinges: list[dict] = []
     raw_grids: list[dict] = []
     raw_stories: list[dict] = []
+    units = {"force": "KN", "length": "M", "temp": "C"}
+    mass_source = {"loads": {}, "lateral_mass": True, "lump_at_stories": True}
+    load_combinations: dict[str, dict] = {}
+    raw_diaphragms: list[dict] = []
+    raw_rebars: list[dict] = []
     line_assigns: dict[str, str] = {}
     area_assigns: dict[str, str] = {}
     area_story_assigns: dict[str, list[dict]] = {}
@@ -702,6 +707,63 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "elevation": elev_val,
                 })
 
+        # 14. CONTROLS (UNITS)
+        elif "CONTROL" in current_block and tokens[0].upper() == "UNITS":
+            if len(tokens) >= 3:
+                units = {
+                    "force": tokens[1].strip('"').strip("'").upper(),
+                    "length": tokens[2].strip('"').strip("'").upper(),
+                    "temp": tokens[3].strip('"').strip("'").upper() if len(tokens) > 3 else "C"
+                }
+
+        # 15. MASS SOURCE
+        elif "MASS" in current_block and "SOURCE" in current_block:
+            if tokens[0].upper() == "MASSSOURCE":
+                t_upper = [t.upper() for t in tokens]
+                if "INCLUDELATERALMASS" in t_upper:
+                    idx = t_upper.index("INCLUDELATERALMASS")
+                    mass_source["lateral_mass"] = (tokens[idx+1].upper().strip('"') == "YES")
+                if "LUMPATSTORIES" in t_upper:
+                    idx = t_upper.index("LUMPATSTORIES")
+                    mass_source["lump_at_stories"] = (tokens[idx+1].upper().strip('"') == "YES")
+            elif tokens[0].upper() == "MASSSOURCELOAD":
+                if len(tokens) >= 4:
+                    lc = tokens[2].strip('"').strip("'")
+                    try:
+                        sf = float(tokens[3])
+                        mass_source["loads"][lc] = sf
+                    except ValueError:
+                        pass
+
+        # 16. LOAD COMBINATIONS
+        elif "COMBINATION" in current_block and tokens[0].upper() == "COMBO":
+            cname = tokens[1].strip('"').strip("'")
+            if cname not in load_combinations:
+                load_combinations[cname] = {"cases": {}}
+            t_upper = [t.upper() for t in tokens]
+            if "LOADCASE" in t_upper and "SF" in t_upper:
+                lc_idx = t_upper.index("LOADCASE")
+                sf_idx = t_upper.index("SF")
+                lc = tokens[lc_idx+1].strip('"').strip("'")
+                try:
+                    sf = float(tokens[sf_idx+1])
+                    load_combinations[cname]["cases"][lc] = sf
+                except ValueError:
+                    pass
+
+        # 17. DIAPHRAGM NAMES
+        elif "DIAPHRAGM" in current_block and tokens[0].upper() == "DIAPHRAGM":
+            dname = tokens[1].strip('"').strip("'")
+            dtype = tokens[3].strip('"').strip("'") if len(tokens) > 3 and tokens[2].upper() == "TYPE" else "RIGID"
+            raw_diaphragms.append({"name": dname, "type": dtype})
+
+        # 18. REBAR DEFINITIONS
+        elif "REBAR" in current_block and tokens[0].upper() == "REBARDEFINITION":
+            rname = tokens[1].strip('"').strip("'")
+            dia = float(_get_kw_val(tokens, "DIA", 0.0))
+            area = float(_get_kw_val(tokens, "AREA", 0.0))
+            raw_rebars.append({"name": rname, "diameter_m": dia, "area_m2": area})
+
     # Apply line and area section assignments
     for f in raw_frames:
         if not f.get("prop") and f["name"] in line_assigns:
@@ -1155,6 +1217,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         "used_points": used_points,
         "stories": stories,
         "stories_df": pd.DataFrame(stories),
+        "units": units,
+        "mass_source": mass_source,
+        "load_combinations": load_combinations,
+        "diaphragms": raw_diaphragms,
+        "rebars": raw_rebars,
     }
 
     log.info("E2K Parsing Complete: %d cols, %d beams, %d walls, %d slabs",

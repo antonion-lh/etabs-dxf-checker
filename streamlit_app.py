@@ -19,7 +19,7 @@ from phase1_e2k import parse_e2k
 from phase2_dxf import parse_dxf
 from phase3_validation import validate, Status, run_structural_sanity_checks
 from report import generate_pdf, generate_html
-from curriculum_audit import run_curriculum_audit
+from curriculum_audit import run_curriculum_audit, calculate_audit_score
 
 # ─────────────────────────────────────────────────────────────
 # Page setup
@@ -2043,37 +2043,83 @@ def main():
 
     # ── TAB 2: Studentska & Nastavna revizijska lista ───────────
     with t_audit:
-        st.markdown("#### 🎓 Nastavne napomene za pregled modela (Kontrolni list 1–27)")
-        st.caption("Automatizirana kontrola numeričkog ETABS (.e2k) modela prema službenom nastavnom zadatku za studente građevinarstva.")
-
         audit_results = run_curriculum_audit(etabs_data)
+        score_data = calculate_audit_score(audit_results)
 
-        n_pass = sum(1 for a in audit_results if a["status"] == "PASS")
-        n_warn = sum(1 for a in audit_results if a["status"] == "WARNING")
-        n_fail = sum(1 for a in audit_results if a["status"] == "FAIL")
-        n_info = sum(1 for a in audit_results if a["status"] == "INFO")
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <div style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; font-weight: 700;">Građevinski fakultet · Kontrola numeričkih modela zgrada</div>
+              <div style="font-size: 1.55rem; font-weight: 800; color: #ffffff; margin-top: 4px;">🎓 Nastavne napomene za pregled modela (1–27)</div>
+              <div style="font-size: 0.95rem; color: #cbd5e1; margin-top: 4px;">
+                Indeks usklađenosti: <strong style="color: #38bdf8;">{score_data['percentage']}%</strong> · 
+                Ocjena: <strong style="color: {score_data['badge_color']};">{score_data['grade_label']}</strong>
+              </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.08); padding: 12px 24px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.15);">
+              <div style="font-size: 0.78rem; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Ocjena modela</div>
+              <div style="font-size: 2.3rem; font-weight: 900; color: {score_data['badge_color']}; line-height: 1.1;">{score_data['grade']}<span style="font-size: 1.1rem; color: #94a3b8;">/5</span></div>
+            </div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         c_m1, c_m2, c_m3, c_m4 = st.columns(4)
-        c_m1.metric("🟢 Usklađene točke", f"{n_pass} / {len(audit_results)}")
-        c_m2.metric("🟡 Upozorenja", n_warn)
-        c_m3.metric("🔴 Kritična odstupanja", n_fail)
-        c_m4.metric("ℹ️ Smjernice", n_info)
+        c_m1.metric("🟢 Usklađene točke", f"{score_data['n_pass']} / {len(audit_results)}")
+        c_m2.metric("🟡 Upozorenja", score_data["n_warn"])
+        c_m3.metric("🔴 Kritična odstupanja", score_data["n_fail"])
+        c_m4.metric("ℹ️ Smjernice", score_data["n_info"])
 
         st.markdown("<hr style='margin: 16px 0;'>", unsafe_allow_html=True)
 
-        c_filter, _ = st.columns([2.0, 3.0])
-        with c_filter:
+        c_f1, c_f2, c_f3 = st.columns([1.8, 1.8, 1.4])
+        with c_f1:
+            all_cats = ["Sve nastavne cjeline (1–27)"] + sorted(list(set(a["category"] for a in audit_results)))
+            selected_cat = st.selectbox("Nastavna cjelina:", all_cats, key="audit_cat_filter")
+        with c_f2:
             flt_status = st.selectbox(
-                "Prikaz točaka kontrolnog lista:",
-                ["Sve točke (1–27)", "Samo upozorenja i kritična odstupanja (⚠️/🔴)", "Samo usklađene točke (🟢)"],
+                "Status točke:",
+                ["Sve točke", "Samo uočena upozorenja i pogreške (⚠️ / 🔴)", "Samo usklađene točke (🟢)"],
                 key="audit_filter_status"
+            )
+        with c_f3:
+            # Download button for professor review
+            audit_summary_md = "# PROFESORSKA EVALUACIJA NUMERIČKOG MODELA (ETABS .e2k)\n\n"
+            audit_summary_md += f"**Ukupna ocjena modela:** {score_data['grade']}/5 ({score_data['grade_label']})\n"
+            audit_summary_md += f"**Indeks usklađenosti:** {score_data['percentage']}%\n"
+            audit_summary_md += f"**Datum kontrole:** {datetime.now().strftime('%d.%m.%Y. %H:%M')}\n\n"
+            audit_summary_md += "---\n\n"
+            for item in audit_results:
+                audit_summary_md += f"### {item['title']} — [{item['status']}]\n"
+                audit_summary_md += f"- **Kategorija:** {item['category']}\n"
+                audit_summary_md += f"- **Nalaz u modelu:** {item['finding']}\n"
+                audit_summary_md += f"- **Nastavno pravilo:** {item['rule']}\n"
+                if item.get("bullets"):
+                    audit_summary_md += "  - " + "\n  - ".join(item["bullets"]) + "\n"
+                if item.get("recommendation"):
+                    audit_summary_md += f"- **Preporuka studentu:** {item['recommendation']}\n"
+                audit_summary_md += "\n"
+
+            st.download_button(
+                label="📥 Preuzmi izvješće za studenta",
+                data=audit_summary_md,
+                file_name="profesorska_evaluacija_modela.md",
+                mime="text/markdown",
+                key="dl_prof_audit"
             )
 
         items_to_show = audit_results
+        if selected_cat != "Sve nastavne cjeline (1–27)":
+            items_to_show = [a for a in items_to_show if a["category"] == selected_cat]
+
         if "upozorenja" in flt_status.lower():
-            items_to_show = [a for a in audit_results if a["status"] in ("WARNING", "FAIL")]
+            items_to_show = [a for a in items_to_show if a["status"] in ("WARNING", "FAIL")]
         elif "usklađene" in flt_status.lower():
-            items_to_show = [a for a in audit_results if a["status"] == "PASS"]
+            items_to_show = [a for a in items_to_show if a["status"] == "PASS"]
+
+        if not items_to_show:
+            st.info("Nema točaka koje odgovaraju odabranom filtru.")
 
         for item in items_to_show:
             st_val = item["status"]
@@ -2098,18 +2144,38 @@ def main():
                 badge_col = "#0369a1"
                 badge_txt = "SMJERNICA"
 
+            bullets_html = ""
+            if item.get("bullets"):
+                bullets_html = "<ul style='margin: 6px 0 0 16px; padding-left: 0; color: #475569; font-size: 0.84rem;'>"
+                for b in item["bullets"]:
+                    bullets_html += f"<li style='margin-bottom: 3px;'>{b}</li>"
+                bullets_html += "</ul>"
+
+            rec_html = ""
+            if item.get("recommendation"):
+                rec_html = f"""
+                <div style="font-size: 0.84rem; color: #0369a1; background: #f0f9ff; padding: 8px 12px; border-radius: 6px; border-left: 3px solid #0284c7; margin-top: 8px;">
+                  <strong>💡 Uputa studentu za ispravak u ETABS-u:</strong> {item['recommendation']}
+                </div>
+                """
+
             st.markdown(f"""
-            <div style="background: white; border: 1px solid #e2e8f0; border-left: 5px solid {badge_col}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{icon} {item['title']}</span>
-                <span style="background: {badge_bg}; color: {badge_col}; font-size: 0.78rem; font-weight: 700; padding: 4px 10px; border-radius: 9999px;">{badge_txt}</span>
+            <div style="background: white; border: 1px solid #e2e8f0; border-left: 5px solid {badge_col}; border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <div>
+                  <span style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{icon} {item['title']}</span>
+                  <span style="font-size: 0.76rem; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">{item.get('category', '')}</span>
+                </div>
+                <span style="background: {badge_bg}; color: {badge_col}; font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 9999px;">{badge_txt}</span>
               </div>
-              <div style="font-size: 0.92rem; color: #1e293b; margin-bottom: 8px; background: #f8fafc; padding: 10px 12px; border-radius: 6px; border: 1px dashed #cbd5e1;">
-                <strong>🔍 Nalaz u modelu:</strong> {item['finding']}
+              <div style="font-size: 0.92rem; color: #1e293b; margin-bottom: 10px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px dashed #cbd5e1;">
+                <strong>🔍 Stanje u studentovom modelu:</strong> {item['finding']}
               </div>
-              <div style="font-size: 0.85rem; color: #64748b; line-height: 1.4;">
-                <strong>📖 Nastavno pravilo:</strong> <em>{item['rule']}</em>
+              <div style="font-size: 0.85rem; color: #334155; line-height: 1.45; background: #ffffff; padding: 6px 0;">
+                <strong>📖 Nastavno pravilo i zadatak:</strong> <em>{item['rule']}</em>
+                {bullets_html}
               </div>
+              {rec_html}
             </div>
             """, unsafe_allow_html=True)
 
