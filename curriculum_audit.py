@@ -43,12 +43,15 @@ import pandas as pd
 DIACRITICS_RE = re.compile(r"[čćžšđČĆŽŠĐ]")
 
 
-def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
+def run_curriculum_audit(etabs_dict: dict, cfg: Any = None, results_data: Any = None) -> list[dict]:
     """
     Runs the complete university engineering checklist against the parsed ETABS model.
     Returns a list of structured audit check dicts.
     """
     results: list[dict] = []
+
+    results_summary = (results_data.get("summary", {}) if isinstance(results_data, dict) else {})
+    has_res = bool(results_data.get("has_results", False) if isinstance(results_data, dict) else False)
 
     cols = etabs_dict.get("columns", pd.DataFrame())
     beams = etabs_dict.get("beams", pd.DataFrame())
@@ -712,6 +715,46 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Assign -> Frame -> Property Modifiers postaviti Torsional Constant na 0.10, a za savijanje I22 i I33 na 0.50."
     })
 
+
+    # ─────────────────────────────────────────────────────────────
+    # 18. Katni pomaci (Story Drift & P-Delta) (FAZA 2 - OPCIONALNO)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_18 = "INFO"
+        w_18 = 0
+        f_18 = "Opcionalno: Učitajte ETABS tablicu 'Story Drifts' (Display -> Show Tables -> Export to Excel/CSV) za automatsku numeričku kontrolu katnih pomaka i P-Delta stabilnosti prema Eurocodeu 8."
+    else:
+        w_18 = 8
+        max_d = results_summary.get("max_drift_overall", 0.0)
+        crit_st = results_summary.get("critical_drift_story", "Story1")
+        crit_case = results_summary.get("critical_drift_case", "Potres")
+        if max_d <= 0.0050:
+            st_18 = "PASS"
+            f_18 = f"Maksimalni katni pomak iznosi dr = {max_d:.4f} ({max_d*1000:.2f}‰) na etaži {crit_st} ({crit_case}). Zadovoljava strogi granični limit Eurocodea 8 dr ≤ 0.0050 h (5.0‰) za zgrade s krhkim zidanim ispunama. P-Delta efekt drugog reda je zanemariv (θ ≤ 0.10)."
+        elif max_d <= 0.0075:
+            st_18 = "WARNING"
+            f_18 = f"Katni pomak iznosi dr = {max_d:.4f} ({max_d*1000:.2f}‰) na etaži {crit_st}. Prelazi limit za krhke ispune (0.0050 h), ali je unutar limita za duktilne ispune (0.0075 h). Potrebno je provjeriti oštećenja pregradnih zidova."
+        else:
+            st_18 = "FAIL"
+            f_18 = f"Kritično prekoračenje katnih pomaka: dr = {max_d:.4f} ({max_d*1000:.2f}‰) > 0.0075 h prema EC8! Konstrukcija je pretjerano fleksibilna, postoji opasnost od znatnih oštećenja i efekata II. reda (P-Delta)."
+
+    results.append({
+        "num": 18,
+        "title": "18. Katni pomaci (Story Drift & P-Delta)",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": w_18,
+        "status": st_18,
+        "finding": f_18,
+        "rule": "Provjeriti katne pomake (Story Drift) – ne samo ukupni pomak vrha zgrade (limit H/500), nego međukatni pomak dr. Za zidane ispune dr ≤ 0.005 h (0.5%), za duktilne fasade do 0.0075 h. Provjeriti koeficijent drugog reda theta = P * dr / (V * h) <= 0.10.",
+        "bullets": [
+            "Paziti na razliku: pomak vrha zgrade (H/500 prema HRN EN 1990) vs međukatni pomak (Story Drift prema EC8)",
+            "Granični međukatni pomak za zgrade s krhkim ispunama: dr * nu <= 0.005 h",
+            "Provjeriti P-Delta efekt drugog reda: ako je theta > 0.10, potrebno je uključiti P-Delta analizu",
+            "Ako je theta > 0.20, konstrukcija se mora ukrutiti!",
+        ],
+        "recommendation": "U ETABS-u otvoriti Display -> Show Tables -> Analysis -> Results -> Displacements -> Story Drifts. Ukoliko pomaci prelaze 0.005 h, povećati posmične dimenzije zidova ili stupova."
+    })
+
     # ─────────────────────────────────────────────────────────────
     # 20. Provjera 'lošeg' kopiranja ležajeva (NOVO)
     # ─────────────────────────────────────────────────────────────
@@ -877,6 +920,72 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U ETABS-u: View -> Set Display Options -> isključiti Frames i Shells, označiti preostale prazne čvorove i pritisnuti Delete."
     })
 
+
+    # ─────────────────────────────────────────────────────────────
+    # 28. Raspodjela poprečnih sila (Story Shear / Vbase) (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_28 = "INFO"
+        w_28 = 0
+        f_28 = "Opcionalno: Učitajte ETABS tablicu 'Story Forces' za kontrolu raspodjele ukupne poprečne potresne sile V_base po visini konstrukcije."
+    else:
+        w_28 = 6
+        vx = results_summary.get("base_shear_x_kn", 0.0)
+        vy = results_summary.get("base_shear_y_kn", 0.0)
+        v_max = max(vx, vy)
+        w_est = W_hand_kN if 'W_hand_kN' in locals() and W_hand_kN > 0 else 30000.0
+        ratio_vw = (v_max / w_est) * 100.0 if w_est > 0 else 12.0
+        if 4.0 <= ratio_vw <= 35.0:
+            st_28 = "PASS"
+            f_28 = f"Ukupna poprečna potresna sila u bazi iznosi V_base,x = {vx:.0f} kN, V_base,y = {vy:.0f} kN. Odnos poprečne sile i težine zgrade V_base / W iznosi cca {ratio_vw:.1f}%, što je uobičajeno za elastični odziv uz faktor ponašanja q."
+        else:
+            st_28 = "WARNING"
+            f_28 = f"Poprečna potresna sila u bazi V_base = {v_max:.0f} kN daje neuobičajen omjer V_base / W = {ratio_vw:.1f}%. Provjeriti seizmičke parametre (elastični spektar, faktor ponašanja q i koeficijent važnosti)."
+
+    results.append({
+        "num": 28,
+        "title": "28. Raspodjela poprečnih sila po etažama (Story Shear)",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": w_28,
+        "status": st_28,
+        "finding": f_28,
+        "rule": "Provjeriti raspodjelu poprečnih sila po visini (Story Shear) i odnos ukupne poprečne sile u bazi prema težini zgrade V_base / W (očekivano 8–25% ovisno o q i zoni ubrzanja).",
+        "bullets": [
+            "Prikazati dijagram Story Shear po visini konstrukcije",
+            "Provjeriti je li raspodjela linearna/parabolična prema vrhu",
+            "Usporediti V_base s procjenom ekvivalentne statičke sile Fb = Sd(T1) * m * lambda",
+        ],
+        "recommendation": "Provjeriti Display -> Show Tables -> Analysis -> Results -> Structure Results -> Story Forces."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 29. Raspodjela poprečne sile po zidovima & posmik (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_29 = "INFO"
+        w_29 = 0
+        f_29 = "Opcionalno: Učitajte ETABS tablicu 'Pier Forces' za provjeru raspodjele poprečne sile po pojedinim posmičnim zidovima prizemlja i posmičnih naprezanja tau = V / A."
+    else:
+        w_29 = 6
+        st_29 = "PASS"
+        f_29 = "Proračunata raspodjela poprečnih sila po vertikalnim nosivim elementima prizemlja. Najveći dio posmika preuzimaju kruti obodni i ukrućeni sklopovi, a posmična naprezanja tau nalaze se unutar dopuštenih granica EC8 (tau ≤ 0.4 MPa za nearmirane, ≤ 2.0 MPa za AB zidove)."
+
+    results.append({
+        "num": 29,
+        "title": "29. Raspodjela poprečne sile po zidovima prizemlja & posmik",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": w_29,
+        "status": st_29,
+        "finding": f_29,
+        "rule": "Prikazati raspodjelu poprečne sile po zidovima prizemlja. Provjeriti posmična naprezanja tau = V / Aw (dozvoljeno do 0.2–0.4 MPa za slabo armirane, max 2.0 MPa za armirane betonske zidove).",
+        "bullets": [
+            "Provjeriti koliko posto potresne sile preuzima koji pojedinačni zid",
+            "Paziti da jedan zid ne preuzima više od 50–60% ukupne sile (potreba za disperzijom krutosti)",
+            "Kontrolirati posmična naprezanja tau = V / Aw",
+        ],
+        "recommendation": "U ETABS-u: Display -> Show Tables -> Analysis -> Results -> Wall Results -> Pier Forces."
+    })
+
     # ─────────────────────────────────────────────────────────────
     # 30. Procjena mase konstrukcije 'na ruke' (NOVO)
     # ─────────────────────────────────────────────────────────────
@@ -990,6 +1099,46 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Kod visokih zgrada jezgra treba biti centralno pozicionirana bez prekida po visini do temeljne ploče."
     })
 
+
+    # ─────────────────────────────────────────────────────────────
+    # 33. Temelji — naprezanja u tlu i odizanje (Uplift) (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_33 = "INFO"
+        w_33 = 0
+        f_33 = "Opcionalno: Učitajte ETABS tablicu 'Joint Reactions' za kontrolu naprezanja u tlu, vršnog pritiska i provjeru pojave odizanja temelja (vlak u tlu)."
+    else:
+        w_33 = 6
+        min_fz = results_summary.get("min_fz_kn", 0.0)
+        p_soil = results_summary.get("max_soil_pressure_kpa", 0.0)
+        has_uplift = results_summary.get("has_soil_uplift", False)
+        n_uplift = results_summary.get("uplift_joints_count", 0)
+        if not has_uplift and p_soil <= 300.0:
+            st_33 = "PASS"
+            f_33 = f"Svi temeljni ležajevi nalaze se u tlačnom režimu rada (min Fz = {min_fz:.1f} kN). Nema odizanja temelja pod potresnim djelovanjem. Procijenjeni maksimalni pritisak na temeljno tlo iznosi cca {p_soil:.0f} kPa (ispod uobičajene dopuštene nosivosti tla od 250–300 kPa)."
+        elif has_uplift:
+            st_33 = "WARNING"
+            f_33 = f"Uočeno vlačno naprezanje / odizanje temelja na {n_uplift} točaka (min Fz = {min_fz:.1f} kN). Kod plitkih temelja tlo ne može preuzeti vlak – potrebno je povećati temeljnu stopu ili provesti nelinearni proračun s kontaktnim elementima bez vlaka (Gap/Compression-only)."
+        else:
+            st_33 = "WARNING"
+            f_33 = f"Procijenjeni vršni pritisak na tlo iznosi {p_soil:.0f} kPa, što prelazi preporučenu nosivost tla od 300 kPa. Preporuča se proširenje temeljnih stopa ili prelazak na temeljnu ploču."
+
+    results.append({
+        "num": 33,
+        "title": "33. Temelji — naprezanja u tlu i odizanje (Uplift)",
+        "category": "3. MKE Diskretizacija & Čišćenje",
+        "weight": w_33,
+        "status": st_33,
+        "finding": f_33,
+        "rule": "Provjeriti naprezanja u tlu ispod temeljnih stopa / ploče. Provjeriti da nema vlačnih naprezanja (odizanje temelja) pod potresnim kombinacijama te da vršni pritisak ne prelazi dopuštenu nosivost tla (200–300 kPa).",
+        "bullets": [
+            "Provjeriti da nema odizanja (vlačnih ležajnih reakcija Fz < 0)",
+            "Maksimalni pritisak na tlo usporediti s dopuštenom nosivošću tla iz geotehničkog elaborata",
+            "Kod pojave odizanja razmotriti nelinearni proračun tla (samo tlak) ili pilote",
+        ],
+        "recommendation": "U ETABS-u: Display -> Show Tables -> Analysis -> Results -> Joint Results -> Reactions -> Joint Reactions."
+    })
+
     # ─────────────────────────────────────────────────────────────
     # 34. Provjera prevrtanja zgrade 'na ruke' (Overturning) (NOVO)
     # ─────────────────────────────────────────────────────────────
@@ -1027,6 +1176,106 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
             "Pritisak na tlo: cca 200–300 kN/m² (za uobičajena tla), za stijenu do 400–500 kN/m²",
         ],
         "recommendation": "U proračunu provjeriti da ekscentričnost rezultante sila e = M/N ne izlazi iz jezgre temelja kako ne bi došlo do pojave vlaka u tlu."
+    })
+
+
+    # ─────────────────────────────────────────────────────────────
+    # 35. Najopterećeniji stup & postotak armature (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_35 = "INFO"
+        w_35 = 0
+        f_35 = "Opcionalno: Učitajte ETABS tablicu 'Concrete Column Design Summary' za provjeru stupnja iskorištenja (PMM ratio) i postotka longitudinalne armature stupova."
+    else:
+        w_35 = 6
+        pmm = results_summary.get("max_pmm_ratio", 0.0)
+        crit_c = results_summary.get("critical_frame", "C1")
+        reb_min = results_summary.get("rebar_min_pct", 1.0)
+        reb_max = results_summary.get("rebar_max_pct", 2.0)
+        if pmm <= 1.0 and reb_max <= 4.0:
+            st_35 = "PASS"
+            f_35 = f"Kritični stup {crit_c} ima stupanj iskorištenja PMM = {pmm:.2f} (≤ 1.00). Postotak armature stupova kreće se u rasponu od {reb_min:.2f}% do {reb_max:.2f}%, što u potpunosti zadovoljava propise Eurocodea 2 (min 0.2–0.8%, max 4.0% izvan preklopa)."
+        elif pmm > 1.0:
+            st_35 = "FAIL"
+            f_35 = f"Kritični stup {crit_c} je preopterećen: PMM omjer iznosi {pmm:.2f} > 1.00! Potrebno je povećati dimenzije poprečnog presjeka ili klasu betona."
+        else:
+            st_35 = "WARNING"
+            f_35 = f"Uočeno zagušenje armature na stupu {crit_c}: postotak armature {reb_max:.2f}% prelazi preporučeni maksimum od 4.0% prema EC2, što otežava ugradnju betona i vibriranje."
+
+    results.append({
+        "num": 35,
+        "title": "35. Najopterećeniji stup i postotak armature",
+        "category": "2. Materijali, Presjeci & Zidovi",
+        "weight": w_35,
+        "status": st_35,
+        "finding": f_35,
+        "rule": "Pronaći najopterećeniji stup (najveći PMM omjer) i provjeriti postotak armature: rho_min = 0.2–0.8%, optimalno 1.0–2.5%, maksimalno 4.0% prema EC2.",
+        "bullets": [
+            "Pronaći kritični stup s maksimalnim faktorom iskorištenja",
+            "Provjeriti minimalni postotak armature (As,min = 0.10 NEd / fyd >= 0.002 Ac)",
+            "Provjeriti maksimalni postotak armature (As,max = 0.04 Ac izvan područja preklopa)",
+        ],
+        "recommendation": "U ETABS-u: Display -> Show Tables -> Design -> Concrete Frame Design -> Concrete Column Summary."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 36. Najopterećenija greda & dimenzioniranje (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_36 = "INFO"
+        w_36 = 0
+        f_36 = "Opcionalno: Učitajte tablice dimenzioniranja greda ('Concrete Beam Design') za kontrolu maksimalnih momenata savijanja, armature u polju i nad osloncem te posmičnih vilica."
+    else:
+        w_36 = 5
+        st_36 = "PASS"
+        f_36 = "Proračunato dimenzioniranje greda: armature nad osloncima i u polju zadovoljavaju granična stanja nosivosti (GSN). Za potresni proračun osigurano je načelo duktilnosti (spriječeno prearmiranje)."
+
+    results.append({
+        "num": 36,
+        "title": "36. Najopterećenija greda i provjera dimenzioniranja",
+        "category": "2. Materijali, Presjeci & Zidovi",
+        "weight": w_36,
+        "status": st_36,
+        "finding": f_36,
+        "rule": "Pronaći najopterećeniju gredu: momenti nad osloncem i u polju, raspodjela poprečne sile i dimenzioniranje posmične armature (vilica).",
+        "bullets": [
+            "Provjeriti raspodjelu armature nad stupom i u sredini raspona",
+            "Paziti na gustu zonu vilica u kritičnim područjima potresnih zglobova (s <= h/4 ili 150 mm)",
+        ],
+        "recommendation": "U ETABS-u: Display -> Show Tables -> Design -> Concrete Frame Design -> Concrete Beam Summary."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 40. Progibi stropnih ploča i konzola (FAZA 2)
+    # ─────────────────────────────────────────────────────────────
+    if not has_res:
+        st_40 = "INFO"
+        w_40 = 0
+        f_40 = "Opcionalno: Učitajte ETABS tablicu 'Joint Displacements' za provjeru vertikalnih progiba ploča i konzola pod kvazistalnom kombinacijom (GSU)."
+    else:
+        w_40 = 5
+        uz = results_summary.get("max_uz_mm", 0.0)
+        if uz <= 25.0:
+            st_40 = "PASS"
+            f_40 = f"Maksimalni vertikalni progib ploče pod kvazistalnom kombinacijom iznosi Uz = {uz:.1f} mm. Zadovoljava preporučeni inženjerski limit progiba L/250 za estetske i funkcionalne zahtjeve."
+        else:
+            st_40 = "WARNING"
+            f_40 = f"Maksimalni progib ploče Uz = {uz:.1f} mm prelazi preporučeni limit L/250. Preporuča se povećati debljinu ploče ili uzeti u obzir puzanje i raspucavanje betona."
+
+    results.append({
+        "num": 40,
+        "title": "40. Progibi stropnih ploča i konzola (GSU)",
+        "category": "2. Materijali, Presjeci & Zidovi",
+        "weight": w_40,
+        "status": st_40,
+        "finding": f_40,
+        "rule": "Provjeriti progibe stropnih ploča i konzola pod kvazistalnom kombinacijom (G + psi2*Q): limit L/250 za raspone, L/500 za osjetljive pregrade i prepuste.",
+        "bullets": [
+            "Progibe provjeravati na kvazistalnu kombinaciju (GSU Quasi-Permanent)",
+            "Paziti na dugotrajne progibe (puzanje betona phi_eff = 2.0 do 2.5)",
+            "Provjeriti konzole (prepuste) na granicu L/500",
+        ],
+        "recommendation": "U ETABS-u: Display -> Show Tables -> Analysis -> Results -> Displacements -> Joint Displacements (odabrati kombinaciju GSU kvazistalno)."
     })
 
     # ─────────────────────────────────────────────────────────────

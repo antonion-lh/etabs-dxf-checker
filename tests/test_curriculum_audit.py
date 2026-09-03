@@ -162,7 +162,7 @@ def test_curriculum_audit_modal_modes():
 def test_curriculum_audit_strossmayer_phase1():
     e2k = parse_e2k("STROSSMAYER_2.e2k")
     checks = run_curriculum_audit(e2k)
-    assert len(checks) == 27
+    assert len(checks) == 34
     nums = [c["num"] for c in checks]
-    for req in [16, 20, 22, 25, 30, 31, 32, 34, 51]:
+    for req in [16, 18, 20, 22, 25, 28, 29, 30, 31, 32, 33, 34, 35, 36, 40, 51]:
         assert req in nums

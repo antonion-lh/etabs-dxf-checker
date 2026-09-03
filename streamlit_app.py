@@ -21,6 +21,7 @@ from phase2_dxf import parse_dxf
 from phase3_validation import validate, Status, run_structural_sanity_checks
 from report import generate_pdf, generate_html
 from curriculum_audit import run_curriculum_audit, calculate_audit_score
+from results_parser import parse_etabs_results, create_demo_etabs_results
 
 # ─────────────────────────────────────────────────────────────
 # Page setup
@@ -383,6 +384,26 @@ def _sidebar() -> tuple:
                 help="Tekstualni izvoz iz ETABS-a: File → Export → ETABS .e2k Text File...\n(Napomena: .edb je binarna baza podataka koju ETABS zaključava i ne može se čitati na webu bez instaliranog ETABS-a).",
             )
             st.caption("ℹ️ *Izvoz iz ETABS-a: File → Export → .e2k*")
+
+            st.markdown("---")
+            st.markdown("#### 📊 Rezultati proračuna (Faza 2 — opcija)")
+            uploaded_results = st.file_uploader(
+                "ETABS tablice rezultata (.xlsx, .xls, .csv):",
+                type=["xlsx", "xls", "csv"],
+                help="Opcionalno: Izvoz iz ETABS-a (Display → Show Tables → Export Tables to Excel) za analizu katnih pomaka (drifts), poprečnih sila, pritisaka na tlo i armature.",
+                key="uploaded_results_file"
+            )
+            st.caption("ℹ️ *Display → Show Tables → Export to Excel (opcionalno)*")
+        else:
+            uploaded_results = None
+            st.markdown("---")
+            st.markdown("#### 📊 Rezultati proračuna (Faza 2)")
+            demo_include_results = st.checkbox(
+                "Uključi ogledne rezultate proračuna (Faza 2)",
+                value=True,
+                key="demo_include_results_chk",
+                help="Automatski generira i analizira proračunske tablice (Story Drifts, Story Forces, Reakcije tla) za demonstraciju Faze 2."
+            )
 
         uploaded_drawing = uploaded_pdf_doc
         if not use_demo and doc_type.startswith("📐"):
@@ -1826,6 +1847,21 @@ def main():
             else:
                 df_dxf = parse_dxf(dxf_path, cfg)
                 df_res = validate(etabs_data, df_dxf, cfg)
+
+            # Phase 2: Optional ETABS analysis results parsing
+            results_data = None
+            if not use_demo and uploaded_results is not None:
+                try:
+                    results_data = parse_etabs_results(uploaded_results.getvalue())
+                except Exception as ex:
+                    st.warning(f"Upozorenje pri čitanju tablica rezultata: {ex}")
+            elif use_demo and st.session_state.get("demo_include_results_chk", True):
+                try:
+                    results_data = parse_etabs_results(create_demo_etabs_results(etabs_data))
+                except Exception:
+                    results_data = None
+
+            df_res.attrs["results_data"] = results_data
         except Exception as err:
             st.error(f"Greška tijekom obrade modela: {err}")
             return
@@ -2071,7 +2107,8 @@ def main():
 
     # ── TAB 2: Studentska & Nastavna revizijska lista ───────────
     with t_audit:
-        audit_results = run_curriculum_audit(etabs_data)
+        results_data = df_res.attrs.get("results_data")
+        audit_results = run_curriculum_audit(etabs_data, results_data=results_data)
         score_data = calculate_audit_score(audit_results)
 
         # Quick KPI extractions from Phase 1 audit checks
@@ -2131,6 +2168,76 @@ def main():
               </div>
             </div>
             """, unsafe_allow_html=True)
+
+        # Phase 2: Optional ETABS Results Dashboard
+        if results_data and results_data.get("has_results"):
+            res_sum = results_data.get("summary", {})
+            st.markdown("""
+            <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: white; border-radius: 10px; padding: 16px 20px; margin: 16px 0 12px 0;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                <div>
+                  <div style="font-size: 0.78rem; text-transform: uppercase; color: #38bdf8; font-weight: 700; letter-spacing: 0.05em;">Faza 2 · Analiza rezultata proračuna</div>
+                  <div style="font-size: 1.22rem; font-weight: 800; color: #ffffff;">📊 Izlazne tablice: Katni pomaci, poprečne sile i reakcije tla</div>
+                </div>
+                <div style="background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; color: #38bdf8; font-weight: 600;">
+                  ✅ Tablice uspješno obrađene
+                </div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            rc1, rc2, rc3, rc4 = st.columns(4)
+            d_val = res_sum.get("max_drift_overall", 0.0)
+            rc1.metric("Maks. katni pomak (dr)", f"{d_val:.4f}", "✅ Unutar EC8 (≤0.0050)" if d_val <= 0.0050 else "⚠️ Prelazi 0.0050")
+            v_max = max(res_sum.get("base_shear_x_kn", 0), res_sum.get("base_shear_y_kn", 0))
+            rc2.metric("Ukupni posmik V_base", f"{v_max:,.0f} kN", f"X: {res_sum.get('base_shear_x_kn', 0):,.0f} | Y: {res_sum.get('base_shear_y_kn', 0):,.0f} kN")
+            rc3.metric("Max pritisak na tlo", f"{res_sum.get('max_soil_pressure_kpa', 0):.0f} kPa", "✅ Bez odizanja" if not res_sum.get("has_soil_uplift") else "⚠️ Odizanje uočeno")
+            rc4.metric("Kritični stup", f"{res_sum.get('critical_frame', '—')}", f"PMM = {res_sum.get('max_pmm_ratio', 0.0):.2f} (≤ 1.00)")
+
+            drifts_profile = res_sum.get("drift_by_story", [])
+            col_chart1, col_chart2 = st.columns(2)
+            with col_chart1:
+                if drifts_profile:
+                    st_names = [d["story"] for d in drifts_profile]
+                    d_vals = [d["drift"] for d in drifts_profile]
+                    fig_drift = go.Figure()
+                    fig_drift.add_trace(go.Scatter(
+                        x=d_vals, y=st_names,
+                        mode="lines+markers",
+                        name="Proračunski drift",
+                        line=dict(color="#38bdf8", width=3),
+                        marker=dict(size=9, color="#0284c7")
+                    ))
+                    fig_drift.add_vline(x=0.0050, line_dash="dash", line_color="#ef4444", annotation_text="EC8 limit (5.0‰)", annotation_position="top right")
+                    fig_drift.update_layout(
+                        title="📈 Krivulja katnih pomaka po visini (Story Drift)",
+                        xaxis_title="Međukatni pomak dr [-]",
+                        yaxis_title="Etaža",
+                        height=260,
+                        margin=dict(l=40, r=20, t=40, b=30),
+                    )
+                    st.plotly_chart(fig_drift, use_container_width=True)
+            with col_chart2:
+                df_sf = results_data.get("story_forces", pd.DataFrame())
+                if not df_sf.empty:
+                    col_v = "VX" if "VX" in df_sf.columns else ("vx" if "vx" in df_sf.columns else None)
+                    col_s = "Story" if "Story" in df_sf.columns else ("story" if "story" in df_sf.columns else None)
+                    if col_v and col_s:
+                        grp_sf = df_sf.groupby(col_s)[col_v].apply(lambda s: s.abs().max()).reset_index()
+                        fig_sf = go.Figure(go.Bar(
+                            x=grp_sf[col_s], y=grp_sf[col_v],
+                            marker_color="#6366f1"
+                        ))
+                        fig_sf.update_layout(
+                            title="⚖️ Katne poprečne sile Vx (kN)",
+                            xaxis_title="Etaža",
+                            yaxis_title="Poprečna sila (kN)",
+                            height=260,
+                            margin=dict(l=40, r=20, t=40, b=30),
+                        )
+                        st.plotly_chart(fig_sf, use_container_width=True)
+        else:
+            st.info("💡 **Faza 2 (Opcionalno)**: Za automatski uvid u katne pomake, raspodjelu poprečne sile, pritiske na tlo i armaturu, u lijevom izborniku priložite ETABS tablice rezultata (`Display → Show Tables → Export Tables to Excel`).")
 
         st.markdown("<hr style='margin: 16px 0;'>", unsafe_allow_html=True)
 
