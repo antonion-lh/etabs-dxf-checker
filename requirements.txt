@@ -4,11 +4,13 @@ pandas>=2.0.0         # DataFrames
 scipy>=1.13.0         # KDTree spatial queries
 numpy>=1.26.0         # Array math
 Pillow>=10.0.0        # Image handling (JPEG/PNG/TIFF drawing viewer)
-PyMuPDF>=1.26.0       # PDF → image conversion for drawing viewer
+PyMuPDF>=1.24.0       # PDF → image conversion for drawing viewer
+openpyxl>=3.1.0       # Excel table reading (.xlsx)
 
 # PDF Report Generation (pure Python, cross-platform)
 xhtml2pdf>=0.2.17     # HTML to PDF conversion
 reportlab>=4.0.0      # PDF generation engine
+weasyprint>=60.0      # High-fidelity HTML to PDF conversion
 
 # Web Application & Interactive UI
 streamlit>=1.30.0
