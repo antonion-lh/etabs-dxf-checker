@@ -280,6 +280,7 @@ def _sidebar() -> tuple:
             if st.button("Isključi demo / Učitaj vlastiti projekt", use_container_width=True, key="btn_reset_session"):
                 st.session_state["use_demo"] = False
                 st.session_state["demo_choice_key"] = "strossmayer"
+                st.session_state.pop("_header_badge", None)
                 st.rerun()
 
     return uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results, uploaded_ref_drawing
@@ -358,12 +359,28 @@ def main():
             is_pdf_mode = True
         has_data = True
 
+    # Reset transient session state if active model changes
+    cur_model_id = (demo_choice if use_demo else (project_label or "uploaded")) if has_data else None
+    if st.session_state.get("_last_loaded_model_id") != cur_model_id:
+        st.session_state["_last_loaded_model_id"] = cur_model_id
+        st.session_state.pop("tab1_story_pills", None)
+        st.session_state.pop("tab1_view_pills", None)
+        st.session_state.pop("active_pdf_page", None)
+        st.session_state.pop("_last_synced_story", None)
+        st.session_state.pop("audit_cat_filter", None)
+        st.session_state.pop("audit_filter_status", None)
+        st.session_state.pop("sub_elem_view", None)
+        st.session_state.pop("elem_status_pills", None)
+        if not has_data:
+            st.session_state.pop("_header_badge", None)
+
     # ── Top App Header Bar ────────────────────────────────────
+    active_badge = st.session_state.get("_header_badge") if has_data else None
     try:
         render_header_bar(
             project_name=project_label,
             version="v2.1.0",
-            status_badge=st.session_state.get("_header_badge")
+            status_badge=active_badge
         )
     except TypeError:
         render_header_bar(project_name=project_label, version="v2.1.0")
@@ -498,7 +515,7 @@ def main():
                 label_visibility="collapsed"
             ) or story_opts[0]
 
-        if sel_story != "Sve etaže":
+        if sel_story != "Sve etaže" and sel_story in story_names:
             curr_idx = story_names.index(sel_story)
             selected_story_data = stories[curr_idx]
             active_story_name = selected_story_data["name"]
