@@ -33,8 +33,8 @@ st.set_page_config(
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEMO_SKOLA_DXF = os.path.join(SCRIPT_DIR, "demo_skola.dxf")
-DEMO_SKOLA_E2K = os.path.join(SCRIPT_DIR, "demo_skola.e2k")
-DEMO_SKOLA_PDF = os.path.join(SCRIPT_DIR, "demo_projekt_skola.pdf")
+DEMO_SKOLA_E2K = os.path.join(SCRIPT_DIR, "STROSSMAYER_2.e2k") if os.path.exists(os.path.join(SCRIPT_DIR, "STROSSMAYER_2.e2k")) else os.path.join(SCRIPT_DIR, "demo_skola.e2k")
+DEMO_SKOLA_PDF = os.path.join(SCRIPT_DIR, "OS_VARSAVSKA_arh_proj_dijelovi.pdf") if os.path.exists(os.path.join(SCRIPT_DIR, "OS_VARSAVSKA_arh_proj_dijelovi.pdf")) else os.path.join(SCRIPT_DIR, "demo_projekt_skola.pdf")
 
 DEMO_COMMERCIAL_DXF = os.path.join(SCRIPT_DIR, "demo_commercial_building.dxf")
 DEMO_COMMERCIAL_E2K = os.path.join(SCRIPT_DIR, "demo_commercial_building.e2k")
