@@ -309,18 +309,25 @@ def inject_app_css():
 def render_header_bar(
     project_name: str = None,
     version: str = "v2.1.0",
-    status_badge: tuple = None
+    status_badge: tuple = None,
+    *args,
+    **kwargs
 ):
+    if status_badge is None and "status_badge" in kwargs:
+        status_badge = kwargs["status_badge"]
     proj_txt = f"Projekt: {project_name}" if project_name else "Projekt: —"
     badge_html = ""
-    if status_badge:
-        badge_text, badge_color = status_badge
-        badge_html = (
-            f'<span style="background:{badge_color}18; color:{badge_color};'
-            f'border:1px solid {badge_color}40; border-radius:4px;'
-            f'padding:2px 10px; font-size:11px; font-weight:600;'
-            f'margin-left:12px;">{badge_text}</span>'
-        )
+    if status_badge and isinstance(status_badge, (tuple, list)) and len(status_badge) == 2:
+        try:
+            badge_text, badge_color = status_badge
+            badge_html = (
+                f'<span style="background:{badge_color}18; color:{badge_color};'
+                f'border:1px solid {badge_color}40; border-radius:4px;'
+                f'padding:2px 10px; font-size:11px; font-weight:600;'
+                f'margin-left:12px;">{badge_text}</span>'
+            )
+        except Exception:
+            badge_html = ""
     st.markdown(f"""
     <div class="app-header">
       <div class="app-header-left">

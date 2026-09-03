@@ -29,6 +29,12 @@ from report import generate_pdf, generate_html
 from curriculum_audit import run_curriculum_audit, calculate_audit_score
 from results_parser import parse_etabs_results, create_demo_etabs_results
 
+import importlib
+import ui_styles
+try:
+    importlib.reload(ui_styles)
+except Exception:
+    pass
 from ui_styles import (
     inject_app_css,
     render_header_bar,
@@ -353,11 +359,14 @@ def main():
         has_data = True
 
     # ── Top App Header Bar ────────────────────────────────────
-    render_header_bar(
-        project_name=project_label,
-        version="v2.1.0",
-        status_badge=st.session_state.get("_header_badge")
-    )
+    try:
+        render_header_bar(
+            project_name=project_label,
+            version="v2.1.0",
+            status_badge=st.session_state.get("_header_badge")
+        )
+    except TypeError:
+        render_header_bar(project_name=project_label, version="v2.1.0")
 
     # ── Landing State: Minimalist clean screen ────────────────
     if not has_data:
