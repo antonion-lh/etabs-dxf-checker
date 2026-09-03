@@ -687,14 +687,15 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 except ValueError:
                     pass
 
-            if elev_val is None and len(nums) >= 2:
-                n1, n2 = nums[0], nums[1]
-                h_val = min(n1, n2) if h_val is None else h_val
-                elev_val = max(n1, n2)
-            elif elev_val is None and len(nums) == 1:
-                elev_val = nums[0]
+            if elev_val is None and h_val is None:
+                if len(nums) >= 2:
+                    n1, n2 = nums[0], nums[1]
+                    h_val = min(n1, n2)
+                    elev_val = max(n1, n2)
+                elif len(nums) == 1:
+                    elev_val = nums[0]
 
-            if s_name and elev_val is not None:
+            if s_name and (h_val is not None or elev_val is not None):
                 raw_stories.append({
                     "name": s_name,
                     "height": h_val,
@@ -744,21 +745,22 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 if elev is not None and elev > curr_z:
                     h = round(elev - curr_z, 2)
                     z_top = round(elev, 2)
+                elif h is not None and h > 0.1:
+                    z_top = round(curr_z + h, 2)
                 else:
-                    if h is None or h <= 0.1:
-                        h = 3.50
+                    h = 3.50
                     z_top = round(curr_z + h, 2)
 
                 z_bot = round(curr_z, 2)
                 curr_z = z_top
 
-                # Standardized Croatian civil engineering display names
+                # Standardized Croatian civil engineering display names with story ID
                 if idx == 0:
-                    disp_nm = "Prizemlje"
+                    disp_nm = f"Prizemlje ({s['name']})"
                 elif idx == num_floors - 1 and num_floors > 2:
-                    disp_nm = f"{idx}. Kat / Krovište" if idx > 1 else "Krovište / Potkrovlje"
+                    disp_nm = f"{idx}. Kat / Krovište ({s['name']})"
                 else:
-                    disp_nm = f"{idx}. Kat"
+                    disp_nm = f"{idx}. Kat ({s['name']})"
 
                 stories.append({
                     "name": s["name"],
@@ -970,7 +972,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if is_wall:
                 seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
-                is_opening = (1.57 <= seg_len <= 1.63 and min(wy1, wy2) < 0.5) or (atype in ("opening", "window"))
+                is_opening = (1.58 <= seg_len <= 1.62) or (atype in ("opening", "window"))
                 is_cut = not is_opening
 
                 w_pts_3d = [(wx1, wy1, z_bot), (wx2, wy2, z_bot), (wx2, wy2, z_top), (wx1, wy1, z_top)]

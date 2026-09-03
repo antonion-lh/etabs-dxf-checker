@@ -876,10 +876,10 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             L = math.hypot(dx, dy)
 
             # Auto-detect opening if segment is exactly 1.60m on facade (or explicitly tagged)
-            is_opening = w.get("is_opening", False) or (1.57 <= L <= 1.63 and min(y1, y2) < 0.5)
+            is_opening = w.get("is_opening", False) or (1.58 <= L <= 1.62)
             is_cut = w.get("is_cut", not is_opening) if not is_opening else False
 
-            loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
+            loc_key = (w.get("story", ""), round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
                 if loc_key in drawn_openings:
                     continue
@@ -1289,9 +1289,9 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             z_bot = w.get("z_min", 0.0)
             z_top = w.get("z_max", 3.5)
             L = math.hypot(x2 - x1, y2 - y1)
-            is_opening = w.get("is_opening", False) or (1.57 <= L <= 1.63 and min(y1, y2) < 0.5)
+            is_opening = w.get("is_opening", False) or (1.58 <= L <= 1.62)
 
-            loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
+            loc_key = (w.get("story", ""), round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
                 if loc_key in drawn_openings_3d:
                     continue
@@ -1339,7 +1339,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
 
         # Add entrance portal lintel panel above front doorway (X in [18.10, 20.90], Y=0)
         has_entrance = any(abs(w.get("y_start", 99)) < 0.1 and abs(w.get("y_end", 99)) < 0.1 for _, w in walls.iterrows())
-        if has_entrance:
+        if has_entrance and (not active_story_name or "1" in str(active_story_name) or "prizem" in str(active_story_name).lower()):
             ent_p = [(18.10, 0.0, 2.40), (20.90, 0.0, 2.40), (20.90, 0.0, 3.50), (18.10, 0.0, 3.50)]
             for p in ent_p:
                 w_xs.append(p[0]); w_ys.append(p[1]); w_zs.append(p[2])
@@ -1409,7 +1409,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 x=s_mesh_x, y=s_mesh_y, z=s_mesh_z,
                 i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
                 color="#e2e8f0",
-                opacity=0.92,
+                opacity=0.92 if active_story_name else 0.25,
                 flatshading=True,
                 lighting=dict(ambient=0.92, diffuse=0.1, specular=0.0),
                 name="Podna ploča (ETABS)",
@@ -1433,8 +1433,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
         scene=dict(
             aspectmode="data",
             camera=dict(
-                eye=dict(x=-1.25, y=-1.75, z=1.35),
-                center=dict(x=0, y=0, z=-0.15),
+                eye=dict(x=-1.25, y=-1.75, z=1.35) if active_story_name else dict(x=-1.60, y=-2.10, z=1.15),
+                center=dict(x=0, y=0, z=-0.15) if active_story_name else dict(x=0, y=0, z=0.0),
                 up=dict(x=0, y=0, z=1)
             ),
             xaxis=dict(visible=False, showgrid=False, showbackground=False, zeroline=False),
