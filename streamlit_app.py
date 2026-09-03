@@ -388,20 +388,31 @@ def main():
     # ── Landing State: Minimalist clean screen ────────────────
     if not has_data:
         render_landing_screen()
-        c_l1, c_l2 = st.columns(2, gap="medium")
+        c_l1, c_l2 = st.columns(2, gap="large")
         with c_l1:
-            st.markdown("<div style='text-align: center; margin-bottom: 8px; font-weight:600; color:#374151;'>Ogledni primjeri</div>", unsafe_allow_html=True)
-            if st.button("Otvori OŠ Strossmayer (Zidana zgrada + PDF elaborat)", use_container_width=True, type="primary"):
+            st.markdown("<div style='margin-bottom: 8px; font-weight:600; color:#1E293B; font-size:14px;'>Ogledni inženjerski primjeri</div>", unsafe_allow_html=True)
+            if st.button("OŠ Strossmayer — Zidana zgrada + PDF elaborat", use_container_width=True, type="primary"):
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "strossmayer"
                 st.rerun()
-            if st.button("Otvori Poslovni centar (AB okvir + CAD DXF nacrt)", use_container_width=True):
+            if st.button("Poslovni centar — AB okvir + CAD DXF nacrt", use_container_width=True):
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "commercial"
                 st.rerun()
+            if st.button("Referentni model — 4 stupa, 1 greda, 1 zid (brzi test)", use_container_width=True):
+                st.session_state["use_demo"] = True
+                st.session_state["demo_choice_key"] = "small"
+                st.rerun()
         with c_l2:
-            st.markdown("<div style='text-align: center; margin-bottom: 8px; font-weight:600; color:#374151;'>Vlastiti model</div>", unsafe_allow_html=True)
-            st.caption("U lijevom izborniku priložite .e2k datoteku iz ETABS-a (File → Export → ETABS .e2k Text File...) i pripadajući arhitektonski nacrt (.dxf ili .pdf).")
+            st.markdown("""
+            <div class="own-model-card">
+              <div class="own-model-title">Učitavanje vlastitog projekta</div>
+              <div class="own-model-desc">
+                U lijevom bočnom izborniku učitajte <strong>.e2k</strong> tekstualnu datoteku iz ETABS-a te pripadajući <strong>.dxf</strong> ili <strong>.pdf</strong> nacrt.
+              </div>
+              <div class="own-model-hint">← Otvorite bočni izbornik za početak</div>
+            </div>
+            """, unsafe_allow_html=True)
         return
 
     # ── Process Model & Data ─────────────────────────────────
@@ -568,20 +579,21 @@ def main():
             df_eval = df_res.copy()
             df_eval.attrs = dict(df_res.attrs)
 
+        cad_plot_cfg = {"displaylogo": False, "modeBarButtonsToRemove": ["lasso2d", "select2d"]}
         # Viewport rendering by sel_view (Task 2b)
         if sel_view == "3D Model":
-            st.plotly_chart(fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True)
+            st.plotly_chart(fig_3d(df_res, etabs_data, active_story_name=active_story_name, etabs_color_mode=True), use_container_width=True, config=cad_plot_cfg)
         elif sel_view == "Usporedno s nacrtom" and has_drawing:
             col_m, col_d = st.columns(2, gap="medium")
             with col_m:
                 st.markdown("<div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px;'>Numerički model (ETABS)</div>", unsafe_allow_html=True)
-                st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
+                st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True, config=cad_plot_cfg)
             with col_d:
                 render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name, demo_sheet_map=demo_sheet_map)
         elif sel_view == "Samo nacrt" and has_drawing:
             render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name, demo_sheet_map=demo_sheet_map)
         else:
-            st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True)
+            st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True, config=cad_plot_cfg)
 
     # ── TAB 2: Revizija (Triage Code-Review) (Tasks 3, 4, 5, 6) ─
     with t_audit:
@@ -593,9 +605,11 @@ def main():
         grade_num = score_data.get("grade", 1)
         grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
         pct_num = score_data.get("percentage", 0.0)
+        badge_colors = {5: "#16A34A", 4: "#2563EB", 3: "#D97706", 2: "#EA580C", 1: "#DC2626"}
+        bar_color = badge_colors.get(grade_num, "#6B7280")
 
         st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #E5E7EB; padding-bottom: 10px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #E5E7EB; padding-bottom: 10px; margin-bottom: 8px;">
           <div>
             <span style="font-size: 16px; font-weight: 600; color: #111827;">Ocjena: {grade_num} — {grade_simple}</span>
             <span style="color: #6B7280; font-size: 13px; margin-left: 12px;">{pct_num} / 100 bodova</span>
@@ -604,6 +618,9 @@ def main():
           <div class="mono" style="color: #6B7280; font-size: 12px;">
             {len(audit_results)} točaka provjereno
           </div>
+        </div>
+        <div style="background:#E2E8F0; border-radius:3px; height:5px; width:100%; margin-bottom:14px; overflow:hidden;">
+          <div style="background:{bar_color}; width:{min(max(pct_num, 0), 100)}%; height:100%; border-radius:3px;"></div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -890,7 +907,7 @@ def main():
                     unsafe_allow_html=True
                 )
 
-            col_f1, col_f2, col_f3 = st.columns([2.5, 1.5, 1.5])
+            col_f1, col_f2, col_f3, col_f4 = st.columns([2.3, 1.2, 1.5, 1.0])
             with col_f1:
                 sel_pill = st.segmented_control(
                     "Status elementa:",
@@ -919,6 +936,16 @@ def main():
 
             with col_f3:
                 search_txt = st.text_input("Pretraga", placeholder="Naziv, presjek...", label_visibility="collapsed", key="tb_srch")
+
+            with col_f4:
+                st.download_button(
+                    "Izvoz .csv",
+                    data=dfd.to_csv(index=False).encode("utf-8"),
+                    file_name=f"elementi_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key="btn_dl_csv_tab3"
+                )
 
             if search_txt:
                 q = search_txt.lower()
@@ -1145,7 +1172,7 @@ def main():
                         audit_summary_md += "\n"
                     zf.writestr("evaluacija_modela.md", audit_summary_md.encode("utf-8"))
 
-                btn_c1, btn_c2, btn_c3 = st.columns(3)
+                btn_c1, btn_c2 = st.columns(2)
                 with btn_c1:
                     if pdf_bytes:
                         st.download_button(
@@ -1156,20 +1183,26 @@ def main():
                             use_container_width=True,
                             type="primary"
                         )
-                with btn_c2:
                     st.download_button(
-                        "Preuzmi HTML",
+                        "Preuzmi HTML izvještaj",
                         data=html_code,
                         file_name="revizijski_elaborat.html",
                         mime="text/html",
                         use_container_width=True
                     )
-                with btn_c3:
+                with btn_c2:
                     st.download_button(
-                        "Preuzmi paket (.zip)",
+                        "Preuzmi cjeloviti paket (.zip)",
                         data=zip_buffer.getvalue(),
                         file_name="revizijski_paket_elaborat.zip",
                         mime="application/zip",
+                        use_container_width=True
+                    )
+                    st.download_button(
+                        "Preuzmi sažetak (.md)",
+                        data=audit_summary_md,
+                        file_name="evaluacija_modela.md",
+                        mime="text/markdown",
                         use_container_width=True
                     )
 

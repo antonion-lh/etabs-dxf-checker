@@ -300,6 +300,68 @@ h3 {
     padding-bottom: 4px;
     border-bottom: 1px solid #F3F4F6;
 }
+
+/* Modern Engineering Buttons */
+[data-testid="stBaseButton-primary"] {
+    background-color: #0F172A !important;
+    color: #FFFFFF !important;
+    border: 1px solid #0F172A !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    font-size: 13px !important;
+    letter-spacing: -0.01em !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    background-color: #1E293B !important;
+    border-color: #1E293B !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    background-color: #FFFFFF !important;
+    color: #1E293B !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 6px !important;
+    font-weight: 500 !important;
+    font-size: 13px !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    background-color: #F8FAFC !important;
+    border-color: #CBD5E1 !important;
+    color: #0F172A !important;
+}
+
+/* Own model card on landing screen */
+.own-model-card {
+    border: 1px dashed #CBD5E1;
+    border-radius: 6px;
+    padding: 24px 20px;
+    text-align: center;
+    background: #FAFAFA;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+.own-model-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1E293B;
+    margin-bottom: 8px;
+}
+.own-model-desc {
+    font-size: 12px;
+    color: #64748B;
+    line-height: 1.5;
+    margin-bottom: 12px;
+}
+.own-model-hint {
+    font-size: 11px;
+    font-weight: 600;
+    color: #2563EB;
+}
 </style>
 """
 
