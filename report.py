@@ -505,7 +505,7 @@ function applyFilters() {{
 
 def generate_html(
     df_result: pd.DataFrame,
-    output_path: str,
+    output_path: str = None,
     cfg: Config = DEFAULT_CONFIG,
 ) -> str:
     """Write HTML report and return the HTML string (for PDF conversion)."""
@@ -529,8 +529,9 @@ def generate_html(
         restraints_table = _restraints_table_html(pd.DataFrame(df_result.attrs.get("restraints", []))) if cfg.audit_restraints else "",
         hinge_table      = _hinge_table_html(df_result, cols),
     )
-    Path(output_path).write_text(html, encoding="utf-8")
-    log.info("HTML report written: %s", output_path)
+    if output_path:
+        Path(output_path).write_text(html, encoding="utf-8")
+        log.info("HTML report written: %s", output_path)
     return html
 
 

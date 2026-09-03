@@ -610,10 +610,16 @@ def main():
             """, unsafe_allow_html=True)
 
             st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-                tmp_pdf_path = tmp_pdf.name
 
             try:
+                html_code = generate_html(df_res, None, cfg)
+            except Exception as e:
+                html_code = f"<p>Greška pri generiranju HTML izvještaja: {e}</p>"
+
+            pdf_bytes = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+                    tmp_pdf_path = tmp_pdf.name
                 generate_pdf(df_res, tmp_pdf_path, cfg)
                 with open(tmp_pdf_path, "rb") as f_pdf:
                     pdf_bytes = f_pdf.read()
@@ -635,7 +641,6 @@ def main():
                         type="primary"
                     )
             with btn_c2:
-                html_code = generate_html(df_res, None, cfg)
                 st.download_button(
                     "Preuzmi HTML",
                     data=html_code,
@@ -646,7 +651,6 @@ def main():
 
         with meta_col2:
             st.markdown("<div style='font-size: 12px; font-weight: 600; color: #6B7280; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
-            html_code = generate_html(df_res, None, cfg)
             st.components.v1.html(html_code, height=480, scrolling=True)
 
 if __name__ == "__main__":
