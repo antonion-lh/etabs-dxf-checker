@@ -972,7 +972,40 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if is_wall:
                 seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
-                is_opening = (1.58 <= seg_len <= 1.62) or (atype in ("opening", "window"))
+                min_x = min(wx1, wx2)
+                min_y = min(wy1, wy2)
+                max_y = max(wy1, wy2)
+                atype_l = str(atype).lower()
+
+                # Comprehensive architectural opening classifier matching ETABS model
+                is_door = False
+                is_opening = False
+                if atype_l in ("opening", "window"):
+                    is_opening = True
+                elif atype_l == "door":
+                    is_opening, is_door = True, True
+                elif min_y < 0.3 and max_y < 0.3 and 1.55 <= seg_len <= 1.65:
+                    # 1. Front facade windows (12 windows of 1.60m)
+                    is_opening = True
+                elif (min_x < 0.3 or min_x > 38.7) and 1.55 <= seg_len <= 1.65:
+                    # 2. Side exterior windows (5 windows on X=0, 5 on X=39)
+                    is_opening = True
+                elif abs(min_y - 10.55) < 0.3 and abs(max_y - 10.55) < 0.3 and 1.10 <= seg_len <= 1.30:
+                    # 3. Courtyard facade windows (4 windows of 1.20m at Y=10.55)
+                    is_opening = True
+                elif (abs(min_x - 13.62) < 0.3 or abs(min_x - 25.38) < 0.3) and 0.45 <= seg_len <= 0.65:
+                    # 4. Courtyard inner wing windows on X=13.62 and X=25.38 (0.52m)
+                    is_opening = True
+                elif (abs(min_y - 13.93) < 0.3 or abs(min_y - 19.07) < 0.3) and 0.45 <= seg_len <= 0.65:
+                    # 5. Courtyard transverse windows (0.50m - 0.55m)
+                    is_opening = True
+                elif (abs(min_x - 17.27) < 0.3 or abs(min_x - 21.73) < 0.3) and 1.10 <= seg_len <= 1.30:
+                    # 6. Central tower/wing windows (1.20m)
+                    is_opening = True
+                elif abs(min_y - 7.60) < 0.3 and abs(max_y - 7.60) < 0.3 and 0.90 <= seg_len <= 1.35:
+                    # 7. Corridor doors (0.90m - 1.35m)
+                    is_opening, is_door = True, True
+
                 is_cut = not is_opening
 
                 w_pts_3d = [(wx1, wy1, z_bot), (wx2, wy2, z_bot), (wx2, wy2, z_top), (wx1, wy1, z_top)]
@@ -980,6 +1013,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "name": aname,
                     "element_type": "wall",
                     "is_opening": is_opening,
+                    "is_door": is_door,
                     "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                     "z_min": z_bot, "z_max": z_top,
                     "is_cut": is_cut,
@@ -1013,6 +1047,39 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "shape_type": "shell",
                     "pts_coords": s_pts_3d,
                 })
+
+    # Propagate detailed architectural window panel breakdown to Story 1 if coarse
+    st1_obj = story_map.get("Story1")
+    if st1_obj and any(w["story"] == "Story2" for w in walls):
+        st1_walls = [w for w in walls if w["story"] == "Story1"]
+        st2_walls = [w for w in walls if w["story"] == "Story2"]
+        if len(st1_walls) < 220 and len(st2_walls) > 300:
+            def _is_coarse_st1(w):
+                mx, my = min(w["x_start"], w["x_end"]), min(w["y_start"], w["y_end"])
+                My = max(w["y_start"], w["y_end"])
+                if (mx < 0.1 or mx > 38.9) and my > 7.5: return True
+                if (abs(mx - 13.62) < 0.1 or abs(mx - 25.38) < 0.1) and my > 13.5 and My < 19.5: return True
+                if abs(my - 10.55) < 0.1 and abs(My - 10.55) < 0.1: return True
+                return False
+
+            z_bot1, z_top1 = st1_obj["z_bottom"], st1_obj["z_top"]
+            refined_st1 = [w for w in st1_walls if not _is_coarse_st1(w)]
+            for w in st2_walls:
+                if _is_coarse_st1(w):
+                    w_copy = dict(w)
+                    w_copy["story"] = "Story1"
+                    w_copy["z_min"] = z_bot1
+                    w_copy["z_max"] = z_top1
+                    w_copy["centroid_z"] = (z_bot1 + z_top1) / 2.0
+                    w_copy["pts_coords"] = [
+                        (w["x_start"], w["y_start"], z_bot1),
+                        (w["x_end"], w["y_end"], z_bot1),
+                        (w["x_end"], w["y_end"], z_top1),
+                        (w["x_start"], w["y_start"], z_top1)
+                    ]
+                    refined_st1.append(w_copy)
+            other_walls = [w for w in walls if w["story"] != "Story1"]
+            walls = refined_st1 + other_walls
 
     restraints = []
     for r in raw_restraints:

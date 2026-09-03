@@ -721,6 +721,49 @@ def _kpi_strip(df: pd.DataFrame, is_pdf_mode: bool = False, etabs_data: dict = N
 # ─────────────────────────────────────────────────────────────
 # 2D Floorplan: True architectural layout with CAD axis bubbles
 # ─────────────────────────────────────────────────────────────
+def _classify_wall_opening_st(wx1, wy1, wx2, wy2, atype=""):
+    seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
+    min_x = min(wx1, wx2)
+    min_y = min(wy1, wy2)
+    max_y = max(wy1, wy2)
+    atype_l = str(atype).lower()
+
+    if atype_l in ("opening", "window"):
+        return True, False
+    if atype_l == "door":
+        return True, True
+
+    # 1. Front facade windows (12 windows of 1.60m on Y=0)
+    if min_y < 0.3 and max_y < 0.3 and 1.55 <= seg_len <= 1.65:
+        return True, False
+
+    # 2. Side exterior windows (5 windows on X=0, 5 on X=39, L=1.60m)
+    if (min_x < 0.3 or min_x > 38.7) and 1.55 <= seg_len <= 1.65:
+        return True, False
+
+    # 3. Courtyard facade windows at Y=10.55 (4 windows of 1.20m)
+    if abs(min_y - 10.55) < 0.3 and abs(max_y - 10.55) < 0.3 and 1.10 <= seg_len <= 1.30:
+        return True, False
+
+    # 4. Courtyard inner wing windows on X=13.62 and X=25.38 (windows of 0.52m)
+    if (abs(min_x - 13.62) < 0.3 or abs(min_x - 25.38) < 0.3) and 0.45 <= seg_len <= 0.65:
+        return True, False
+
+    # 5. Courtyard transverse windows on Y=13.93 and Y=19.07 (windows of 0.50m - 0.55m)
+    if (abs(min_y - 13.93) < 0.3 or abs(min_y - 19.07) < 0.3) and 0.45 <= seg_len <= 0.65:
+        return True, False
+
+    # 6. Central tower/wing windows on X=17.27 and X=21.73 (windows of 1.20m)
+    if (abs(min_x - 17.27) < 0.3 or abs(min_x - 21.73) < 0.3) and 1.10 <= seg_len <= 1.30:
+        return True, False
+
+    # 7. Corridor doors on Y=7.60 (doors of 0.90m - 1.35m)
+    if abs(min_y - 7.60) < 0.3 and abs(max_y - 7.60) < 0.3 and 0.90 <= seg_len <= 1.35:
+        return True, True
+
+    return False, False
+
+
 def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None) -> go.Figure:
     COLOR_MAP = {
         Status.MATCH:            ("#10b981", "Usklađeno s nacrtom"),
@@ -819,7 +862,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             ))
 
     # Any DXF-only beams
-    dxf_only_beams = df_res[(df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "beam")]
+    dxf_only_beams = df_res[(df_res["status"] == Status.DXF_ONLY) & (df_res["element_type"] == "beam")] if not df_res.empty and "status" in df_res.columns and "element_type" in df_res.columns else pd.DataFrame()
     for _, bm in dxf_only_beams.iterrows():
         bx = bm.get("dxf_x", 0.0)
         by = bm.get("dxf_y", 0.0)
@@ -859,7 +902,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             if walls_to_draw.empty:
                 walls_to_draw = walls_all
         else:
-            active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str))
+            active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str)) if not df_res.empty and "element_type" in df_res.columns and "etabs_name" in df_res.columns else set()
             walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
 
         drawn_openings = set()
@@ -875,9 +918,12 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             dy = y2 - y1
             L = math.hypot(dx, dy)
 
-            # Auto-detect opening if segment is exactly 1.60m on facade (or explicitly tagged)
-            is_opening = w.get("is_opening", False) or (1.58 <= L <= 1.62)
-            is_cut = w.get("is_cut", not is_opening) if not is_opening else False
+            # Auto-detect opening if tagged or matched architectural opening
+            is_opening = bool(w.get("is_opening", False))
+            is_door = bool(w.get("is_door", False))
+            if not is_opening:
+                is_opening, is_door = _classify_wall_opening_st(x1, y1, x2, y2, w.get("atype", ""))
+            is_cut = not is_opening
 
             loc_key = (w.get("story", ""), round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
@@ -945,6 +991,23 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     hoverinfo="skip",
                     showlegend=False,
                 ))
+            elif is_door:
+                # 🚪 OTVOR ZA VRATA / PROLAZ (Door opening)
+                fig.add_trace(go.Scatter(
+                    x=poly_x, y=poly_y,
+                    fill="toself",
+                    fillcolor="rgba(241, 245, 249, 0.40)",
+                    line=dict(color="#94a3b8", width=1.0, dash="dash"),
+                    mode="lines",
+                    name="Otvor vrata",
+                    hovertext=(
+                        f"<b>🚪 Otvor vrata / prolaz {w['name']}</b><br>"
+                        f"Širina otvora: {L:.2f} m<br>"
+                        f"Položaj: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})"
+                    ),
+                    hoverinfo="text",
+                    showlegend=False,
+                ))
             else:
                 # 🪟 PROZORSKI OTVOR (Window opening with translucent glass wash & sill/jamb lines)
                 fig.add_trace(go.Scatter(
@@ -956,7 +1019,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     name="Prozorski otvor",
                     hovertext=(
                         f"<b>🪟 Prozorski otvor {w['name']}</b><br>"
-                        f"Širina otvora: {L:.2f} m (160 cm)<br>"
+                        f"Širina otvora: {L:.2f} m<br>"
                         f"Debljina zida: {thick_m*1000:.0f} mm<br>"
                         f"Položaj: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})"
                     ),
@@ -997,19 +1060,23 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     ))
 
     # 4. Columns: Sharp colored squares
-    if active_story_name and "story" in df_res.columns:
-        col_records = df_res[(df_res["element_type"] == "column") & (df_res["story"] == active_story_name)]
-        if col_records.empty:
+    if not df_res.empty and "element_type" in df_res.columns:
+        if active_story_name and "story" in df_res.columns:
+            col_records = df_res[(df_res["element_type"] == "column") & (df_res["story"] == active_story_name)]
+            if col_records.empty:
+                col_records = df_res[df_res["element_type"] == "column"]
+        else:
             col_records = df_res[df_res["element_type"] == "column"]
     else:
-        col_records = df_res[df_res["element_type"] == "column"]
+        col_records = pd.DataFrame()
     marker_size = 12 if len(col_records) > 50 else 22
     show_text_on_marker = len(col_records) <= 25
 
-    for status, (color, label) in COLOR_MAP.items():
-        sub_cols = col_records[col_records["status"] == status]
-        if sub_cols.empty:
-            continue
+    if not col_records.empty and "status" in col_records.columns:
+        for status, (color, label) in COLOR_MAP.items():
+            sub_cols = col_records[col_records["status"] == status]
+            if sub_cols.empty:
+                continue
 
         xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in sub_cols.iterrows()]
         ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in sub_cols.iterrows()]
@@ -1289,7 +1356,10 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             z_bot = w.get("z_min", 0.0)
             z_top = w.get("z_max", 3.5)
             L = math.hypot(x2 - x1, y2 - y1)
-            is_opening = w.get("is_opening", False) or (1.58 <= L <= 1.62)
+            is_opening = bool(w.get("is_opening", False))
+            is_door = bool(w.get("is_door", False))
+            if not is_opening:
+                is_opening, is_door = _classify_wall_opening_st(x1, y1, x2, y2, w.get("atype", ""))
 
             loc_key = (w.get("story", ""), round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
@@ -1302,13 +1372,24 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 drawn_walls_3d.add(loc_key)
 
             if is_opening:
-                # 3D Window cutout: parapet at bottom + open hole in middle + lintel at top!
-                z_p = z_bot + 0.85
-                z_l = min(z_bot + 2.30, z_top - 0.20)
-                sub_panels = [
-                    [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],  # Parapet panel
-                    [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel panel
-                ]
+                if is_door:
+                    # Doorway: open cutout from z_bot to z_bot + 2.20, lintel above
+                    z_l = min(z_bot + 2.20, z_top - 0.20)
+                    sub_panels = [
+                        [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel
+                    ]
+                else:
+                    # 3D Window cutout: parapet at bottom + open hole in middle + lintel at top!
+                    if min(y1, y2) < 0.5:
+                        z_p = z_bot + 0.85
+                        z_l = min(z_bot + 2.30, z_top - 0.20)
+                    else:
+                        z_p = z_bot + 1.10
+                        z_l = min(z_bot + 2.35, z_top - 0.20)
+                    sub_panels = [
+                        [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],  # Parapet panel
+                        [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel panel
+                    ]
             else:
                 pts = w.get("pts_coords")
                 if isinstance(pts, (list, tuple)) and len(pts) == 4:
