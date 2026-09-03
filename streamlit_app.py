@@ -715,7 +715,7 @@ def main():
                             st.markdown(f"- {b}")
                     if item.get("recommendation"):
                         st.info(f"Uputa za ispravak: {item['recommendation']}")
-        else:
+        elif "Usklađene" not in flt_status:
             st.markdown("<div style='color: #16A34A; font-weight: 600; margin: 12px 0;'>✓ Nema uočenih grešaka ni upozorenja u modelu.</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
@@ -873,9 +873,9 @@ def main():
             sc, hc = st.columns(2, gap="large")
             with sc:
                 st.markdown("**Temeljni oslonci**")
-                rests = etabs_data.get("restraints", pd.DataFrame())
-                if isinstance(rests, list):
-                    rests = pd.DataFrame(rests)
+                rests = etabs_data.get("restraints")
+                if not isinstance(rests, pd.DataFrame):
+                    rests = pd.DataFrame(rests if isinstance(rests, list) else [])
                 if not rests.empty and "joint_name" in rests.columns:
                     rcols = [c for c in ["joint_name", "x", "y", "z", "restraint_type", "is_supported"] if c in rests.columns]
                     st.dataframe(
@@ -896,7 +896,9 @@ def main():
 
             with hc:
                 st.markdown("**Plastični zglobovi (Pushover)**")
-                hinges = etabs_data.get("hinges", pd.DataFrame())
+                hinges = etabs_data.get("hinges")
+                if not isinstance(hinges, pd.DataFrame):
+                    hinges = pd.DataFrame(hinges if isinstance(hinges, list) else [])
                 if not hinges.empty and "frame_name" in hinges.columns:
                     hcols = [c for c in ["frame_name", "hinge_prop", "rel_dist", "dof"] if c in hinges.columns]
                     st.dataframe(
