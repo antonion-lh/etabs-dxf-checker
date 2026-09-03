@@ -121,11 +121,9 @@ def _sidebar() -> tuple:
             st.session_state["use_demo"] = False
 
         uploaded_e2k = None
-        e2k_loaded_name = st.session_state.get("active_e2k_name")
+        uploaded_drawing_file = None
 
-        if not st.session_state["use_demo"] and not e2k_loaded_name:
-            uploaded_e2k = st.file_uploader("Učitaj .e2k datoteku", type=["e2k", "$et", "txt"], key="sb_e2k_up", label_visibility="collapsed")
-        elif st.session_state["use_demo"]:
+        if st.session_state["use_demo"]:
             demo_name = st.session_state.get("demo_choice_key", "strossmayer")
             display_map = {
                 "strossmayer": "STROSSMAYER_2.e2k",
@@ -142,17 +140,13 @@ def _sidebar() -> tuple:
                 "trnsko": "238 stupova · 384 grede · 140 ploča",
             }
             st.caption(demo_desc_map.get(demo_name, ""))
-        elif e2k_loaded_name:
-            st.markdown(f"<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ {e2k_loaded_name}</div>", unsafe_allow_html=True)
+        else:
+            uploaded_e2k = st.file_uploader("Učitaj .e2k datoteku", type=["e2k", "$et", "txt"], key="sb_e2k_up", label_visibility="collapsed")
 
         st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         st.markdown("### Nacrt (CAD / PDF)")
-        uploaded_drawing_file = None
-        drawing_loaded_name = st.session_state.get("active_drawing_name")
 
-        if not st.session_state["use_demo"] and not drawing_loaded_name:
-            uploaded_drawing_file = st.file_uploader("Učitaj .dxf ili .pdf nacrt", type=["pdf", "dxf", "jpg", "png"], key="sb_drawing_up", label_visibility="collapsed")
-        elif st.session_state["use_demo"]:
+        if st.session_state["use_demo"]:
             demo_name = st.session_state.get("demo_choice_key", "strossmayer")
             if demo_name == "strossmayer":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ OS_VARSAVSKA.pdf</div>", unsafe_allow_html=True)
@@ -166,8 +160,8 @@ def _sidebar() -> tuple:
             elif demo_name == "trnsko":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ trnsko.pdf</div>", unsafe_allow_html=True)
                 st.caption("14 stranica nacrta")
-        elif drawing_loaded_name:
-            st.markdown(f"<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ {drawing_loaded_name}</div>", unsafe_allow_html=True)
+        else:
+            uploaded_drawing_file = st.file_uploader("Učitaj .dxf ili .pdf nacrt", type=["pdf", "dxf", "jpg", "png"], key="sb_drawing_up", label_visibility="collapsed")
 
         st.markdown("---")
 
@@ -211,11 +205,9 @@ def _sidebar() -> tuple:
         )
 
         st.markdown("---")
-        if st.session_state.get("use_demo") or e2k_loaded_name:
-            if st.button("Učitaj drugi projekt / Reset", use_container_width=True, key="btn_reset_session"):
+        if st.session_state.get("use_demo"):
+            if st.button("Isključi demo / Učitaj vlastiti projekt", use_container_width=True, key="btn_reset_session"):
                 st.session_state["use_demo"] = False
-                st.session_state["active_e2k_name"] = None
-                st.session_state["active_drawing_name"] = None
                 st.session_state["demo_choice_key"] = "strossmayer"
                 st.rerun()
 
@@ -287,9 +279,7 @@ def main():
     elif uploaded_e2k:
         e2k_content = uploaded_e2k.getvalue().decode("utf-8", errors="replace")
         project_label = uploaded_e2k.name
-        st.session_state["active_e2k_name"] = uploaded_e2k.name
         if uploaded_drawing_file:
-            st.session_state["active_drawing_name"] = uploaded_drawing_file.name
             fname_l = uploaded_drawing_file.name.lower()
             if fname_l.endswith(".dxf"):
                 dxf_bytes = uploaded_drawing_file.getvalue()
