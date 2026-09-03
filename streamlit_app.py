@@ -1442,8 +1442,9 @@ def _safe_df(df: pd.DataFrame, float_fmt=None) -> pd.DataFrame:
     if float_fmt:
         for col, fmt in float_fmt.items():
             if col in out.columns:
-                out[col] = out[col].apply(lambda v: fmt.format(v) if pd.notna(v) and v is not None else "—")
-    out = out.fillna("—")
+                out[col] = out[col].apply(lambda v: fmt.format(v) if pd.notna(v) and v is not None and not isinstance(v, str) else str(v or "—"))
+    for col in out.columns:
+        out[col] = out[col].apply(lambda v: "—" if pd.isna(v) or v is None or str(v).strip() in ("", "None", "nan") else str(v))
     return out
 
 
