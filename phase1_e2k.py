@@ -970,7 +970,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if is_wall:
                 seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
-                is_opening = (1.45 <= seg_len <= 1.75) or (atype in ("opening", "window"))
+                is_opening = (1.57 <= seg_len <= 1.63 and min(wy1, wy2) < 0.5) or (atype in ("opening", "window"))
                 is_cut = not is_opening
 
                 w_pts_3d = [(wx1, wy1, z_bot), (wx2, wy2, z_bot), (wx2, wy2, z_top), (wx1, wy1, z_top)]

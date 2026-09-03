@@ -875,8 +875,8 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             dy = y2 - y1
             L = math.hypot(dx, dy)
 
-            # Auto-detect opening if segment is around 1.6m (or explicitly tagged)
-            is_opening = w.get("is_opening", False) or (1.45 <= L <= 1.75)
+            # Auto-detect opening if segment is exactly 1.60m on facade (or explicitly tagged)
+            is_opening = w.get("is_opening", False) or (1.57 <= L <= 1.63 and min(y1, y2) < 0.5)
             is_cut = w.get("is_cut", not is_opening) if not is_opening else False
 
             loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
@@ -1289,7 +1289,7 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
             z_bot = w.get("z_min", 0.0)
             z_top = w.get("z_max", 3.5)
             L = math.hypot(x2 - x1, y2 - y1)
-            is_opening = w.get("is_opening", False) or (1.45 <= L <= 1.75)
+            is_opening = w.get("is_opening", False) or (1.57 <= L <= 1.63 and min(y1, y2) < 0.5)
 
             loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
             if is_opening:
@@ -1358,6 +1358,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 i=mesh_i, j=mesh_j, k=mesh_k,
                 color="#dc2626" if etabs_color_mode else "#10b981",
                 opacity=0.75,
+                flatshading=True,
+                lighting=dict(ambient=0.90, diffuse=0.1, specular=0.0),
                 name="Plohe zidova (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1408,6 +1410,8 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
                 i=s_mesh_i, j=s_mesh_j, k=s_mesh_k,
                 color="#e2e8f0",
                 opacity=0.92,
+                flatshading=True,
+                lighting=dict(ambient=0.92, diffuse=0.1, specular=0.0),
                 name="Podna ploča (ETABS)",
                 hoverinfo="skip",
             ))
@@ -1930,23 +1934,27 @@ def main():
                 _render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name)
 
         else:
-            sub_col, col_mode_opt = st.columns([1.2, 1.8])
+            sub_col, col_mode_opt = st.columns([1.5, 1.5])
             with sub_col:
-                mode = st.radio("Tip prikaza modela:", ["2D Tlocrt s osima", "3D Wireframe model"], horizontal=True, key="mode_full")
+                mode = st.radio("Tip prikaza modela:", ["🏢 3D Ekstrudirani ETABS model (kao u ETABS-u)", "📐 2D Arhitektonski Tlocrt s osima"], horizontal=True, key="mode_full")
 
-            if mode.startswith("3D"):
+            if mode.startswith("🏢 3D"):
                 with col_mode_opt:
                     c1_opt, c2_opt = st.columns(2)
                     with c1_opt:
                         c_mode = st.radio(
                             "Bojanje 3D modela:",
-                            ["🟣 ETABS originalni prikaz (Magenta)", "🔍 Kontrola usklađenosti (Status)"],
+                            ["🔴 ETABS originalni prikaz (Zidovi + Ploče)", "🔍 Kontrola usklađenosti (Status)"],
                             horizontal=True,
                             key="color_mode_3d"
                         )
                     with c2_opt:
-                        iso_3d = st.checkbox(f"Izoliraj {active_story_name}" if active_story_name else "Izoliraj etažu", value=False, key="iso_3d_chk")
-                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🟣"), active_story_name=active_story_name if iso_3d else None), use_container_width=True)
+                        iso_3d = st.checkbox(
+                            f"Izoliraj etažu ({disp_story_title})" if active_story_name else "Prikaži samo odabranu etažu",
+                            value=True,
+                            key="iso_3d_chk"
+                        )
+                st.plotly_chart(_fig_3d(df_res, etabs_data, etabs_color_mode=c_mode.startswith("🔴"), active_story_name=active_story_name if iso_3d else None), use_container_width=True)
             else:
                 with col_mode_opt:
                     st.caption("💡 Za usporedni prikaz nacrta uz model, priložite PDF ili sliku u bočnoj traci (Referentni nacrt).")
