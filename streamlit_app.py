@@ -1079,41 +1079,41 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             if sub_cols.empty:
                 continue
 
-        xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in sub_cols.iterrows()]
-        ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in sub_cols.iterrows()]
-        texts = [r.get("etabs_name") or r.get("dxf_name") or "C" for _, r in sub_cols.iterrows()] if show_text_on_marker else None
+            xs = [r.get("etabs_x") if pd.notna(r.get("etabs_x")) else r.get("dxf_x") for _, r in sub_cols.iterrows()]
+            ys = [r.get("etabs_y") if pd.notna(r.get("etabs_y")) else r.get("dxf_y") for _, r in sub_cols.iterrows()]
+            texts = [r.get("etabs_name") or r.get("dxf_name") or "C" for _, r in sub_cols.iterrows()] if show_text_on_marker else None
 
-        tips = []
-        for _, r in sub_cols.iterrows():
-            nm = r.get("etabs_name") or r.get("dxf_name") or "Stup"
-            sec = r.get("etabs_section") or "—"
-            ew, eh = r.get("etabs_w_mm"), r.get("etabs_h_mm")
-            dw, dh = r.get("dxf_dim1_mm"), r.get("dxf_dim2_mm")
-            tips.append(
-                f"<b>{nm}</b> [{label}]<br>"
-                f"Presjek: {sec}<br>"
-                f"ETABS dim.: {f'{ew:.0f}×{eh:.0f}' if pd.notna(ew) and pd.notna(eh) else '—'} mm<br>"
-                f"CAD dim.:   {f'{dw:.0f}×{dh:.0f}' if pd.notna(dw) and pd.notna(dh) else '—'} mm<br>"
-                f"Status: {r.get('notes') or label}"
-            )
+            tips = []
+            for _, r in sub_cols.iterrows():
+                nm = r.get("etabs_name") or r.get("dxf_name") or "Stup"
+                sec = r.get("etabs_section") or "—"
+                ew, eh = r.get("etabs_w_mm"), r.get("etabs_h_mm")
+                dw, dh = r.get("dxf_dim1_mm"), r.get("dxf_dim2_mm")
+                tips.append(
+                    f"<b>{nm}</b> [{label}]<br>"
+                    f"Presjek: {sec}<br>"
+                    f"ETABS dim.: {f'{ew:.0f}×{eh:.0f}' if pd.notna(ew) and pd.notna(eh) else '—'} mm<br>"
+                    f"CAD dim.:   {f'{dw:.0f}×{dh:.0f}' if pd.notna(dw) and pd.notna(dh) else '—'} mm<br>"
+                    f"Status: {r.get('notes') or label}"
+                )
 
-        fig.add_trace(go.Scatter(
-            x=xs, y=ys,
-            mode="markers+text" if show_text_on_marker else "markers",
-            marker=dict(
-                size=marker_size,
-                symbol="square",
-                color=color,
-                line=dict(color="#ffffff", width=1.5),
-            ),
-            text=texts if show_text_on_marker else None,
-            textposition="top center",
-            textfont=dict(size=10, color="#0f172a", family="Inter", weight="bold"),
-            name=f"{label} ({len(sub_cols)})",
-            hovertext=tips,
-            hoverinfo="text",
-            showlegend=True,
-        ))
+            fig.add_trace(go.Scatter(
+                x=xs, y=ys,
+                mode="markers+text" if show_text_on_marker else "markers",
+                marker=dict(
+                    size=marker_size,
+                    symbol="square",
+                    color=color,
+                    line=dict(color="#ffffff", width=1.5),
+                ),
+                text=texts if show_text_on_marker else None,
+                textposition="top center",
+                textfont=dict(size=10, color="#0f172a", family="Inter", weight="bold"),
+                name=f"{label} ({len(sub_cols)})",
+                hovertext=tips,
+                hoverinfo="text",
+                showlegend=True,
+            ))
 
     # 5. Architectural Grid Bubbles (From ETABS or clean clustered axes)
     df_grids = etabs_data.get("grids", pd.DataFrame())

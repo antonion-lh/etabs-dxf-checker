@@ -893,6 +893,17 @@ def generate_pdf(
             log.warning("ReportLab generation failed (%s) — trying WeasyPrint/xhtml2pdf …", e)
 
     # --- 2. Try WeasyPrint ------------------------------------------------
+    if not html_content and df_target is not None and not df_target.empty:
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp_h:
+            tmp_h_path = tmp_h.name
+        try:
+            html_content = generate_html(df_target, tmp_h_path, cfg)
+        finally:
+            try: os.unlink(tmp_h_path)
+            except: pass
+
     try:
         import weasyprint  # type: ignore
         weasyprint.HTML(string=html_content).write_pdf(output_path)

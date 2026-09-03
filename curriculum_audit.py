@@ -664,9 +664,24 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
     """
     Calculates numerical score and university grading metric.
     """
-    total_weight = sum(a.get("weight", 5) for a in audit_results)
-    earned_weight = 0.0
+    if not audit_results:
+        return {
+            "percentage": 0.0,
+            "grade": 0,
+            "grade_label": "Nema podataka za evaluaciju",
+            "badge_color": "#94a3b8",
+            "total_checks": 0,
+            "n_pass": 0,
+            "n_warn": 0,
+            "n_fail": 0,
+            "n_info": 0,
+        }
 
+    total_weight = sum(a.get("weight", 5) for a in audit_results)
+    if total_weight == 0:
+        total_weight = 1.0
+
+    earned_weight = 0.0
     for a in audit_results:
         st = a.get("status", "INFO")
         w = a.get("weight", 5)
@@ -679,7 +694,7 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
         elif st == "FAIL":
             earned_weight += 0.0
 
-    pct = round((earned_weight / total_weight) * 100, 1) if total_weight > 0 else 100.0
+    pct = round((earned_weight / total_weight) * 100, 1)
 
     if pct >= 90.0:
         grade = 5
