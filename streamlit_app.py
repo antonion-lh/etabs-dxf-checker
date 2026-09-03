@@ -116,7 +116,7 @@ def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
 # ─────────────────────────────────────────────────────────────
 def _sidebar() -> tuple:
     with st.sidebar:
-        st.markdown("### ETABS model")
+        st.markdown("<div class='sidebar-section-label'>ETABS model</div>", unsafe_allow_html=True)
         if "use_demo" not in st.session_state:
             st.session_state["use_demo"] = False
 
@@ -159,8 +159,7 @@ def _sidebar() -> tuple:
         else:
             uploaded_e2k = st.file_uploader("Učitaj .e2k datoteku", type=["e2k", "$et", "txt"], key="sb_e2k_up", label_visibility="collapsed")
 
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-        st.markdown("### Nacrt (CAD / PDF)")
+        st.markdown("<div class='sidebar-section-label'>Nacrt (CAD / PDF)</div>", unsafe_allow_html=True)
 
         uploaded_ref_drawing = None
         if st.session_state["use_demo"]:
@@ -192,10 +191,8 @@ def _sidebar() -> tuple:
                     help="Priložite PDF nacrt ili sliku za usporedni split-screen pregled uz CAD tlocrt."
                 )
 
-        st.markdown("---")
-
         # Tolerances & Scale (Task 1a)
-        st.markdown("### Tolerancije i mjerilo")
+        st.markdown("<div class='sidebar-section-label'>Tolerancije i mjerilo</div>", unsafe_allow_html=True)
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             tol_pos_val = st.selectbox("Pozicija (m)", ["0.05", "0.10", "0.15", "0.20", "0.30"], index=2, key="sb_tol_pos")
@@ -226,10 +223,8 @@ def _sidebar() -> tuple:
             unit_scale = 0.01
             st.caption("Koordinate ETABS modela čitaju se iz .e2k zaglavlja. PDF nacrti koriste cm.")
 
-        st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
         # Element extraction
-        st.markdown("### Kontrola elemenata")
+        st.markdown("<div class='sidebar-section-label'>Kontrola elemenata</div>", unsafe_allow_html=True)
         chk_cols = st.checkbox("Stupovi", True, key="sb_chk_c")
         chk_beams = st.checkbox("Grede", True, key="sb_chk_b")
         chk_walls = st.checkbox("Zidovi", True, key="sb_chk_w")
@@ -243,10 +238,9 @@ def _sidebar() -> tuple:
         )
 
         # Phase 2 uploader (Task 1b)
-        st.markdown("---")
         uploaded_results = None
         if not st.session_state.get("use_demo"):
-            st.markdown("### Rezultati proračuna")
+            st.markdown("<div class='sidebar-section-label'>Rezultati proračuna</div>", unsafe_allow_html=True)
             st.caption("Opcija — Display → Show Tables → Export to Excel")
             uploaded_results = st.file_uploader(
                 "ETABS tablice (.xlsx, .csv):",
@@ -255,7 +249,7 @@ def _sidebar() -> tuple:
                 label_visibility="collapsed"
             )
         else:
-            st.markdown("### Rezultati proračuna")
+            st.markdown("<div class='sidebar-section-label'>Rezultati proračuna</div>", unsafe_allow_html=True)
             demo_include_results = st.checkbox(
                 "Uključi demo rezultate (Faza 2)",
                 value=True,
@@ -359,7 +353,11 @@ def main():
         has_data = True
 
     # ── Top App Header Bar ────────────────────────────────────
-    render_header_bar(project_name=project_label, version="v2.1.0")
+    render_header_bar(
+        project_name=project_label,
+        version="v2.1.0",
+        status_badge=st.session_state.get("_header_badge")
+    )
 
     # ── Landing State: Minimalist clean screen ────────────────
     if not has_data:
@@ -440,6 +438,18 @@ def main():
                 except Exception:
                     results_data = None
             df_res.attrs["results_data"] = results_data
+
+            audit_quick = _cached_curriculum_audit(etabs_data, None)
+            score_quick = calculate_audit_score(audit_quick)
+            g = score_quick.get("grade", 1)
+            badge_colors = {5:"#16A34A", 4:"#2563EB", 3:"#D97706",
+                            2:"#EA580C", 1:"#DC2626"}
+            badge_labels = {5:"Izvrstan", 4:"Vrlo dobar", 3:"Dobar",
+                            2:"Dovoljan", 1:"Nedovoljan"}
+            st.session_state["_header_badge"] = (
+                f"Ocjena {g} — {badge_labels.get(g,'?')}",
+                badge_colors.get(g, "#6B7280")
+            )
 
         except Exception as err:
             st.error(f"Pogreška tijekom obrade modela: {err}")
@@ -570,6 +580,26 @@ def main():
           </div>
         </div>
         """, unsafe_allow_html=True)
+
+        sanity_alerts = df_res.attrs.get("sanity_alerts", [])
+        if sanity_alerts:
+            for alert in sanity_alerts:
+                sev = alert.get("severity", "WARNING")
+                if sev == "ERROR":
+                    bg, bc = "#FEF2F2", "#DC2626"
+                    prefix = "Greška"
+                else:
+                    bg, bc = "#FFFBEB", "#D97706"
+                    prefix = "Upozorenje"
+                st.markdown(
+                    f'<div style="background:{bg}; border-left:3px solid {bc};'
+                    f'border-radius:0 4px 4px 0; padding:8px 12px;'
+                    f'margin-bottom:6px; font-size:12px;">'
+                    f'<strong style="color:{bc};">{prefix} · '
+                    f'{alert.get("category","")}</strong> — '
+                    f'{alert.get("issue","")}</div>',
+                    unsafe_allow_html=True
+                )
 
         # Task 3: Engineering KPI cards (T30, T31, T34, T51)
         c30 = next((a for a in audit_results if a["num"] == 30), None)
@@ -807,6 +837,33 @@ def main():
                     "geometrijske usporedbe s nacrtom."
                 )
 
+            dfd = df_res.copy()
+            total_el = len(dfd)
+            if total_el > 0 and not is_pdf_mode and "status" in dfd.columns:
+                n_ok  = len(dfd[dfd["status"] == Status.MATCH])
+                n_mis = len(dfd[dfd["status"] == Status.SECTION_MISMATCH])
+                n_et  = len(dfd[dfd["status"] == Status.ETABS_ONLY])
+                n_dx  = len(dfd[dfd["status"] == Status.DXF_ONLY])
+                pct   = round(100 * n_ok / total_el) if total_el else 0
+                st.markdown(
+                    f'<div style="font-size:12px; color:#6B7280;'
+                    f'margin-bottom:10px;">'
+                    f'<span style="color:#111827; font-weight:600;">'
+                    f'{total_el} elemenata</span>'
+                    f'&nbsp;·&nbsp;'
+                    f'<span style="color:#16A34A;">{n_ok} usklađeno</span>'
+                    f'&nbsp;·&nbsp;'
+                    f'<span style="color:#D97706;">{n_mis} odstupanje</span>'
+                    f'&nbsp;·&nbsp;'
+                    f'<span style="color:#DC2626;">{n_et} samo ETABS</span>'
+                    f'&nbsp;·&nbsp;'
+                    f'<span style="color:#2563EB;">{n_dx} samo nacrt</span>'
+                    f'&nbsp;·&nbsp;'
+                    f'<strong style="color:#111827;">{pct}% usklađeno</strong>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
             col_f1, col_f2, col_f3 = st.columns([2.5, 1.5, 1.5])
             with col_f1:
                 sel_pill = st.segmented_control(
@@ -817,7 +874,6 @@ def main():
                     label_visibility="collapsed"
                 ) or "Svi"
 
-            dfd = df_res.copy()
             if "Usklađeno" in sel_pill:
                 dfd = dfd[dfd["status"] == Status.MATCH]
             elif "Odstupanje" in sel_pill:
@@ -1003,12 +1059,19 @@ def main():
             except Exception as _e:
                 html_code = f"<p>Greška pri generiranju izvještaja: {_e}</p>"
 
+            _model_filename = (
+                os.path.basename(DEMO_SKOLA_E2K)      if (use_demo and demo_choice == "strossmayer") else
+                os.path.basename(DEMO_COMMERCIAL_E2K) if (use_demo and demo_choice == "commercial") else
+                os.path.basename(SMALL_SAMPLE_E2K)    if (use_demo and demo_choice == "small") else
+                (project_label or "model.e2k")
+            )
+
             meta_col1, meta_col2 = st.columns([2, 3])
             with meta_col1:
                 st.markdown(f"""
                 <table style="width: 100%; font-size: 13px; color: #374151; border-collapse: collapse;">
                   <tr><td style="padding: 4px 0; color: #6B7280; width: 80px;">Projekt:</td><td style="font-weight: 600;">{project_label or "—"}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #6B7280;">Model:</td><td class="mono">{os.path.basename(DEMO_SKOLA_E2K) if use_demo else (project_label or "model.e2k")}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #6B7280;">Model:</td><td class="mono">{_model_filename}</td></tr>
                   <tr><td style="padding: 4px 0; color: #6B7280;">Datum:</td><td>{date_str}</td></tr>
                   <tr><td style="padding: 4px 0; color: #6B7280;">Ocjena:</td><td style="font-weight: 600;">{grade_num} — {grade_simple} ({score_data['percentage']}%)</td></tr>
                 </table>

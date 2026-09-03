@@ -172,7 +172,7 @@ h3 {
     padding: 40px 32px;
     text-align: center;
     max-width: 580px;
-    margin: 60px auto;
+    margin: 40px auto 20px auto;
 }
 .landing-title {
     font-size: 18px;
@@ -186,14 +186,141 @@ h3 {
     line-height: 1.5;
     margin-bottom: 24px;
 }
+
+/* Step cards for landing screen */
+.step-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 0 auto 28px auto;
+    max-width: 780px;
+}
+.step-card {
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    padding: 16px 18px;
+    background: #FFFFFF;
+}
+.step-num {
+    font-size: 11px;
+    font-weight: 700;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 6px;
+}
+.step-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #111827;
+    margin-bottom: 4px;
+}
+.step-desc {
+    font-size: 12px;
+    color: #6B7280;
+    line-height: 1.5;
+}
+
+/* Expander: čišći izgled bez jako vidljive linije */
+[data-testid="stExpander"] {
+    border: 1px solid #E5E7EB !important;
+    border-radius: 6px !important;
+    margin-bottom: 6px !important;
+}
+[data-testid="stExpander"] summary {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: #111827 !important;
+    padding: 10px 14px !important;
+}
+[data-testid="stExpander"] summary:hover {
+    background: #F9FAFB !important;
+}
+
+/* Dataframe: povećaj kontrast zaglavlja */
+[data-testid="stDataFrame"] th {
+    background-color: #F9FAFB !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    color: #374151 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    padding: 8px 10px !important;
+}
+[data-testid="stDataFrame"] td {
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+}
+
+/* Metric kartice: smanji padding, ujednači veličinu */
+[data-testid="stMetric"] {
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    padding: 10px 14px !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 11px !important;
+    font-weight: 600 !important;
+    color: #6B7280 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+}
+[data-testid="stMetricValue"] {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: #111827 !important;
+}
+
+/* Segmented control: čvršći kontrast aktivnog */
+[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+    font-weight: 700 !important;
+}
+
+/* Caption text */
+[data-testid="stCaptionContainer"] {
+    color: #9CA3AF !important;
+    font-size: 11px !important;
+}
+
+/* Spinner tekst */
+[data-testid="stStatusWidget"] {
+    font-size: 12px !important;
+    color: #6B7280 !important;
+}
+
+/* Sidebar section labels */
+[data-testid="stSidebar"] .sidebar-section-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 14px 0 6px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #F3F4F6;
+}
 </style>
 """
 
 def inject_app_css():
     st.markdown(MINIMAL_ENGINEERING_CSS, unsafe_allow_html=True)
 
-def render_header_bar(project_name: str = None, version: str = "v2.1.0"):
+def render_header_bar(
+    project_name: str = None,
+    version: str = "v2.1.0",
+    status_badge: tuple = None
+):
     proj_txt = f"Projekt: {project_name}" if project_name else "Projekt: —"
+    badge_html = ""
+    if status_badge:
+        badge_text, badge_color = status_badge
+        badge_html = (
+            f'<span style="background:{badge_color}18; color:{badge_color};'
+            f'border:1px solid {badge_color}40; border-radius:4px;'
+            f'padding:2px 10px; font-size:11px; font-weight:600;'
+            f'margin-left:12px;">{badge_text}</span>'
+        )
     st.markdown(f"""
     <div class="app-header">
       <div class="app-header-left">
@@ -201,7 +328,7 @@ def render_header_bar(project_name: str = None, version: str = "v2.1.0"):
         <span class="app-header-meta">| &nbsp; {proj_txt}</span>
       </div>
       <div class="app-header-meta">
-        <span>{version}</span>
+        <span>{version}</span>{badge_html}
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -212,6 +339,29 @@ def render_landing_screen():
       <div class="landing-title">ETABS Model Checker</div>
       <div class="landing-subtitle">
         Učitajte <b>.e2k</b> model i nacrt (<b>.dxf</b> ili <b>.pdf</b>) za automatsku geometrijsku reviziju i Eurocode provjeru.
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div class="step-row">
+      <div class="step-card">
+        <div class="step-num">Korak 1</div>
+        <div class="step-title">Učitaj .e2k model</div>
+        <div class="step-desc">Izvezi iz ETABS-a:<br>
+          File → Export → .e2k Text File</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">Korak 2</div>
+        <div class="step-title">Priloži nacrt</div>
+        <div class="step-desc">DXF tlocrt ili PDF elaborat
+          za automatsku geometrijsku usporedbu</div>
+      </div>
+      <div class="step-card">
+        <div class="step-num">Korak 3</div>
+        <div class="step-title">Preuzmi elaborat</div>
+        <div class="step-desc">PDF revizijski izvještaj
+          spreman za potpis i arhivu</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
