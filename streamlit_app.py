@@ -2154,31 +2154,32 @@ def main():
 
             rec_html = ""
             if item.get("recommendation"):
-                rec_html = f"""
-                <div style="font-size: 0.84rem; color: #0369a1; background: #f0f9ff; padding: 8px 12px; border-radius: 6px; border-left: 3px solid #0284c7; margin-top: 8px;">
-                  <strong>💡 Uputa studentu za ispravak u ETABS-u:</strong> {item['recommendation']}
-                </div>
-                """
+                rec_html = (
+                    f'<div style="font-size: 0.84rem; color: #0369a1; background: #f0f9ff; padding: 10px 14px; border-radius: 6px; border-left: 4px solid #0284c7; margin-top: 10px;">'
+                    f'<strong>💡 Uputa studentu za ispravak u ETABS-u:</strong> {item["recommendation"]}'
+                    f'</div>'
+                )
 
-            st.markdown(f"""
-            <div style="background: white; border: 1px solid #e2e8f0; border-left: 5px solid {badge_col}; border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                <div>
-                  <span style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{icon} {item['title']}</span>
-                  <span style="font-size: 0.76rem; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">{item.get('category', '')}</span>
-                </div>
-                <span style="background: {badge_bg}; color: {badge_col}; font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 9999px;">{badge_txt}</span>
-              </div>
-              <div style="font-size: 0.92rem; color: #1e293b; margin-bottom: 10px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px dashed #cbd5e1;">
-                <strong>🔍 Stanje u studentovom modelu:</strong> {item['finding']}
-              </div>
-              <div style="font-size: 0.85rem; color: #334155; line-height: 1.45; background: #ffffff; padding: 6px 0;">
-                <strong>📖 Nastavno pravilo i zadatak:</strong> <em>{item['rule']}</em>
-                {bullets_html}
-              </div>
-              {rec_html}
-            </div>
-            """, unsafe_allow_html=True)
+            card_html = (
+                f'<div style="background: white; border: 1px solid #e2e8f0; border-left: 5px solid {badge_col}; border-radius: 10px; padding: 16px 20px; margin-bottom: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">'
+                f'<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">'
+                f'<div>'
+                f'<span style="font-size: 1.05rem; font-weight: 700; color: #0f172a;">{icon} {item["title"]}</span>'
+                f'<span style="font-size: 0.76rem; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; margin-left: 8px; font-weight: 600;">{item.get("category", "")}</span>'
+                f'</div>'
+                f'<span style="background: {badge_bg}; color: {badge_col}; font-size: 0.78rem; font-weight: 700; padding: 4px 12px; border-radius: 9999px;">{badge_txt}</span>'
+                f'</div>'
+                f'<div style="font-size: 0.92rem; color: #1e293b; margin-bottom: 10px; background: #f8fafc; padding: 10px 14px; border-radius: 6px; border: 1px dashed #cbd5e1;">'
+                f'<strong>🔍 Stanje u studentovom modelu:</strong> {item["finding"]}'
+                f'</div>'
+                f'<div style="font-size: 0.85rem; color: #334155; line-height: 1.45; background: #ffffff; padding: 6px 0;">'
+                f'<strong>📖 Nastavno pravilo i zadatak:</strong> <em>{item["rule"]}</em>'
+                f'{bullets_html}'
+                f'</div>'
+                f'{rec_html}'
+                f'</div>'
+            )
+            st.markdown(card_html, unsafe_allow_html=True)
 
     # ── TAB 3: Deviations & Geometry Table ────────────────────
     with t_geo:
