@@ -1902,7 +1902,7 @@ def main():
     # ── Tab Navigation: Clear, descriptive titles ─────────────
     t_map, t_audit, t_geo, t_mat, t_sup, t_pdf, t_guide = st.tabs([
         "🗺️ 1. Vizualni model (2D/3D)",
-        "🎓 2. Nastavna & Studentska revizija (1–27)",
+        "🎓 2. Nastavna & Studentska revizija (1–51)",
         "📊 3. Tablica odstupanja",
         "🧪 4. Materijali & Opterećenja",
         "🧱 5. Oslonci & Zglobovi",
@@ -2047,12 +2047,18 @@ def main():
         audit_results = run_curriculum_audit(etabs_data)
         score_data = calculate_audit_score(audit_results)
 
+        # Quick KPI extractions from Phase 1 audit checks
+        c31 = next((a for a in audit_results if a["num"] == 31), None)
+        c30 = next((a for a in audit_results if a["num"] == 30), None)
+        c34 = next((a for a in audit_results if a["num"] == 34), None)
+        c51 = next((a for a in audit_results if a["num"] == 51), None)
+
         st.markdown(f"""
         <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: white; border-radius: 12px; padding: 20px 24px; margin-bottom: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
             <div>
               <div style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8; font-weight: 700;">Građevinski fakultet · Kontrola numeričkih modela zgrada</div>
-              <div style="font-size: 1.55rem; font-weight: 800; color: #ffffff; margin-top: 4px;">🎓 Nastavne napomene za pregled modela (1–27)</div>
+              <div style="font-size: 1.55rem; font-weight: 800; color: #ffffff; margin-top: 4px;">🎓 Nastavne napomene za pregled modela (Točke 1–51)</div>
               <div style="font-size: 0.95rem; color: #cbd5e1; margin-top: 4px;">
                 Indeks usklađenosti: <strong style="color: #38bdf8;">{score_data['percentage']}%</strong> · 
                 Ocjena: <strong style="color: {score_data['badge_color']};">{score_data['grade_label']}</strong>
@@ -2072,11 +2078,38 @@ def main():
         c_m3.metric("🔴 Kritična odstupanja", score_data["n_fail"])
         c_m4.metric("ℹ️ Smjernice", score_data["n_info"])
 
+        # Quick Engineering Cards for Phase 1 analytical checks
+        if c31 or c30 or c34 or c51:
+            st.markdown(f"""
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0;">
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">📐 Površina zidova (Točka 31)</div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-top: 4px;">{c31['finding'][:55] if c31 else '—'}...</div>
+                <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600; margin-top: 2px;">Ciljano 3.0–4.0% tlocrta</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">⚖️ Masa 'na ruke' (Točka 30)</div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-top: 4px;">{c30['finding'][:55] if c30 else '—'}...</div>
+                <div style="font-size: 0.75rem; color: #0284c7; font-weight: 600; margin-top: 2px;">Inženjerska procjena W_est</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">🛡️ Prevrtanje zgrade (Točka 34)</div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-top: 4px;">{c34['finding'][:55] if c34 else '—'}...</div>
+                <div style="font-size: 0.75rem; color: #16a34a; font-weight: 600; margin-top: 2px;">Faktor sigurnosti SF ≥ 1.50</div>
+              </div>
+              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px;">
+                <div style="font-size: 0.75rem; font-weight: 700; color: #64748b; text-transform: uppercase;">🌀 Torzija & Simetrija (Točka 51)</div>
+                <div style="font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-top: 4px;">{c51['finding'][:55] if c51 else '—'}...</div>
+                <div style="font-size: 0.75rem; color: #64748b; margin-top: 2px;">Ekscentričnost krutosti ex, ey</div>
+              </div>
+            </div>
+            """, unsafe_allow_html=True)
+
         st.markdown("<hr style='margin: 16px 0;'>", unsafe_allow_html=True)
 
         c_f1, c_f2, c_f3 = st.columns([1.8, 1.8, 1.4])
         with c_f1:
-            all_cats = ["Sve nastavne cjeline (1–27)"] + sorted(list(set(a["category"] for a in audit_results)))
+            all_cats = ["Sve nastavne cjeline"] + sorted(list(set(a["category"] for a in audit_results)))
             selected_cat = st.selectbox("Nastavna cjelina:", all_cats, key="audit_cat_filter")
         with c_f2:
             flt_status = st.selectbox(

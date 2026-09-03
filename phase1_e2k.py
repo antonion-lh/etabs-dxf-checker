@@ -116,6 +116,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     load_combinations: dict[str, dict] = {}
     raw_diaphragms: list[dict] = []
     raw_rebars: list[dict] = []
+    raw_piers: list[str] = []
+    raw_spandrels: list[str] = []
+    pier_assigns: dict[str, str] = {}
+    spandrel_assigns: dict[str, str] = {}
+    modal_cases: list[dict] = []
     line_assigns: dict[str, str] = {}
     area_assigns: dict[str, str] = {}
     area_story_assigns: dict[str, list[dict]] = {}
@@ -415,6 +420,13 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 if a_clean not in area_story_assigns:
                     area_story_assigns[a_clean] = []
                 area_story_assigns[a_clean].append({"story": st_name, "section": sec_clean})
+
+            pier_val = _get_kw_val(tokens, "PIER")
+            spandrel_val = _get_kw_val(tokens, "SPANDREL")
+            if a_name and pier_val:
+                pier_assigns[a_name.strip('"').strip("'")] = pier_val.strip('"').strip("'")
+            if a_name and spandrel_val:
+                spandrel_assigns[a_name.strip('"').strip("'")] = spandrel_val.strip('"').strip("'")
 
         # 7. LOAD PATTERNS
         elif "LOAD" in current_block and "PAT" in current_block:
@@ -764,13 +776,44 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             area = float(_get_kw_val(tokens, "AREA", 0.0))
             raw_rebars.append({"name": rname, "diameter_m": dia, "area_m2": area})
 
+        # 19. PIER / SPANDREL NAMES
+        elif "PIER" in current_block and "SPANDREL" in current_block:
+            if tokens[0].upper() == "PIERNAME" and len(tokens) >= 2:
+                raw_piers.append(tokens[1].strip('"').strip("'"))
+            elif tokens[0].upper() == "SPANDRELNAME" and len(tokens) >= 2:
+                raw_spandrels.append(tokens[1].strip('"').strip("'"))
+
+        # 20. LOAD CASES (Modal & Spectrum)
+        elif "LOAD" in current_block and "CASE" in current_block:
+            if tokens[0].upper() == "LOADCASE" and len(tokens) >= 2:
+                cname = tokens[1].strip('"').strip("'")
+                m_type = _get_kw_val(tokens, "TYPE", "")
+                max_modes = int(float(_get_kw_val(tokens, "MAXMODES", 0)))
+                min_modes = int(float(_get_kw_val(tokens, "MINMODES", 0)))
+                case_entry = next((c for c in modal_cases if c["name"] == cname), None)
+                if not case_entry:
+                    case_entry = {"name": cname, "type": m_type, "max_modes": max_modes, "min_modes": min_modes}
+                    modal_cases.append(case_entry)
+                else:
+                    if m_type: case_entry["type"] = m_type
+                    if max_modes: case_entry["max_modes"] = max_modes
+                    if min_modes: case_entry["min_modes"] = min_modes
+
     # Apply line and area section assignments
     for f in raw_frames:
         if not f.get("prop") and f["name"] in line_assigns:
             f["prop"] = line_assigns[f["name"]]
+        if f["name"] in pier_assigns:
+            f["pier"] = pier_assigns[f["name"]]
+        if f["name"] in spandrel_assigns:
+            f["spandrel"] = spandrel_assigns[f["name"]]
     for a in raw_areas:
         if not a.get("prop") and a["name"] in area_assigns:
             a["prop"] = area_assigns[a["name"]]
+        if a["name"] in pier_assigns:
+            a["pier"] = pier_assigns[a["name"]]
+        if a["name"] in spandrel_assigns:
+            a["spandrel"] = spandrel_assigns[a["name"]]
 
     # Build structured stories list (Level definitions)
     all_z_vals = [p[2] for p in points.values()]
@@ -1222,6 +1265,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         "load_combinations": load_combinations,
         "diaphragms": raw_diaphragms,
         "rebars": raw_rebars,
+        "piers": raw_piers,
+        "spandrels": raw_spandrels,
+        "pier_assigns": pier_assigns,
+        "spandrel_assigns": spandrel_assigns,
+        "modal_cases": modal_cases,
     }
 
     log.info("E2K Parsing Complete: %d cols, %d beams, %d walls, %d slabs",

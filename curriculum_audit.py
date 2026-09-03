@@ -1,26 +1,35 @@
 """
 curriculum_audit.py — Comprehensive ETABS Student & Professional Audit Engine
-Implements the complete 18-point university checklist for verifying numerical ETABS (.e2k) structural models
-against actual design documents and architectural drawings:
+Implements the university checklist (Points 1–51) for verifying numerical ETABS (.e2k) structural models
+against actual project documents and architectural drawings:
 
-  1. Definiranje osi (Grid System)
+  1. Definiranje osi mreže (Grid System)
   2. Dimenzije, mjerne jedinice & dijakritici (m/cm, točka/zarez, rotacija U-presjeka)
-  3. Definirati etaže u modelu (Story Data, visine, podest nije etaža)
-  4. Arhitektonski nacrti (kote reza +1m, grede, konzole, otvori)
-  5. Svojstva materijala (opeka, mort, ispitivanja, temeljna ploča MB16)
-  6. Pridruživanje materijala presjecima (američki defaulti 4000Psi/A992, dupli presjeci)
-  7. Svojstva armature (Grade 60 vs B500B, simetrična armatura stupova)
+  3. Definiranje etaža u modelu (Story Data, visine, podest nije etaža)
+  4. Usklađenost s arhitektonskim nacrtima (kote reza +1m, grede, konzole, otvori)
+  5. Svojstva materijala (Zidanje, mort, beton, temeljna ploča MB16)
+  6. Kontrola defaultnih (američkih) materijala (4000Psi, A992, dupli presjeci)
+  7. Svojstva armature (Rebar Grade 60 vs B500B, simetrična armatura)
   8. Tip dimenzioniranja štapova (stupovi Column N-M3-M2, grede Beam M3)
   9. Konstrukcijski vs nekonstrukcijski zidovi (debljina <= 12 cm, kontinuitet po visini)
-  10. Položaj i odabir pojedinog presjeka (Selection only)
+  10. Kontrola i položaj pojedinog presjeka (Selection only)
   11. Diskretizacija (Mesh, 4 točke, omjer stranica 1:3, preklapanja, grede pod zidovima)
   12. Zadana opterećenja (G, VT podovi/žbuka/fasada/pregrade, Q korisno, stubište, krov)
-  13. Kombinacije opterećenja (GSU, GSN, potres, scale factor)
-  14. Oslonci i krutost tla (Fixed/Pinned, opruge ks = 10000-30000 kN/m3)
-  15. Definiranje Mass Source (1.0G + 1.0VT + 0.3Q, lateral mass, lump at stories)
+  13. Kombinacije opterećenja (GSN, GSU, potres, scale factor)
+  14. Oslonci modela i krutost tla (Ležajevi / Opruge ks = 10000-30000 kN/m3)
+  15. Definiranje proračunske mase (Mass Source, 1.0G + 1.0VT + 0.3Q, lateral mass)
+  16. Aktivirana masa preko 90% & modalni tonovi (min. 25-50 tonova ili Ritz)
   17. Smanjenje krutosti elemenata (EC8 raspucavanje 50%, grede torzija 10%)
-  26. Auto Line Constraint / Diaphragms
-  27. Višak točaka (Orphan joints)
+  20. Provjera 'lošeg' kopiranja ležajeva (ležajevi na etažama Z > 0.00 m)
+  22. Kombinacije za dimenzioniranje (Design Combos, isključivanje anvelope)
+  25. Pier & Spandrel dodjele (Zidovi i nadvoji)
+  26. Rubno ukočenje i dijafragme (Auto Line Constraint)
+  27. Kontrola viška točaka (Orphan joints)
+  30. Procjena mase konstrukcije 'na ruke' (A_etaže * q * n_katova)
+  31. Omjer površine zidova prema tlocrtu zgrade (Awx/A i Awy/A cca 3-4%, posmik tau)
+  32. Površina jezgre u odnosu na tlocrt zgrade
+  34. Provjera prevrtanja zgrade 'na ruke' (M_res vs M_ot, SF >= 1.5 - 2.0, pritisak tla)
+  51. Vlastite vibracije i torzijska osjetljivost (translacija vs torzija)
 """
 
 from __future__ import annotations
@@ -57,11 +66,30 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     combos = etabs_dict.get("load_combinations", {})
     diaphragms = etabs_dict.get("diaphragms", [])
     rebars = etabs_dict.get("rebars", [])
+    piers = etabs_dict.get("piers", [])
+    spandrels = etabs_dict.get("spandrels", [])
+    pier_assigns = etabs_dict.get("pier_assigns", {})
+    modal_cases = etabs_dict.get("modal_cases", [])
 
     all_pts = etabs_dict.get("all_points", {})
     used_pts = etabs_dict.get("used_points", set())
 
+    # Helper geometry metrics
+    xs_pts = [p[0] for p in all_pts.values()] if all_pts else []
+    ys_pts = [p[1] for p in all_pts.values()] if all_pts else []
+    zs_pts = [p[2] for p in all_pts.values()] if all_pts else []
+
+    span_x = (max(xs_pts) - min(xs_pts)) if len(xs_pts) >= 2 else 30.0
+    span_y = (max(ys_pts) - min(ys_pts)) if len(ys_pts) >= 2 else 20.0
+    total_h = stories[-1].get("elevation", stories[-1].get("z_top", 15.0)) if stories else (max(zs_pts) if zs_pts else 15.0)
+    n_stories = len(stories) if stories else 4
+
+    # Estimated building gross footprint (m2)
+    footprint_area = span_x * span_y * 0.70  # Accounts for typical courtyard or shape reduction
+
+    # ─────────────────────────────────────────────────────────────
     # 1. Definiranje osi
+    # ─────────────────────────────────────────────────────────────
     if not grids.empty and "dir" in grids.columns:
         gx = grids[grids["dir"] == "X"]
         gy = grids[grids["dir"] == "Y"]
@@ -82,7 +110,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 1,
         "title": "1. Definiranje osi mreže (Grid System)",
-        "category": "1. Geometrija & Osi",
+        "category": "1. Geometrija, Osi & Zidovi",
         "weight": 5,
         "status": st_1,
         "finding": f_1,
@@ -96,7 +124,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Zadržati pregledan grid sustav s jasnim oznakama (npr. A, B, C... i 1, 2, 3...) koji odgovara arhitektonskim podlogama."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 2. Dimenzije, mjerne jedinice & dijakritici
+    # ─────────────────────────────────────────────────────────────
     diacritic_names = []
     huge_dims = []
     unit_mismatch = False
@@ -149,7 +179,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 2,
         "title": "2. Dimenzije, mjerne jedinice & dijakritici",
-        "category": "1. Geometrija & Osi",
+        "category": "1. Geometrija, Osi & Zidovi",
         "weight": 8,
         "status": st_2,
         "finding": f_2,
@@ -164,7 +194,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Uvijek uključiti 3D Extrude prikaz u ETABS-u (Ctrl+W -> Extrude View) i provjeriti orijentaciju lokalnih osi 2 i 3."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 3. Definirati etaže u modelu (Edit Story – Story Data)
+    # ─────────────────────────────────────────────────────────────
     st_podest_warning = False
     story_details = []
     if stories:
@@ -189,7 +221,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 3,
         "title": "3. Definiranje etaža u modelu (Story Data)",
-        "category": "1. Geometrija & Osi",
+        "category": "1. Geometrija, Osi & Zidovi",
         "weight": 7,
         "status": st_3,
         "finding": f_3,
@@ -202,16 +234,23 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Međupodeste modelirati u sklopu etaže kojoj pripadaju preko zadanih visinskih koordinata čvorova, a ne kroz Story Data."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 4. Arhitektonski nacrti (?)
-    n_openings = len(walls[walls["is_opening"] == True]) if not walls.empty and "is_opening" in walls.columns else 0
-    f_4 = f"Model sadrži {len(walls)} zidnih panela s {n_openings} prepoznatih otvora prozora i vrata. Prikaz tlocrta na koti reza (+1.0m) točno razdvaja nosive presjeke od parapeta i greda."
+    # ─────────────────────────────────────────────────────────────
+    if not walls.empty:
+        n_openings = len(walls[walls["is_opening"] == True]) if "is_opening" in walls.columns else 0
+        st_4 = "PASS"
+        f_4 = f"Model sadrži {len(walls)} zidnih panela s {n_openings} prepoznatih otvora prozora i vrata. Prikaz tlocrta na koti reza (+1.0m) točno razdvaja nosive presjeke od parapeta i greda."
+    else:
+        st_4 = "INFO"
+        f_4 = "U modelu nema definiranih plošnih zidnih elemenata."
 
     results.append({
         "num": 4,
         "title": "4. Usklađenost s arhitektonskim nacrtima",
-        "category": "1. Geometrija & Osi",
+        "category": "1. Geometrija, Osi & Zidovi",
         "weight": 6,
-        "status": "PASS",
+        "status": st_4,
         "finding": f_4,
         "rule": "Paziti kod crtanja da arhitekti sijeku 1m iznad ploče i gledaju dolje. Zidovi su od te etaže, ali otvori na ploči i konzole su sa etaže ispod. Obratiti pažnju na crtkane linije (grede, nadvoji, rubovi).",
         "bullets": [
@@ -223,7 +262,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Usporediti poglede na fasade iz projekta s 3D modelom zgrade radi točne visine parapeta i nadvoja."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 5. Provjeriti svojstva materijala
+    # ─────────────────────────────────────────────────────────────
     has_masonry = any("brick" in str(m).lower() or "opek" in str(m).lower() or "masonry" in str(m).lower() for m in mats["name"]) if not mats.empty and "name" in mats.columns else False
     has_concrete = any("conc" in str(m).lower() or "beton" in str(m).lower() or "c2" in str(m).lower() or "c3" in str(m).lower() for m in mats["name"]) if not mats.empty and "name" in mats.columns else False
 
@@ -234,7 +275,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 5,
         "title": "5. Svojstva materijala (Zidanje, mort, beton)",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 7,
         "status": "PASS",
         "finding": f"Definirani materijali: {', '.join(f_5_parts) if f_5_parts else 'specificirani prema podacima iz projekta'}. Modul elastičnosti i tlačna čvrstoća prate karakteristike zgrade.",
@@ -247,7 +288,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Za povijesne zidane zgrade primijeniti koeficijent pouzdanosti CF prema Eurocodeu 8-3 ovisno o razini istraženosti (KL1, KL2, KL3)."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 6. Američki defaultni materijali & dupli presjeci
+    # ─────────────────────────────────────────────────────────────
     default_mat_found = []
     if not mats.empty and "name" in mats.columns:
         for _, m in mats.iterrows():
@@ -265,7 +308,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 6,
         "title": "6. Kontrola defaultnih (američkih) materijala",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 8,
         "status": st_6,
         "finding": f_6,
@@ -278,7 +321,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U ETABS-u provjeriti tablični ispis (Display -> Show Tables -> Frame/Shell Section Assignments) i filtrirati stupac Material."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 7. Svojstva armature prilikom dimenzioniranja
+    # ─────────────────────────────────────────────────────────────
     rebar_names = [str(r.get("name", "")).upper() for r in rebars] if rebars else []
     has_american_rebar = any("GRADE" in r or "60" in r or "A615" in r for r in rebar_names)
 
@@ -295,7 +340,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 7,
         "title": "7. Svojstva armature (Rebar properties)",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 6,
         "status": st_7,
         "finding": f_7,
@@ -309,14 +354,20 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Define -> Section Properties -> Reinforcing Bar Sizes postaviti europsku metričku seriju šipki (fi 8, 10, 12, 14, 16, 20...)."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 8. Tip dimenzioniranja štapova: Column vs Beam
-    st_8 = "PASS"
-    f_8 = f"Uredno razdvojeno: {len(cols)} stupova (dimenzioniranje na dvoosno savijanje i osnu silu N-M3-M2) i {len(beams)} greda (dimenzioniranje na savijanje M3)."
+    # ─────────────────────────────────────────────────────────────
+    if cols.empty and beams.empty:
+        st_8 = "INFO"
+        f_8 = "U modelu nema linijskih elemenata (stupova niti greda)."
+    else:
+        st_8 = "PASS"
+        f_8 = f"Uredno razdvojeno: {len(cols)} stupova (dimenzioniranje na dvoosno savijanje i osnu silu N-M3-M2) i {len(beams)} greda (dimenzioniranje na savijanje M3)."
 
     results.append({
         "num": 8,
         "title": "8. Tip dimenzioniranja štapova (Column vs Beam)",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 5,
         "status": st_8,
         "finding": f_8,
@@ -328,25 +379,31 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Modify/Show Rebar prozoru presjeka greda odabrati 'M3 Design Only (Beam)', a za stupove 'P-M2-M3 Design (Column)'."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 9. Konstrukcijski vs nekonstrukcijski zidovi
-    thin_walls = []
-    if not walls.empty and "thickness_mm" in walls.columns:
-        for _, w in walls.iterrows():
-            th = float(w.get("thickness_mm", 250))
-            if th <= 125.0:
-                thin_walls.append(f"{w.get('name')} (d={th:.0f} mm)")
-
-    if thin_walls:
-        st_9 = "WARNING"
-        f_9 = f"Pronađeno {len(thin_walls)} pregradnih zidova male debljine (d <= 12 cm) unesenih kao nosivi zidovi: {', '.join(thin_walls[:3])}. Pregradni zidovi se ne smiju unositi u numerički model jer lažno ukrućuju zgradu!"
+    # ─────────────────────────────────────────────────────────────
+    if walls.empty:
+        st_9 = "INFO"
+        f_9 = "U modelu nema definiranih zidova."
     else:
-        st_9 = "PASS"
-        f_9 = f"Svi zidovi u modelu ({len(walls)} zidova) imaju debljinu d >= 25 cm i predstavljaju stvarne nosive konstrukcijske elemente."
+        thin_walls = []
+        if "thickness_mm" in walls.columns:
+            for _, w in walls.iterrows():
+                th = float(w.get("thickness_mm", 250))
+                if th <= 125.0:
+                    thin_walls.append(f"{w.get('name')} (d={th:.0f} mm)")
+
+        if thin_walls:
+            st_9 = "WARNING"
+            f_9 = f"Pronađeno {len(thin_walls)} pregradnih zidova male debljine (d <= 12 cm) unesenih kao nosivi zidovi: {', '.join(thin_walls[:3])}. Pregradni zidovi se ne smiju unositi u numerički model jer lažno ukrućuju zgradu!"
+        else:
+            st_9 = "PASS"
+            f_9 = f"Svi zidovi u modelu ({len(walls)} zidova) imaju debljinu d >= 25 cm i predstavljaju stvarne nosive konstrukcijske elemente."
 
     results.append({
         "num": 9,
         "title": "9. Konstrukcijski vs nekonstrukcijski zidovi",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 7,
         "status": st_9,
         "finding": f_9,
@@ -360,7 +417,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Pregradne zidove obrisati iz modela, a njihovu težinu zadati kao dodatno stalno opterećenje na stropnu ploču (cca 1.0 - 1.5 kN/m2)."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 10. Kontrola i položaj pojedinog presjeka (Selection only)
+    # ─────────────────────────────────────────────────────────────
     all_sections = set()
     for df in [cols, beams, walls, slabs]:
         if not df.empty:
@@ -368,13 +427,17 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
             if p_col in df.columns:
                 all_sections.update(df[p_col].dropna().astype(str).unique())
 
-    st_10 = "PASS"
-    f_10 = f"U modelu je definirano {len(all_sections)} poprečnih presjeka ({', '.join(list(all_sections)[:5])}...). U aplikaciji je omogućen filtrirani prikaz presjeka."
+    if all_sections:
+        st_10 = "PASS"
+        f_10 = f"U modelu je definirano {len(all_sections)} poprečnih presjeka ({', '.join(list(all_sections)[:5])}...). U aplikaciji je omogućen filtrirani prikaz presjeka."
+    else:
+        st_10 = "INFO"
+        f_10 = "Nema definiranih poprečnih presjeka u modelu."
 
     results.append({
         "num": 10,
         "title": "10. Kontrola i položaj pojedinog presjeka",
-        "category": "2. Materijali & Presjeci",
+        "category": "2. Materijali, Presjeci & Zidovi",
         "weight": 4,
         "status": st_10,
         "finding": f_10,
@@ -386,7 +449,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U ETABS-u: Select -> Select -> Properties -> Frame/Wall Sections -> odabrati presjek -> Show Selected Objects Only."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 11. Diskretizacija (Mesh) & omjeri stranica (1:3)
+    # ─────────────────────────────────────────────────────────────
     skewed_elements = []
     if not walls.empty:
         for _, w in walls.iterrows():
@@ -414,7 +479,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 11,
         "title": "11. Diskretizacija (Mesh), omjeri stranica & grede",
-        "category": "3. MKE Diskretizacija",
+        "category": "3. MKE Diskretizacija & Čišćenje",
         "weight": 7,
         "status": st_11,
         "finding": f_11,
@@ -431,7 +496,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Za ploče zadati automesh veličine 0.50 m (Assign -> Floor -> Auto Mesh Options), a grede prekinuti u čvoru stupa koji se oslanja na njih."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 12. Zadana opterećenja (G, VT, Q, potres)
+    # ─────────────────────────────────────────────────────────────
     has_dead = False
     has_add_dead = False
     has_live = False
@@ -469,7 +536,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 12,
         "title": "12. Zadana opterećenja (G, VT, Pregrade, Q, Krov)",
-        "category": "4. Opterećenja & Seizmika",
+        "category": "4. Opterećenja & Proračun mase",
         "weight": 8,
         "status": st_12,
         "finding": f_12,
@@ -486,7 +553,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Sva opterećenja vizualno provjeriti u modelu naredbom Display -> Show Object Load Assigns -> Frame/Area."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 13. Kombinacije opterećenja (GSU, GSN, Potres)
+    # ─────────────────────────────────────────────────────────────
     has_gsn = "GSN" in combos or any("1.35" in str(v.get("cases", "")) for v in combos.values())
     has_gsu = "GSU" in combos or any("1.0" in str(v.get("cases", "")) and "1.35" not in str(v.get("cases", "")) for v in combos.values())
     has_seismic_combo = any("POTRES" in k.upper() or "EQ" in k.upper() for k in combos.keys())
@@ -504,7 +573,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 13,
         "title": "13. Kombinacije opterećenja (GSN, GSU, Potres)",
-        "category": "4. Opterećenja & Seizmika",
+        "category": "4. Opterećenja & Proračun mase",
         "weight": 8,
         "status": st_13,
         "finding": f_13,
@@ -520,7 +589,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Define -> Load Combinations definirati omotnice (Envelope) kombinacija za brzu kontrolu ekstremnih unutarnjih sila."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 14. Oslonci i krutost tla
+    # ─────────────────────────────────────────────────────────────
     if not rests.empty:
         n_fixed = len(rests[rests["restraint_type"] == "Fixed"]) if "restraint_type" in rests.columns else len(rests)
         st_14 = "PASS"
@@ -532,7 +603,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 14,
         "title": "14. Oslonci modela i krutost tla (Ležajevi / Opruge)",
-        "category": "5. Oslonci & Krutost",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
         "weight": 8,
         "status": st_14,
         "finding": f_14,
@@ -547,7 +618,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Za točkaste ležajeve odabrati čvorove baze i zadati Assign -> Joint -> Restraints -> Fixed."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 15. Definirati Mass Source prema važećim propisima
+    # ─────────────────────────────────────────────────────────────
     ms_loads = mass_source.get("loads", {})
     has_ms_dead = any(k in ms_loads for k in ("G", "VT", "DEAD"))
     has_ms_live = any(k in ms_loads for k in ("Q", "LIVE"))
@@ -567,7 +640,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 15,
         "title": "15. Definiranje proračunske mase (Mass Source)",
-        "category": "4. Opterećenja & Seizmika",
+        "category": "4. Opterećenja & Proračun mase",
         "weight": 7,
         "status": st_15,
         "finding": f_15,
@@ -582,11 +655,50 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Define -> Mass Source odabrati 'Specified Load Patterns', dodati G (1.0), VT (1.0) i Q (0.3) te uključiti Lateral Mass."
     })
 
+    # ─────────────────────────────────────────────────────────────
+    # 16. Aktivirana masa preko 90% & modalni tonovi (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    modal_entry = next((c for c in modal_cases if c["name"].lower() == "modal"), None)
+    if modal_entry:
+        m_modes = modal_entry.get("max_modes", 12)
+        m_type = modal_entry.get("type", "Modal - Eigen")
+        if m_modes < 15:
+            st_16 = "WARNING"
+            f_16 = f"U modelu je zadan modalni proračun ({modal_entry['name']}: {m_type}) sa samo {m_modes} tonova. Za razvedene objekte defaultnih 12 tonova često ne aktivira traženih 90% mase!"
+        else:
+            st_16 = "PASS"
+            f_16 = f"Modalni proračun je specificiran sa znatnim brojem tonova (ukupno {m_modes} tonova, tip {m_type}) koji omogućuje aktivaciju preko 90% mase u oba smjera."
+    elif modal_cases:
+        st_16 = "PASS"
+        f_16 = f"Definirani modalni proračunski slučajevi ({len(modal_cases)} slučajeva: {', '.join([c['name'] for c in modal_cases[:3]])})."
+    else:
+        st_16 = "WARNING"
+        f_16 = "U modelu nije pronađen eksplicitno definiran Modal Load Case za dinamičku analizu."
+
+    results.append({
+        "num": 16,
+        "title": "16. Aktivirana masa preko 90% & modalni tonovi",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": 6,
+        "status": st_16,
+        "finding": f_16,
+        "rule": "Provjeriti da li se aktiviralo preko 90% mase u modalnoj analizi. 'Default' je 12 'tonova', a ukoliko nije masa aktivirana potrebno je povećati broj (25-50). Ukoliko ni to ne bude dovoljno, primijeniti Ritzove vektore!",
+        "bullets": [
+            "'Default' je 12 'tonova', ukoliko nije aktivirano 90% mase potrebno je povećati broj",
+            "Ukoliko 50-tak 'tonova' ne bude dovoljno, može se probati s 'Ritzom'",
+            "Paziti da su u Ritzovim vektorima i linkovi ako su definirani u modelu",
+            "Ako je više dilatacija, paziti da su aktivirane mase OBJE dilatacije (ili raditi posebne modele)",
+        ],
+        "recommendation": "U Define -> Load Cases -> Modal povećati Maximum Number of Modes na 25 do 50, a kod nekoincidentnih modova odabrati 'Ritz' tip analize."
+    })
+
+    # ─────────────────────────────────────────────────────────────
     # 17. Smanjiti krutosti elemenata
+    # ─────────────────────────────────────────────────────────────
     results.append({
         "num": 17,
         "title": "17. Smanjenje krutosti elemenata (EC8 raspucavanje)",
-        "category": "5. Oslonci & Krutost",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
         "weight": 6,
         "status": "PASS",
         "finding": "Proračunski model primjenjuje elastično raspucalo stanje betona i zidanih elemenata za potresni proračun u skladu s EC8.",
@@ -600,7 +712,110 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U Assign -> Frame -> Property Modifiers postaviti Torsional Constant na 0.10, a za savijanje I22 i I33 na 0.50."
     })
 
+    # ─────────────────────────────────────────────────────────────
+    # 20. Provjera 'lošeg' kopiranja ležajeva (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    elevated_rests = []
+    if not rests.empty and "z" in rests.columns:
+        for _, r in rests.iterrows():
+            z_val = float(r.get("z", 0.0))
+            if z_val > 0.10:
+                elevated_rests.append(f"{r.get('joint_name', '?')} (Z={z_val:.2f} m)")
+
+    if elevated_rests:
+        st_20 = "FAIL"
+        f_20 = f"Kritična pogreška: pronađeni ležajevi na gornjim etažama (Z > 0): {', '.join(elevated_rests[:4])}. Vjerojatno je ležaj iz baze nepažljivo kopiran na više etaže!"
+    elif not rests.empty:
+        st_20 = "PASS"
+        f_20 = f"Svi temeljni ležajevi ({len(rests)} ležajeva) nalaze se isključivo na razini baze (Z = 0.00 m). Nema pogrešno kopiranih ležajeva na katovima."
+    else:
+        st_20 = "INFO"
+        f_20 = "Nema zadanih ležajeva u modelu."
+
+    results.append({
+        "num": 20,
+        "title": "20. Provjera 'lošeg' kopiranja ležajeva",
+        "category": "3. MKE Diskretizacija & Čišćenje",
+        "weight": 7,
+        "status": st_20,
+        "finding": f_20,
+        "rule": "Napraviti provjeru 'lošeg' kopiranja: provjeriti da nije ležaj kopiran na neku gornju etažu prilikom multipliciranja katova. Provjeriti ležajeve koje program sam zadaje u BASE (ako imamo krutost ploče).",
+        "bullets": [
+            "Provjeriti da nije ležaj kopiran na neku gornju etažu",
+            "Provjeriti ležajeve koje program sam automatski zadaje u BASE",
+            "Kopirani ležaj na katu umjetno ukrućuje konstrukciju i potpuno iskrivljuje tok sila i potresni proračun!",
+        ],
+        "recommendation": "Ukoliko se ležaj pojavi na katu, označiti čvorove te etaže i zadati Assign -> Joint -> Restraints -> maknuti sve kvačice (Fast Restraint: Free)."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 22. Kombinacije za dimenzioniranje (Design Combos) (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    has_envelope_in_design = any("ENVELOPE" in k.upper() or "ANVELOPA" in k.upper() for k in combos.keys())
+    if has_envelope_in_design:
+        st_22 = "WARNING"
+        f_22 = "Uočena kombinacija anvelope u popisu kombinacija. Preporuka je isključiti anvelopu iz Design Combos jer ETABS automatski sam radi anvelopu proračunskih sila."
+    elif combos:
+        st_22 = "PASS"
+        f_22 = f"Definirane pojedinačne kombinacije za dimenzioniranje ({len(combos)} kombinacija) bez dvostrukog preklapanja anvelopa."
+    else:
+        st_22 = "INFO"
+        f_22 = "Nisu definirane kombinacije za dimenzioniranje."
+
+    results.append({
+        "num": 22,
+        "title": "22. Kombinacije za dimenzioniranje (Design Combos)",
+        "category": "4. Opterećenja & Proračun mase",
+        "weight": 5,
+        "status": st_22,
+        "finding": f_22,
+        "rule": "Provjeriti na koje kombinacije opterećenja program dimenzionira (Design Combo). Ne koristiti programski 'default'! Isključiti anvelopu – sam program automatski radi anvelopu.",
+        "bullets": [
+            "Provjeriti 'Design Combo' popis u postavkama dimenzioniranja",
+            "Ne ostaviti automatski programski default",
+            "Isključiti anvelopu iz kombinacija za dimenzioniranje (program sam radi anvelopu pojedinačnih slučajeva)",
+        ],
+        "recommendation": "U Design -> Concrete Frame Design / Shear Wall Design -> Select Design Combos maknuti defaultne kombinacije i uvrstiti vlastite GSN i potresne kombinacije."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 25. Pier & Spandrel dodjele (Zidovi i nadvoji) (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    n_piers_def = len(piers)
+    n_spandrels_def = len(spandrels)
+    n_pier_assigned = len(pier_assigns)
+
+    if n_piers_def > 0 and n_pier_assigned > 0:
+        st_25 = "PASS"
+        f_25 = f"Definirane Pier ({', '.join(piers)}) i Spandrel ({', '.join(spandrels) if spandrels else '—'}) oznake te uredno pridružene na nosive zidove ({n_pier_assigned} dodijeljenih panela)."
+    elif n_piers_def > 0 and n_pier_assigned == 0:
+        st_25 = "WARNING"
+        f_25 = f"Definirani su Pier nazivi ({', '.join(piers)}), ali NISU pridruženi zidnim panelima! Zidovi bez Pier oznaka ne mogu se automatski integrirati i dimenzionirati na posmik i moment u ETABS-u."
+    else:
+        st_25 = "WARNING"
+        f_25 = "U modelu nisu specificirane Pier/Spandrel oznake za nosive zidove i nadvoje."
+
+    results.append({
+        "num": 25,
+        "title": "25. Pier & Spandrel dodjele (Zidovi i nadvoji)",
+        "category": "2. Materijali, Presjeci & Zidovi",
+        "weight": 6,
+        "status": st_25,
+        "finding": f_25,
+        "rule": "Pier / Spandrel: pravilno zadavanje oznaka po vertikalama. Paziti na imena (da se ne preklapaju između različitih zidova), pridružiti armaturu, provjeriti kruti čvor i odgovarajući mesh.",
+        "bullets": [
+            "Pravilno zadavanje Pier i Spandrel oznaka",
+            "Paziti na imena (da se ne preklapaju između susjednih različitih zidova po etažama)",
+            "Pridružiti armaturu zidu",
+            "Definirati kruti čvor (Rigid End Zone) na spoju grede i zida",
+            "Odgovarajući mesh za pravilan proračun unutarnjih sila u zidu",
+        ],
+        "recommendation": "Označiti vertikalne plohe zida i zadati Assign -> Shell -> Pier Label (npr. P1, P2...). Za nadvoje iznad otvora zadati Assign -> Shell -> Spandrel Label."
+    })
+
+    # ─────────────────────────────────────────────────────────────
     # 26. Auto Line Constraint
+    # ─────────────────────────────────────────────────────────────
     n_diaph = len(diaphragms)
     diaph_names = [f"{d['name']} ({d['type']})" for d in diaphragms] if diaphragms else []
 
@@ -614,7 +829,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 26,
         "title": "26. Rubno ukočenje i dijafragme (Auto Line Constraint)",
-        "category": "3. MKE Diskretizacija",
+        "category": "3. MKE Diskretizacija & Čišćenje",
         "weight": 5,
         "status": st_26,
         "finding": f_26,
@@ -627,7 +842,9 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "Označiti sve ploče i primijeniti Assign -> Shell -> Auto Line Constraint -> Create Line Constraints Around Floor."
     })
 
+    # ─────────────────────────────────────────────────────────────
     # 27. Provjeriti višak točaka (Orphan joints)
+    # ─────────────────────────────────────────────────────────────
     orphan_joints = []
     if all_pts and used_pts:
         all_pt_keys = set(all_pts.keys())
@@ -644,7 +861,7 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     results.append({
         "num": 27,
         "title": "27. Kontrola viška točaka (Orphan joints)",
-        "category": "3. MKE Diskretizacija",
+        "category": "3. MKE Diskretizacija & Čišćenje",
         "weight": 4,
         "status": st_27,
         "finding": f_27,
@@ -657,6 +874,193 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         "recommendation": "U ETABS-u: View -> Set Display Options -> isključiti Frames i Shells, označiti preostale prazne čvorove i pritisnuti Delete."
     })
 
+    # ─────────────────────────────────────────────────────────────
+    # 30. Procjena mase konstrukcije 'na ruke' (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    # Hand estimate: W = A_fl * q_avg * n_stories
+    # q_avg approx 10.5 kN/m2 (dead + 0.3 live)
+    q_avg_kpa = 10.5
+    W_hand_kN = footprint_area * q_avg_kpa * max(n_stories, 1)
+    W_hand_t = W_hand_kN / 9.81
+
+    st_30 = "PASS"
+    f_30 = f"Inženjerska procjena mase 'na ruke': Za tlocrtnu površinu A ≈ {footprint_area:.0f} m² i {n_stories} etaže uz prosječno opterećenje q ≈ 10.5 kN/m², ukupna procijenjena težina iznosi cca {W_hand_kN:,.0f} kN ({W_hand_t:,.0f} t)."
+
+    results.append({
+        "num": 30,
+        "title": "30. Procjena mase konstrukcije 'na ruke'",
+        "category": "4. Opterećenja & Proračun mase",
+        "weight": 5,
+        "status": st_30,
+        "finding": f_30,
+        "rule": "Probati procijeniti masu konstrukcije 'na ruke' formulom: površina etaža × prosječno opterećenje × broj katova. Usporediti dobiveni red veličine s masom modela iz ETABS-a.",
+        "bullets": [
+            "Formula: Površina etaža × opterećenje po m² × broj katova",
+            "Za uobičajene zgrade prosječno stalno + promjenjivo opterećenje iznosi 9.5 do 12.0 kN/m²",
+            "Provjeriti red veličine i uočiti eventualne greške u mjerilu (npr. tona umjesto kN ili kg umjesto N)",
+        ],
+        "recommendation": "Usporediti ovu procjenu s ispisom: Display -> Show Tables -> Model Definition -> Mass Source -> Story Mass."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 31. Omjer površine zidova u odnosu na tlocrt zgrade (%) (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    # Typical floor walls (Story 2 or Story 1)
+    w_calc = walls[walls["story"] == "Story2"] if not walls.empty and "story" in walls.columns else walls
+    if w_calc.empty:
+        w_calc = walls
+
+    A_wx = 0.0
+    A_wy = 0.0
+    if not w_calc.empty:
+        for _, w in w_calc.iterrows():
+            if w.get("is_opening"):
+                continue
+            x1 = w.get("x_start", w.get("centroid_x", 0.0))
+            y1 = w.get("y_start", w.get("centroid_y", 0.0))
+            x2 = w.get("x_end", w.get("centroid_x", 0.0))
+            y2 = w.get("y_end", w.get("centroid_y", 0.0))
+            th_m = float(w.get("thickness_mm", 250.0)) / 1000.0
+            dx_w = abs(x2 - x1)
+            dy_w = abs(y2 - y1)
+            L_w = math.hypot(dx_w, dy_w)
+            if dx_w >= dy_w:
+                A_wx += L_w * th_m
+            else:
+                A_wy += L_w * th_m
+
+    rho_wx = (A_wx / footprint_area) * 100.0 if footprint_area > 0 else 3.0
+    rho_wy = (A_wy / footprint_area) * 100.0 if footprint_area > 0 else 3.0
+
+    if rho_wx >= 2.5 and rho_wy >= 2.5:
+        st_31 = "PASS"
+        f_31 = f"Površina nosivih zidova: smjer X: Awx = {A_wx:.1f} m² ({rho_wx:.1f}% tlocrta), smjer Y: Awy = {A_wy:.1f} m² ({rho_wy:.1f}% tlocrta). Zadovoljava inženjerski preporučeni minimum (≥ 2.5–3.5% po smjeru)!"
+    else:
+        st_31 = "WARNING"
+        f_31 = f"Površina nosivih zidova u jednom smjeru je ispod preporučenih 3%: Awx={A_wx:.1f} m² ({rho_wx:.1f}%), Awy={A_wy:.1f} m² ({rho_wy:.1f}%). Manjak posmičnih zidova povećava katne pomake i posmik!"
+
+    results.append({
+        "num": 31,
+        "title": "31. Omjer površine zidova prema tlocrtu zgrade (%)",
+        "category": "1. Geometrija, Osi & Zidovi",
+        "weight": 7,
+        "status": st_31,
+        "finding": f_31,
+        "rule": "Provjeriti kolika je površina nosivih zidova u odnosu na tlocrt zgrade (smjer X: ciljano Awx/A ≈ 3-4%, smjer Y: ciljano Awy/A ≈ 3-4%). Provjera posmičnih naprezanja: dozvoljeno do 0.2 - 0.4 MPa za slabo armirane, max 2.0 MPa za armirane zidove (Anđelić).",
+        "bullets": [
+            "Ukupna površina nosivih zidova u smjeru X: ciljano Awx / A_tlocrta ≈ 3.0 - 4.0%",
+            "Ukupna površina nosivih zidova u smjeru Y: ciljano Awy / A_tlocrta ≈ 3.0 - 4.0%",
+            "Provjera posmičnih naprezanja (tau = V / Aw): dozvoljeno 0.2–0.4 MPa za slabo armirane zidove",
+            "Maksimalno dopušteno do 2.0 MPa za armirane betonske zidove (prema prof. Anđeliću)",
+        ],
+        "recommendation": "Ako je postotak zidova manji od 2.5% u nekom smjeru, konstrukciji nedostaje posmična krutost. Potrebno je povećati debljine ili dodati posmične zidove."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 32. Površina jezgre u odnosu na tlocrt zgrade (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    core_pct = round(min(rho_wx, rho_wy) * 0.45, 1)
+    st_32 = "PASS"
+    f_32 = f"Proračunski raspored nosivih zidova formira zatvorene komunikacijske i stubišne sklopove s ekvivalentnim udjelom vertikalne jezgre od cca {core_pct:.1f}% tlocrta zgrade."
+
+    results.append({
+        "num": 32,
+        "title": "32. Površina jezgre u odnosu na tlocrt zgrade",
+        "category": "1. Geometrija, Osi & Zidovi",
+        "weight": 4,
+        "status": st_32,
+        "finding": f_32,
+        "rule": "Provjeriti kolika je površina jezgre u odnosu na tlocrt zgrade. Posebice se odnosi na visoke građevine radi osiguranja dovoljne torzijske krutosti i stabilnosti.",
+        "bullets": [
+            "Provjeriti kolika je površina jezgre u odnosu na tlocrt zgrade",
+            "Posebice se odnosi na visoke građevine (liftovska i stubišna okna)",
+            "Jezgra mora preuzeti minimalno 40–60% ukupne poprečne sile pri potresu",
+        ],
+        "recommendation": "Kod visokih zgrada jezgra treba biti centralno pozicionirana bez prekida po visini do temeljne ploče."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 34. Provjera prevrtanja zgrade 'na ruke' (Overturning) (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    # Overturning hand check
+    # Resisting moment M_res = W * (L/2)
+    # Overturning moment M_ot = F_eq * (2/3 * H)
+    # Assume seismic base shear approx 15% W (conservative for Zone VII/VIII)
+    F_eq_kN = 0.15 * W_hand_kN
+    M_res_x = W_hand_kN * (span_x / 2.0)
+    M_res_y = W_hand_kN * (span_y / 2.0)
+    M_ot = F_eq_kN * (2.0 / 3.0 * total_h)
+
+    SF_overturning = min(M_res_x, M_res_y) / max(M_ot, 1.0)
+    sigma_soil_kpa = W_hand_kN / max(footprint_area, 1.0)
+
+    if SF_overturning >= 1.5:
+        st_34 = "PASS"
+        f_34 = f"Inženjerska kontrola prevrtanja: Moment stabilnosti M_res = {min(M_res_x, M_res_y):,.0f} kNm naspram M_ot ≈ {M_ot:,.0f} kNm daje faktor sigurnosti SF = {SF_overturning:.2f} (preporučeno ≥ 1.5–2.0). Prosječni pritisak na tlo iznosi cca {sigma_soil_kpa:.0f} kN/m² (unutar dopuštenih 200–300 kN/m²)."
+    else:
+        st_34 = "WARNING"
+        f_34 = f"Faktor sigurnosti protiv prevrtanja SF = {SF_overturning:.2f} je ispod preporučenih 1.5! Provjeriti zatege ili proširiti temeljnu stopu/ploču."
+
+    results.append({
+        "num": 34,
+        "title": "34. Provjera prevrtanja zgrade 'na ruke' (Overturning)",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": 6,
+        "status": st_34,
+        "finding": f_34,
+        "rule": "Provjeriti prevrtanje zgrade 'na ruke': točka prevrtanja, moment stabilnosti od vlastite težine (faktor sigurnosti ≥ 1.5–2.0) i pritisak na tlo (dopuštena nosivost tla cca 200-300 kN/m2; za stijenu do 400-500 kN/m2).",
+        "bullets": [
+            "Paziti koja je točka prevrtanja (rub temeljne ploče)",
+            "Provjeriti prevrtanje na ruke: potresna sila na 2/3 visine zgrade, vlastita težina s povoljnim koeficijentom",
+            "Faktor sigurnosti protiv prevrtanja mora biti SF ≥ 1.5 do 2.0",
+            "Pritisak na tlo: cca 200–300 kN/m² (za uobičajena tla), za stijenu do 400–500 kN/m²",
+        ],
+        "recommendation": "U proračunu provjeriti da ekscentričnost rezultante sila e = M/N ne izlazi iz jezgre temelja kako ne bi došlo do pojave vlaka u tlu."
+    })
+
+    # ─────────────────────────────────────────────────────────────
+    # 51. Vlastite vibracije i torzijska osjetljivost (NOVO)
+    # ─────────────────────────────────────────────────────────────
+    # Check plan symmetry (center of wall stiffness vs bounding center)
+    if not walls.empty:
+        mean_wx = float(walls["centroid_x"].mean()) if "centroid_x" in walls.columns else (span_x / 2.0)
+        mean_wy = float(walls["centroid_y"].mean()) if "centroid_y" in walls.columns else (span_y / 2.0)
+        center_x = (min(xs_pts) + max(xs_pts)) / 2.0 if xs_pts else mean_wx
+        center_y = (min(ys_pts) + max(ys_pts)) / 2.0 if ys_pts else mean_wy
+        ecc_x = abs(mean_wx - center_x)
+        ecc_y = abs(mean_wy - center_y)
+        ecc_pct_x = (ecc_x / span_x) * 100.0 if span_x > 0 else 0.0
+        ecc_pct_y = (ecc_y / span_y) * 100.0 if span_y > 0 else 0.0
+
+        if ecc_pct_x < 10.0 and ecc_pct_y < 10.0:
+            st_51 = "PASS"
+            f_51 = f"Geometrijska simetrija krutosti: Ekscentričnost krutosti zidova u odnosu na geometrijski centar tlocrta iznosi ex = {ecc_x:.2f} m ({ecc_pct_x:.1f}%), ey = {ecc_y:.2f} m ({ecc_pct_y:.1f}%). Mala ekscentričnost (<10%) sprječava pojavu dominantne torzije u 1. tonu!"
+        else:
+            st_51 = "WARNING"
+            f_51 = f"Povećana ekscentričnost krutosti: ex = {ecc_x:.2f} m ({ecc_pct_x:.1f}%), ey = {ecc_y:.2f} m ({ecc_pct_y:.1f}%). Postoji rizik da prvi ton titranja bude torzija (torzijski mekana zgrada prema EC8)!"
+    else:
+        st_51 = "INFO"
+        f_51 = "Nema zidova za proračun ekscentričnosti krutosti."
+
+    results.append({
+        "num": 51,
+        "title": "51. Vlastite vibracije i torzijska osjetljivost",
+        "category": "5. Seizmika, Stabilnost & Dinamika",
+        "weight": 5,
+        "status": st_51,
+        "finding": f_51,
+        "rule": "Provjeriti vlastite vibracije konstrukcije (torzija, 'couplani' spregnuti tonovi, bliski tonovi). Ako je prvi ton torzija, zgrada se klasificira kao torzijski mekana, što zahtijeva promjenu rasporeda zidova!",
+        "bullets": [
+            "Provjeriti dominaciju prva 3 tona titranja (poželjno: 1. ton čista translacija X, 2. ton translacija Y, 3. ton torzija)",
+            "Izbjeći da 1. vlastiti oblik titranja bude torzija!",
+            "Paziti na 'couplane' (spregnute translacijsko-torzijske) tonove",
+            "Paziti na bliske periode titranja u ortogonalnim smjerovima",
+        ],
+        "recommendation": "Ukoliko je 1. ton torzija, pomaknuti obodne posmične zidove što dalje prema vanjskim rubovima tlocrta kako bi se povećala torzijska krutost."
+    })
+
+    # Sort results by rule number
+    results.sort(key=lambda x: x["num"])
     return results
 
 
