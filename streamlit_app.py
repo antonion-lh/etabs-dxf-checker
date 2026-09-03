@@ -138,6 +138,24 @@ def _sidebar() -> tuple:
                 "small": "4 stupa · 1 greda · 1 zid",
             }
             st.caption(demo_desc_map.get(demo_name, ""))
+
+            new_demo = st.selectbox(
+                "Promijeni demo model:",
+                options=["strossmayer", "commercial", "small"],
+                format_func=lambda x: {
+                    "strossmayer": "OŠ J. J. Strossmayer (Zidana zgrada + PDF)",
+                    "commercial":  "Poslovni centar (AB okvir + CAD DXF)",
+                    "small":       "Referentni model (mali primjer)",
+                }[x],
+                index=["strossmayer", "commercial", "small"].index(
+                    st.session_state.get("demo_choice_key", "strossmayer")
+                ),
+                key="demo_model_selector",
+                label_visibility="collapsed",
+            )
+            if new_demo != st.session_state.get("demo_choice_key"):
+                st.session_state["demo_choice_key"] = new_demo
+                st.rerun()
         else:
             uploaded_e2k = st.file_uploader("Učitaj .e2k datoteku", type=["e2k", "$et", "txt"], key="sb_e2k_up", label_visibility="collapsed")
 
@@ -783,6 +801,12 @@ def main():
                     f"○ Samo nacrt ({n_dxf})"
                 ])
 
+            if is_pdf_mode:
+                st.caption(
+                    "PDF mod — prikaz elemenata iz ETABS modela bez "
+                    "geometrijske usporedbe s nacrtom."
+                )
+
             col_f1, col_f2, col_f3 = st.columns([2.5, 1.5, 1.5])
             with col_f1:
                 sel_pill = st.segmented_control(
@@ -974,6 +998,11 @@ def main():
             grade_num = score_data.get("grade", 1)
             grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
 
+            try:
+                html_code = generate_html(df_res, None, cfg)
+            except Exception as _e:
+                html_code = f"<p>Greška pri generiranju izvještaja: {_e}</p>"
+
             meta_col1, meta_col2 = st.columns([2, 3])
             with meta_col1:
                 st.markdown(f"""
@@ -986,11 +1015,6 @@ def main():
                 """, unsafe_allow_html=True)
 
                 st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-
-                try:
-                    html_code = generate_html(df_res, None, cfg)
-                except Exception as e:
-                    html_code = f"<p>Greška pri generiranju HTML izvještaja: {e}</p>"
 
                 pdf_bytes = None
                 try:
