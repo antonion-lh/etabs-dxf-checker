@@ -828,8 +828,8 @@ def main():
             )
 
         items_to_show = audit_results
-        if selected_cat != "Sve nastavne cjeline (1–27)":
-            items_to_show = [a for a in items_to_show if a["category"] == selected_cat]
+        if selected_cat != all_cats[0] and not selected_cat.startswith("Sve nastavne"):
+            items_to_show = [a for a in items_to_show if a.get("category") == selected_cat]
 
         if "upozorenja" in flt_status.lower():
             items_to_show = [a for a in items_to_show if a["status"] in ("WARNING", "FAIL")]
