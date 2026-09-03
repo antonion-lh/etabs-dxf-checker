@@ -15,7 +15,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from config import Config
-from phase3_validation import validate, Status, _dims_match
+from phase3_validation import validate, Status, _dims_match, run_structural_sanity_checks
 
 
 # ---------------------------------------------------------------------------
@@ -246,4 +246,26 @@ class TestMultiTypeValidation:
         w1_status = res[res["etabs_name"] == "W1"]["status"].iloc[0]
         assert b1_status == Status.ETABS_ONLY
         assert w1_status == Status.MATCH
+
+    def test_validate_with_none_inputs(self):
+        res = validate(None, None)
+        assert isinstance(res, pd.DataFrame)
+        assert res.empty
+
+    def test_run_structural_sanity_checks_with_none(self):
+        alerts = run_structural_sanity_checks(None)
+        assert alerts == []
+
+    def test_run_structural_sanity_checks_grouped_alerts(self):
+        # 10 unloaded slabs should be grouped into a single summary alert
+        mock_e2k = {
+            "slabs": pd.DataFrame([{"name": f"F_{i}"} for i in range(10)]),
+            "area_loads": pd.DataFrame(),
+            "restraints": pd.DataFrame([{"joint_name": f"J_{i}", "restraint_type": "FREE", "x": i, "y": 0} for i in range(10)])
+        }
+        alerts = run_structural_sanity_checks(mock_e2k)
+        assert len(alerts) == 2  # 1 for grouped slabs, 1 for grouped free joints
+        assert "10 stropnih ploča" in alerts[1]["element"]
+        assert "10 čvorova baze" in alerts[0]["element"]
+
 

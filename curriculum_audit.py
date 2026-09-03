@@ -50,6 +50,9 @@ def run_curriculum_audit(etabs_dict: dict, cfg: Any = None, results_data: Any = 
     """
     results: list[dict] = []
 
+    if not isinstance(etabs_dict, dict):
+        etabs_dict = {}
+
     results_summary = (results_data.get("summary", {}) if isinstance(results_data, dict) else {})
     has_res = bool(results_data.get("has_results", False) if isinstance(results_data, dict) else False)
 
@@ -1403,8 +1406,8 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
         "grade_label": grade_label,
         "badge_color": badge_color,
         "total_checks": len(audit_results),
-        "n_pass": sum(1 for a in audit_results if a["status"] == "PASS"),
-        "n_warn": sum(1 for a in audit_results if a["status"] == "WARNING"),
-        "n_fail": sum(1 for a in audit_results if a["status"] == "FAIL"),
-        "n_info": sum(1 for a in audit_results if a["status"] == "INFO"),
+        "n_pass": sum(1 for a in audit_results if a.get("status") == "PASS"),
+        "n_warn": sum(1 for a in audit_results if a.get("status") == "WARNING"),
+        "n_fail": sum(1 for a in audit_results if a.get("status") == "FAIL"),
+        "n_info": sum(1 for a in audit_results if a.get("status") == "INFO"),
     }

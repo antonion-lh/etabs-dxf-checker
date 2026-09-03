@@ -626,6 +626,17 @@ def _render_drawing(uploaded_drawing, active_story_z=None, active_story_name=Non
                     key="dl_original_pdf_btn"
                 )
 
+            if num_pages > 1:
+                np_col1, np_col2 = st.columns(2)
+                with np_col1:
+                    if st.button("◀ Prethodna stranica", key="btn_pdf_prev", use_container_width=True, disabled=(st.session_state["active_pdf_page"] <= 1)):
+                        st.session_state["active_pdf_page"] = max(1, st.session_state["active_pdf_page"] - 1)
+                        st.rerun()
+                with np_col2:
+                    if st.button("Sljedeća stranica ▶", key="btn_pdf_next", use_container_width=True, disabled=(st.session_state["active_pdf_page"] >= num_pages)):
+                        st.session_state["active_pdf_page"] = min(num_pages, st.session_state["active_pdf_page"] + 1)
+                        st.rerun()
+
             sel_page_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
             page = doc[sel_page_idx]
             pix = page.get_pixmap(dpi=dpi_val, alpha=False)
@@ -1866,57 +1877,13 @@ def main():
                 try: os.unlink(dxf_path)
                 except: pass
 
-    # ── Multi-Story / Story Filter ────────────────────────────
+    # ── Stories Configuration ─────────────────────────────────
     stories = etabs_data.get("stories", [])
     if not stories:
         stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0, "elevation": 4.0}]
 
-    story_opts = [f"🏢 {s.get('display_name', s['name'])} (Z = {s['z_bottom']:.2f} – {s['z_top']:.2f} m)" for s in stories]
-    story_opts.append("🌐 Sve etaže (Cijela zgrada)")
-
-    # 1. SIDEBAR SELECTOR (Always visible!)
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🏢 2. Odabir etaže (Story)")
-    choice_story = st.sidebar.selectbox(
-        "Aktivna etaža modela:",
-        story_opts,
-        index=0,
-        key="active_story_filter",
-        help="Odabirom etaže u lijevom izborniku tlocrt i tablice prikazuju elemente tog kata."
-    )
-
-    active_story_name = None
-    chosen_z = None
-    selected_story_data = None
-
-    if not choice_story.startswith("🌐"):
-        sel_idx = story_opts.index(choice_story)
-        selected_story_data = stories[sel_idx]
-        active_story_name = selected_story_data["name"]
-        chosen_z = selected_story_data["z_top"]
-        disp_title = selected_story_data.get("display_name", active_story_name)
-        st.sidebar.success(f"Prikazuje se: **{disp_title}**")
-
-        if "story" in df_res.columns:
-            df_eval = df_res[
-                (df_res["story"] == active_story_name) |
-                (df_res["status"] == Status.DXF_ONLY)
-            ].copy()
-        else:
-            z_bot = selected_story_data["z_bottom"] - 0.20
-            z_top = selected_story_data["z_top"] + 0.20
-            df_eval = df_res[
-                ((df_res["etabs_z"] >= z_bot) & (df_res["etabs_z"] <= z_top)) |
-                (df_res["status"] == Status.DXF_ONLY)
-            ].copy()
-        df_eval.attrs = dict(df_res.attrs)
-    else:
-        st.sidebar.info("Prikazuje se: **Cijela zgrada**")
-        df_eval = df_res.copy()
-        df_eval.attrs = dict(df_res.attrs)
-
-    # ── KPI Strip ─────────────────────────────────────────────
-    _kpi_strip(df_eval, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
+    # ── KPI Strip (Globalni pregled modela zgrade) ─────────────
+    _kpi_strip(df_res, is_pdf_mode=is_pdf_mode, etabs_data=etabs_data)
 
     # ── Inženjerska kontrola modela (prikazuje se samo kod stvarnih grešaka) ──
     alerts = df_res.attrs.get("sanity_alerts", [])
@@ -2293,19 +2260,33 @@ def main():
             else:
                 st.markdown("##### Detaljna usporedba dimenzija i položaja elemenata")
 
-            f1, f2, f3 = st.columns([1.5, 1.5, 2])
-            dfd = df_eval.copy()
+            f0, f1, f2, f3 = st.columns([1.3, 1.3, 1.3, 1.8])
+            dfd = df_res.copy()
+
+            with f0:
+                st_opts = ["Sve etaže"] + [s.get("display_name", s["name"]) for s in stories]
+                st_f = st.selectbox("Etaža:", st_opts, key="tab3_story_filter")
+                if st_f != "Sve etaže":
+                    s_match = next((s for s in stories if s.get("display_name", s["name"]) == st_f), None)
+                    if s_match:
+                        if "story" in dfd.columns:
+                            dfd = dfd[dfd["story"] == s_match["name"]]
+                        else:
+                            z_bot = s_match["z_bottom"] - 0.20
+                            z_top = s_match["z_top"] + 0.20
+                            dfd = dfd[(dfd["etabs_z"] >= z_bot) & (dfd["etabs_z"] <= z_top)]
 
             with f1:
                 if is_pdf_mode:
                     st.caption("Način: PDF elaborat")
                 else:
-                    st_f = st.selectbox("Filtriraj po statusu:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
-                    if st_f != "Svi statusi":
-                        dfd = dfd[dfd["status"].astype(str) == st_f]
+                    st_status = st.selectbox("Status:", ["Svi statusi"] + [s.value for s in Status], key="geo_status")
+                    if st_status != "Svi statusi":
+                        dfd = dfd[dfd["status"].astype(str) == st_status]
 
             with f2:
-                ty_f = st.selectbox("Filtriraj po tipu:", ["Svi tipovi"] + sorted(df_eval["element_type"].unique()), key="geo_type")
+                ty_opts = ["Svi tipovi"] + sorted(dfd["element_type"].dropna().unique()) if "element_type" in dfd.columns else ["Svi tipovi"]
+                ty_f = st.selectbox("Tip elementa:", ty_opts, key="geo_type")
                 if ty_f != "Svi tipovi":
                     dfd = dfd[dfd["element_type"] == ty_f]
 

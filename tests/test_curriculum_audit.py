@@ -166,3 +166,14 @@ def test_curriculum_audit_strossmayer_phase1():
     nums = [c["num"] for c in checks]
     for req in [16, 18, 20, 22, 25, 28, 29, 30, 31, 32, 33, 34, 35, 36, 40, 51]:
         assert req in nums
+
+def test_curriculum_audit_none():
+    checks = run_curriculum_audit(None)
+    assert len(checks) == 34
+    score = calculate_audit_score(checks)
+    assert score["percentage"] >= 0.0
+
+def test_calculate_audit_score_none():
+    score = calculate_audit_score(None)
+    assert score["percentage"] == 0.0
+    assert score["total_checks"] == 0

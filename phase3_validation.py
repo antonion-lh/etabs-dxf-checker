@@ -324,13 +324,16 @@ def _merge_loads(df_result: pd.DataFrame, df_area_loads: pd.DataFrame, cfg: Conf
     return df_result
 
 
-def run_structural_sanity_checks(etabs_dict: dict, cfg: Config) -> list[dict]:
+def run_structural_sanity_checks(etabs_dict: dict, cfg: Config = DEFAULT_CONFIG) -> list[dict]:
     """
     Run automated structural engineering sanity checks on model data:
       1. Dead Load self-weight multiplier must be 1.0 (other patterns 0.0)
       2. Floor slabs must not have 0.0 surface loads
       3. Base column joints must have support restraints
     """
+    if not isinstance(etabs_dict, dict):
+        return []
+
     alerts = []
 
     # 1. Load Patterns Self-Weight Audit
@@ -380,22 +383,37 @@ def run_structural_sanity_checks(etabs_dict: dict, cfg: Config) -> list[dict]:
     df_res = etabs_dict.get("restraints", pd.DataFrame())
     if not df_res.empty and "restraint_type" in df_res.columns:
         free_joints = df_res[df_res["restraint_type"] == "FREE"]
-        for _, r in free_joints.iterrows():
+        if len(free_joints) > 5:
             alerts.append({
                 "category": "Support",
                 "severity": "ERROR",
-                "element": r.get("joint_name", ""),
-                "issue": f"Čvor u bazi na koti ({r.get('x', 0):.2f}, {r.get('y', 0):.2f}) nema zadane ležajeve (slobodan čvor)! Element lebdi.",
+                "element": f"{len(free_joints)} čvorova baze",
+                "issue": f"Ukupno {len(free_joints)} čvorova u bazi nema zadane ležajeve (slobodni čvorovi)! Provjerite rubne uvjete temelja.",
             })
+        else:
+            for _, r in free_joints.iterrows():
+                alerts.append({
+                    "category": "Support",
+                    "severity": "ERROR",
+                    "element": r.get("joint_name", ""),
+                    "issue": f"Čvor u bazi na koti ({r.get('x', 0):.2f}, {r.get('y', 0):.2f}) nema zadane ležajeve (slobodan čvor)! Element lebdi.",
+                })
 
     # 3. Unloaded Floor Slabs Audit
     df_slabs = etabs_dict.get("slabs", pd.DataFrame())
     df_aloads = etabs_dict.get("area_loads", pd.DataFrame())
     if not df_slabs.empty:
         loaded_slabs = set(df_aloads["area_name"].dropna().unique()) if (not df_aloads.empty and "area_name" in df_aloads.columns) else set()
-        for _, r in df_slabs.iterrows():
-            s_name = r.get("name", "")
-            if s_name and s_name not in loaded_slabs:
+        unloaded_slabs = [r.get("name", "") for _, r in df_slabs.iterrows() if r.get("name") and r.get("name") not in loaded_slabs]
+        if len(unloaded_slabs) > 5:
+            alerts.append({
+                "category": "Area Load",
+                "severity": "WARNING",
+                "element": f"{len(unloaded_slabs)} stropnih ploča",
+                "issue": f"Ukupno {len(unloaded_slabs)} stropnih ploča nema zadano plošno opterećenje u modelu (korisno opterećenje Q / dodatno stalno VT od slojeva poda).",
+            })
+        else:
+            for s_name in unloaded_slabs:
                 alerts.append({
                     "category": "Area Load",
                     "severity": "WARNING",
@@ -451,6 +469,9 @@ def validate(
         etabs_dict = {"columns": pd.DataFrame()}
 
     # Normalize df_dxf
+    if df_dxf is None:
+        df_dxf = pd.DataFrame()
+
     if not df_dxf.empty and "element_type" not in df_dxf.columns:
         df_dxf = df_dxf.copy()
         df_dxf["element_type"] = "column"
