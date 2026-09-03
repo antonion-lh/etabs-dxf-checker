@@ -969,13 +969,18 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             prop_display = prop_key or sec_data.get("sec_name") or (f"WALL_{int(thick_mm)}" if is_wall else f"SLAB_{int(thick_mm)}")
 
             if is_wall:
+                seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
+                is_opening = (1.45 <= seg_len <= 1.75) or (atype in ("opening", "window"))
+                is_cut = not is_opening
+
                 w_pts_3d = [(wx1, wy1, z_bot), (wx2, wy2, z_bot), (wx2, wy2, z_top), (wx1, wy1, z_top)]
                 walls.append({
                     "name": aname,
                     "element_type": "wall",
+                    "is_opening": is_opening,
                     "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
                     "z_min": z_bot, "z_max": z_top,
-                    "is_cut": True,
+                    "is_cut": is_cut,
                     "x_match": cx, "y_match": cy,
                     "x_start": wx1, "y_start": wy1,
                     "x_end": wx2, "y_end": wy2,

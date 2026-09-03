@@ -862,22 +862,38 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
             active_wall_names = set(df_res[df_res["element_type"] == "wall"]["etabs_name"].dropna().astype(str))
             walls_to_draw = walls_all[walls_all["name"].astype(str).isin(active_wall_names)] if active_wall_names else walls_all
 
+        drawn_openings = set()
+        drawn_walls = set()
+
         for _, w in walls_to_draw.iterrows():
-            is_cut = w.get("is_cut", True)
-            st_val = status_map.get(str(w["name"]), Status.MATCH)
-            col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
-            is_brick = "brick" in str(w.get("material", "")).lower() or "opeka" in str(w.get("material", "")).lower() or "masonry" in str(w.get("material", "")).lower() or "wall" in str(w.get("prop_name", "")).lower()
-            wall_fill_col = "#dc2626" if (is_brick and st_val == Status.MATCH) else col
-            wall_line_col = "#991b1b" if (is_brick and st_val == Status.MATCH) else "#0f172a"
             x1 = w.get("x_start", w.get("centroid_x", 0.0))
             y1 = w.get("y_start", w.get("centroid_y", 0.0))
             x2 = w.get("x_end", w.get("centroid_x", 0.0))
             y2 = w.get("y_end", w.get("centroid_y", 0.0))
-
             thick_m = float(w.get("thickness_mm", 250.0)) / 1000.0
             dx = x2 - x1
             dy = y2 - y1
             L = math.hypot(dx, dy)
+
+            # Auto-detect opening if segment is around 1.6m (or explicitly tagged)
+            is_opening = w.get("is_opening", False) or (1.45 <= L <= 1.75)
+            is_cut = w.get("is_cut", not is_opening) if not is_opening else False
+
+            loc_key = (round(min(x1, x2), 2), round(min(y1, y2), 2), round(max(x1, x2), 2), round(max(y1, y2), 2))
+            if is_opening:
+                if loc_key in drawn_openings:
+                    continue
+                drawn_openings.add(loc_key)
+            else:
+                if loc_key in drawn_walls:
+                    continue
+                drawn_walls.add(loc_key)
+
+            st_val = status_map.get(str(w["name"]), Status.MATCH)
+            col, lbl = COLOR_MAP.get(st_val, ("#0284c7", "Element u modelu"))
+            is_brick = "brick" in str(w.get("material", "")).lower() or "opeka" in str(w.get("material", "")).lower() or "masonry" in str(w.get("material", "")).lower() or "wall" in str(w.get("prop_name", "")).lower() or "zid" in str(w.get("prop_name", "")).lower()
+            wall_fill_col = "#dc2626" if (is_brick and st_val == Status.MATCH) else col
+            wall_line_col = "#991b1b" if (is_brick and st_val == Status.MATCH) else "#0f172a"
 
             if L < 0.05:
                 cx, cy = w.get("centroid_x", 0.0), w.get("centroid_y", 0.0)
@@ -899,7 +915,7 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     y1 + ny * ht
                 ]
 
-            if is_cut:
+            if is_cut and not is_opening:
                 # Puni nosivi zid u presjeku (Solid structural wall cut at +1.2m)
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
@@ -930,21 +946,55 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                     showlegend=False,
                 ))
             else:
-                # Nadvoj / parapet prozora (Window opening/lintel outline)
+                # 🪟 PROZORSKI OTVOR (Window opening with translucent glass wash & sill/jamb lines)
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
-                    fill="none",
-                    line=dict(color="#94a3b8", width=1.0, dash="dot"),
+                    fill="toself",
+                    fillcolor="rgba(224, 242, 254, 0.50)",  # Svijetlo staklo, otvor ostaje proziran i vidljiv!
+                    line=dict(color="#64748b", width=1.0, dash="solid"),
                     mode="lines",
-                    name="Otvor / Nadvoj prozora",
+                    name="Prozorski otvor",
                     hovertext=(
-                        f"<b>Otvor prozora / Nadvoj {w['name']}</b><br>"
-                        f"Presjek: {w.get('prop_name', '—')} (Debljina: {thick_m*1000:.0f} mm)<br>"
-                        f"Kota: Z = {w.get('centroid_z', 0.0):.2f} m"
+                        f"<b>🪟 Prozorski otvor {w['name']}</b><br>"
+                        f"Širina otvora: {L:.2f} m (160 cm)<br>"
+                        f"Debljina zida: {thick_m*1000:.0f} mm<br>"
+                        f"Položaj: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})"
                     ),
                     hoverinfo="text",
                     showlegend=False,
                 ))
+
+                if L >= 0.05:
+                    nx = -dy / L
+                    ny = dx / L
+                    ht = max(thick_m / 2.0, 0.12)
+                    # Špaleta lijevo (rub punog zida)
+                    fig.add_trace(go.Scatter(
+                        x=[x1 - nx*ht, x1 + nx*ht],
+                        y=[y1 - ny*ht, y1 + ny*ht],
+                        mode="lines",
+                        line=dict(color="#991b1b", width=2.5),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
+                    # Špaleta desno (rub punog zida)
+                    fig.add_trace(go.Scatter(
+                        x=[x2 - nx*ht, x2 + nx*ht],
+                        y=[y2 - ny*ht, y2 + ny*ht],
+                        mode="lines",
+                        line=dict(color="#991b1b", width=2.5),
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
+                    # Staklo prozora po sredini
+                    fig.add_trace(go.Scatter(
+                        x=[x1, x2], y=[y1, y2],
+                        mode="lines",
+                        line=dict(color="#0284c7", width=2.2),
+                        name="Staklo prozora",
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
 
     # 4. Columns: Sharp colored squares
     if active_story_name and "story" in df_res.columns:
@@ -1229,47 +1279,50 @@ def _fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = Tru
         v_offset = 0
 
         for _, w in walls.iterrows():
-            pts = w.get("pts_coords")
-            if isinstance(pts, (list, tuple)) and len(pts) >= 3:
-                for p in pts:
+            x1 = w.get("x_start", w["centroid_x"])
+            y1 = w.get("y_start", w["centroid_y"])
+            x2 = w.get("x_end", w["centroid_x"])
+            y2 = w.get("y_end", w["centroid_y"])
+            z_bot = w.get("z_min", 0.0)
+            z_top = w.get("z_max", 3.5)
+            L = math.hypot(x2 - x1, y2 - y1)
+            is_opening = w.get("is_opening", False) or (1.45 <= L <= 1.75)
+
+            if is_opening:
+                # 3D Window cutout: parapet + lintel, leaving the window hole open!
+                z_p = z_bot + 0.85
+                z_l = min(z_bot + 2.30, z_top - 0.20)
+                sub_panels = [
+                    [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],
+                    [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],
+                ]
+            else:
+                pts = w.get("pts_coords")
+                if isinstance(pts, (list, tuple)) and len(pts) == 4:
+                    sub_panels = [pts]
+                else:
+                    sub_panels = [[(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_top), (x1, y1, z_top)]]
+
+            for s_pts in sub_panels:
+                for p in s_pts:
                     w_xs.append(p[0])
                     w_ys.append(p[1])
                     w_zs.append(p[2])
-                w_xs.append(pts[0][0])
-                w_ys.append(pts[0][1])
-                w_zs.append(pts[0][2])
+                w_xs.append(s_pts[0][0])
+                w_ys.append(s_pts[0][1])
+                w_zs.append(s_pts[0][2])
                 w_xs.append(None)
                 w_ys.append(None)
                 w_zs.append(None)
 
-                if len(pts) == 4:
-                    for p in pts:
-                        mesh_x.append(p[0])
-                        mesh_y.append(p[1])
-                        mesh_z.append(p[2])
-                    mesh_i.extend([v_offset, v_offset])
-                    mesh_j.extend([v_offset + 1, v_offset + 2])
-                    mesh_k.extend([v_offset + 2, v_offset + 3])
-                    v_offset += 4
-                elif len(pts) == 3:
-                    for p in pts:
-                        mesh_x.append(p[0])
-                        mesh_y.append(p[1])
-                        mesh_z.append(p[2])
-                    mesh_i.append(v_offset)
-                    mesh_j.append(v_offset + 1)
-                    mesh_k.append(v_offset + 2)
-                    v_offset += 3
-            else:
-                x1 = w.get("x_start", w["centroid_x"])
-                y1 = w.get("y_start", w["centroid_y"])
-                x2 = w.get("x_end", w["centroid_x"])
-                y2 = w.get("y_end", w["centroid_y"])
-                cz = w.get("centroid_z", 0.0)
-                h = 3.0
-                w_xs.extend([x1, x2, x2, x1, x1, None])
-                w_ys.extend([y1, y2, y2, y1, y1, None])
-                w_zs.extend([cz - h/2, cz - h/2, cz + h/2, cz + h/2, cz - h/2, None])
+                for p in s_pts:
+                    mesh_x.append(p[0])
+                    mesh_y.append(p[1])
+                    mesh_z.append(p[2])
+                mesh_i.extend([v_offset, v_offset])
+                mesh_j.extend([v_offset + 1, v_offset + 2])
+                mesh_k.extend([v_offset + 2, v_offset + 3])
+                v_offset += 4
 
         if mesh_x:
             fig.add_trace(go.Mesh3d(
