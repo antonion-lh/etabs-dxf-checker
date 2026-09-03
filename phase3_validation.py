@@ -195,6 +195,26 @@ def _row(
     dw = _first_valid(dr, "dim1_mm", "width_mm")
     dh = _first_valid(dr, "dim2_mm", "height_mm")
 
+    # Check Eurocode steel catalog if dimensions missing on either side
+    try:
+        from steel_catalog import lookup_steel_section
+        if er is not None and (ew is None or eh is None):
+            sec_name = _first_valid(er, "section", "prop_name")
+            if sec_name:
+                st_data = lookup_steel_section(str(sec_name))
+                if st_data:
+                    ew = ew or st_data.get("width_mm")
+                    eh = eh or st_data.get("height_mm")
+        if dr is not None and (dw is None or dh is None):
+            txt = _first_valid(dr, "dim_text", "layer", "block_name")
+            if txt:
+                st_data = lookup_steel_section(str(txt))
+                if st_data:
+                    dw = dw or st_data.get("width_mm")
+                    dh = dh or st_data.get("height_mm")
+    except Exception:
+        pass
+
     ex = _first_valid(er, "x_match", "centroid_x", "x_bot")
     ey = _first_valid(er, "y_match", "centroid_y", "y_bot")
     ez = _first_valid(er, "z_start", "centroid_z", "z_bot")

@@ -144,6 +144,7 @@ def _sidebar() -> tuple:
         st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
         st.markdown("### Nacrt (CAD / PDF)")
 
+        uploaded_ref_drawing = None
         if st.session_state["use_demo"]:
             demo_name = st.session_state.get("demo_choice_key", "strossmayer")
             if demo_name == "strossmayer":
@@ -152,11 +153,26 @@ def _sidebar() -> tuple:
             elif demo_name == "commercial":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ commercial.dxf</div>", unsafe_allow_html=True)
                 st.caption("CAD tlocrt stupova prizemlja")
+                st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+                uploaded_ref_drawing = st.file_uploader(
+                    "Referentni PDF / slika uz CAD (opcija):",
+                    type=["pdf", "jpg", "png", "jpeg"],
+                    key="sb_ref_pdf_demo",
+                    help="Priložite PDF ili sliku za usporedni split-screen prikaz uz komercijalni CAD model."
+                )
             elif demo_name == "small":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ sample.dxf</div>", unsafe_allow_html=True)
                 st.caption("CAD tlocrt")
         else:
             uploaded_drawing_file = st.file_uploader("Učitaj .dxf ili .pdf nacrt", type=["pdf", "dxf", "jpg", "png"], key="sb_drawing_up", label_visibility="collapsed")
+            if uploaded_drawing_file and uploaded_drawing_file.name.lower().endswith(".dxf"):
+                st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+                uploaded_ref_drawing = st.file_uploader(
+                    "Referentni PDF / slika uz CAD (opcija):",
+                    type=["pdf", "jpg", "png", "jpeg"],
+                    key="sb_ref_pdf_user",
+                    help="Priložite PDF nacrt ili sliku za usporedni split-screen pregled uz CAD tlocrt."
+                )
 
         st.markdown("---")
 
@@ -248,13 +264,13 @@ def _sidebar() -> tuple:
                 st.session_state["demo_choice_key"] = "strossmayer"
                 st.rerun()
 
-    return uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results
+    return uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results, uploaded_ref_drawing
 
 # ─────────────────────────────────────────────────────────────
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
-    uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results = _sidebar()
+    uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results, uploaded_ref_drawing = _sidebar()
 
     # Determine Active Data Source
     use_demo = st.session_state.get("use_demo", False)
@@ -291,6 +307,8 @@ def main():
                 is_pdf_mode = False
                 project_label = "Poslovni centar"
                 cfg.extract_elements = ["columns"]
+                if uploaded_ref_drawing:
+                    uploaded_drawing = uploaded_ref_drawing
         elif demo_choice == "small":
             dxf_target = SMALL_SAMPLE_DXF
             e2k_target = SMALL_SAMPLE_E2K
@@ -302,6 +320,8 @@ def main():
                 has_data = True
                 is_pdf_mode = False
                 project_label = "Referentni model"
+                if uploaded_ref_drawing:
+                    uploaded_drawing = uploaded_ref_drawing
 
     elif uploaded_e2k:
         e2k_content = uploaded_e2k.getvalue().decode("utf-8", errors="replace")
@@ -311,6 +331,8 @@ def main():
             if fname_l.endswith(".dxf"):
                 dxf_bytes = uploaded_drawing_file.getvalue()
                 is_pdf_mode = False
+                if uploaded_ref_drawing:
+                    uploaded_drawing = uploaded_ref_drawing
             else:
                 uploaded_drawing = uploaded_drawing_file
                 is_pdf_mode = True
@@ -869,6 +891,30 @@ def main():
                     st.markdown("**Plošna opterećenja (kN/m²)**")
                     st.dataframe(safe_df(aloads), use_container_width=True, hide_index=True)
 
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            with st.expander("Kataloška baza europskih čeličnih profila (EN 10365 / EN 10210)", expanded=False):
+                st.caption("Pretraživanje i uvid u dimenzije standardnih IPE, HEA, HEB, HEM, UPN i SHS/RHS čeličnih profila.")
+                c_st1, c_st2 = st.columns([1.5, 2.5])
+                with c_st1:
+                    st_query = st.text_input("Unesite profil:", value="HEA 240", key="steel_cat_query_tab3")
+                with c_st2:
+                    from steel_catalog import lookup_steel_section
+                    info = lookup_steel_section(st_query) if st_query else None
+                    if info:
+                        st.markdown(
+                            f"<div style='font-size:13px; color:#111827; padding:4px 0;'>"
+                            f"<strong>Profil:</strong> <span class='mono'>{info['name']}</span> ({info.get('shape', 'profil')})<br>"
+                            f"• Visina <em>h</em> = <strong>{info.get('height_mm', '-')} mm</strong> | "
+                            f"Širina <em>b</em> = <strong>{info.get('width_mm', '-')} mm</strong><br>"
+                            f"• Hrbat <em>t<sub>w</sub></em> = <strong>{info.get('tw', '-')} mm</strong> | "
+                            f"Pojas <em>t<sub>f</sub></em> = <strong>{info.get('tf', '-')} mm</strong><br>"
+                            f"• Površina <em>A</em> = <strong>{info.get('A', '-')} cm²</strong>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+                    else:
+                        st.info("Profil nije pronađen u bazi (provjerite format zapisa, npr. IPE 300, HEA 240, UPN 160, SHS 100x5).")
+
         elif sub_view == "Oslonci i zglobovi":
             sc, hc = st.columns(2, gap="large")
             with sc:
@@ -959,7 +1005,34 @@ def main():
                     try: os.unlink(tmp_pdf_path)
                     except Exception: pass
 
-                btn_c1, btn_c2 = st.columns(2)
+                import zipfile
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    if pdf_bytes:
+                        zf.writestr("revizijski_elaborat.pdf", pdf_bytes)
+                    if html_code:
+                        zf.writestr("revizijski_elaborat.html", html_code)
+                    if not df_res.empty:
+                        csv_data = df_res.to_csv(index=False).encode("utf-8")
+                        zf.writestr("odstupanja_elemenata.csv", csv_data)
+                    # Include markdown audit summary
+                    audit_items = _cached_curriculum_audit(etabs_data, results_data)
+                    audit_summary_md = (
+                        f"# Evaluacija modela\n\n"
+                        f"Projekt: {project_label or '—'}\n"
+                        f"Ocjena: {grade_num} ({grade_simple}) — {score_data['percentage']}%\n\n---\n\n"
+                    )
+                    for item in audit_items:
+                        audit_summary_md += f"### T{item['num']} — {item['title']} [{item['status']}]\n"
+                        audit_summary_md += f"- Nalaz: {item['finding']}\n"
+                        audit_summary_md += f"- Pravilo: {item['rule']}\n"
+                        if item.get("recommendation"):
+                            audit_summary_md += f"- Preporuka: {item['recommendation']}\n"
+                        audit_summary_md += "\n"
+                    zf.writestr("evaluacija_modela.md", audit_summary_md.encode("utf-8"))
+
+                btn_c1, btn_c2, btn_c3 = st.columns(3)
                 with btn_c1:
                     if pdf_bytes:
                         st.download_button(
@@ -976,6 +1049,14 @@ def main():
                         data=html_code,
                         file_name="revizijski_elaborat.html",
                         mime="text/html",
+                        use_container_width=True
+                    )
+                with btn_c3:
+                    st.download_button(
+                        "Preuzmi paket (.zip)",
+                        data=zip_buffer.getvalue(),
+                        file_name="revizijski_paket_elaborat.zip",
+                        mime="application/zip",
                         use_container_width=True
                     )
 

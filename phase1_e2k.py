@@ -279,6 +279,21 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     h_mm = t3 * 1000 if t3 else None
                     w_mm = t2 * 1000 if t2 else h_mm
 
+                # Check Eurocode steel catalog fallback / enrichment
+                try:
+                    from steel_catalog import lookup_steel_section
+                    steel_data = lookup_steel_section(sec_name)
+                    if steel_data:
+                        if not h_mm:
+                            h_mm = steel_data.get("height_mm")
+                        if not w_mm:
+                            w_mm = steel_data.get("width_mm")
+                        if not d_mm and steel_data.get("diameter_mm"):
+                            d_mm = steel_data.get("diameter_mm")
+                        shape_type = steel_data.get("shape_type", steel_data.get("shape", shape_type))
+                except Exception:
+                    pass
+
                 frame_sections[sec_name] = {
                     "sec_name": sec_name,
                     "material": mat_name,
