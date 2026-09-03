@@ -785,7 +785,10 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     n_spandrels_def = len(spandrels)
     n_pier_assigned = len(pier_assigns)
 
-    if n_piers_def > 0 and n_pier_assigned > 0:
+    if walls.empty and not cols.empty:
+        st_25 = "PASS"
+        f_25 = f"U modelu nema modeliranih nosivih zidova (konstrukcija je čistog skeletnog sustava s {len(cols)} stupova i {len(beams)} greda), stoga Pier/Spandrel oznake za plošne zidove nisu primjenjive."
+    elif n_piers_def > 0 and n_pier_assigned > 0:
         st_25 = "PASS"
         f_25 = f"Definirane Pier ({', '.join(piers)}) i Spandrel ({', '.join(spandrels) if spandrels else '—'}) oznake te uredno pridružene na nosive zidove ({n_pier_assigned} dodijeljenih panela)."
     elif n_piers_def > 0 and n_pier_assigned == 0:
@@ -932,7 +935,10 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     rho_wx = (A_wx / footprint_area) * 100.0 if footprint_area > 0 else 3.0
     rho_wy = (A_wy / footprint_area) * 100.0 if footprint_area > 0 else 3.0
 
-    if rho_wx >= 2.5 and rho_wy >= 2.5:
+    if walls.empty and not cols.empty:
+        st_31 = "PASS"
+        f_31 = f"Konstrukcija je čistog skeletnog (okvirnog) sustava sa stupovima i gredama (zabilježeno {len(cols)} stupova i {len(beams)} greda). U modelu nema nosivih posmičnih zidova, već horizontalna potresna opterećenja u cijelosti preuzimaju prostorni okvirni sustavi. Provjera omjera površine zidova nije primjenjiva za ovaj konstruktivni sustav."
+    elif rho_wx >= 2.5 and rho_wy >= 2.5:
         st_31 = "PASS"
         f_31 = f"Površina nosivih zidova: smjer X: Awx = {A_wx:.1f} m² ({rho_wx:.1f}% tlocrta), smjer Y: Awy = {A_wy:.1f} m² ({rho_wy:.1f}% tlocrta). Zadovoljava inženjerski preporučeni minimum (≥ 2.5–3.5% po smjeru)!"
     else:
@@ -959,9 +965,14 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
     # ─────────────────────────────────────────────────────────────
     # 32. Površina jezgre u odnosu na tlocrt zgrade (NOVO)
     # ─────────────────────────────────────────────────────────────
-    core_pct = round(min(rho_wx, rho_wy) * 0.45, 1)
-    st_32 = "PASS"
-    f_32 = f"Proračunski raspored nosivih zidova formira zatvorene komunikacijske i stubišne sklopove s ekvivalentnim udjelom vertikalne jezgre od cca {core_pct:.1f}% tlocrta zgrade."
+    if walls.empty and not cols.empty:
+        core_pct = 0.0
+        st_32 = "PASS"
+        f_32 = f"Konstrukcija je armiranobetonska skeletna (stupovi i grede). Vertikalna ukrućujuća jezgra nije izvedena kao masivni AB zidovi već preko prostornih okvirnih sklopova."
+    else:
+        core_pct = round(min(rho_wx, rho_wy) * 0.45, 1)
+        st_32 = "PASS"
+        f_32 = f"Proračunski raspored nosivih zidova formira zatvorene komunikacijske i stubišne sklopove s ekvivalentnim udjelom vertikalne jezgre od cca {core_pct:.1f}% tlocrta zgrade."
 
     results.append({
         "num": 32,
@@ -1038,9 +1049,25 @@ def run_curriculum_audit(etabs_dict: dict) -> list[dict]:
         else:
             st_51 = "WARNING"
             f_51 = f"Povećana ekscentričnost krutosti: ex = {ecc_x:.2f} m ({ecc_pct_x:.1f}%), ey = {ecc_y:.2f} m ({ecc_pct_y:.1f}%). Postoji rizik da prvi ton titranja bude torzija (torzijski mekana zgrada prema EC8)!"
+    elif not cols.empty:
+        mean_cx = float(cols["x_start"].mean()) if "x_start" in cols.columns else (span_x / 2.0)
+        mean_cy = float(cols["y_start"].mean()) if "y_start" in cols.columns else (span_y / 2.0)
+        center_x = (min(xs_pts) + max(xs_pts)) / 2.0 if xs_pts else mean_cx
+        center_y = (min(ys_pts) + max(ys_pts)) / 2.0 if ys_pts else mean_cy
+        ecc_x = abs(mean_cx - center_x)
+        ecc_y = abs(mean_cy - center_y)
+        ecc_pct_x = (ecc_x / span_x) * 100.0 if span_x > 0 else 0.0
+        ecc_pct_y = (ecc_y / span_y) * 100.0 if span_y > 0 else 0.0
+
+        if ecc_pct_x < 10.0 and ecc_pct_y < 10.0:
+            st_51 = "PASS"
+            f_51 = f"Geometrijska simetrija okvirnog sustava: Ekscentričnost rasporeda {len(cols)} stupova u odnosu na centar tlocrta iznosi ex = {ecc_x:.2f} m ({ecc_pct_x:.1f}%), ey = {ecc_y:.2f} m ({ecc_pct_y:.1f}%). Mala ekscentričnost (<10%) osigurava simetričan dinamički odziv i minimalnu torziju!"
+        else:
+            st_51 = "WARNING"
+            f_51 = f"Povećana ekscentričnost rasporeda stupova: ex = {ecc_x:.2f} m ({ecc_pct_x:.1f}%), ey = {ecc_y:.2f} m ({ecc_pct_y:.1f}%). Postoji rizik pojave torzijskih oblika titranja!"
     else:
         st_51 = "INFO"
-        f_51 = "Nema zidova za proračun ekscentričnosti krutosti."
+        f_51 = "Nema elemenata za proračun ekscentričnosti krutosti."
 
     results.append({
         "num": 51,

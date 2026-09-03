@@ -849,16 +849,40 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
                 beams_to_draw = beams_all
 
         b_xs, b_ys = [], []
+        bm_cx, bm_cy, bm_tips = [], [], []
         for _, bm in beams_to_draw.iterrows():
             b_xs.extend([bm["x_start"], bm["x_end"], None])
             b_ys.extend([bm["y_start"], bm["y_end"], None])
+            mx = (bm["x_start"] + bm["x_end"]) / 2.0
+            my = (bm["y_start"] + bm["y_end"]) / 2.0
+            bm_cx.append(mx)
+            bm_cy.append(my)
+            sec_lbl = bm.get("section") or "Greda"
+            w_str = f"{bm['width_mm']:.0f}" if pd.notna(bm.get("width_mm")) else "—"
+            h_str = f"{bm['height_mm']:.0f}" if pd.notna(bm.get("height_mm")) else "—"
+            L_str = f"{math.hypot(bm['x_end']-bm['x_start'], bm['y_end']-bm['y_start']):.2f}"
+            bm_tips.append(
+                f"<b>Greda {bm.get('name', 'B')}</b> ({bm.get('story', '')})<br>"
+                f"Presjek: {sec_lbl}<br>"
+                f"Dimenzije: {w_str}×{h_str} mm<br>"
+                f"Raspon: L = {L_str} m"
+            )
         if b_xs:
             fig.add_trace(go.Scatter(
                 x=b_xs, y=b_ys,
                 mode="lines",
-                line=dict(color="#cbd5e1", width=2),
-                name="Mreža greda",
+                line=dict(color="#334155", width=3.2),
+                name=f"Grede ({len(beams_to_draw)})",
                 hoverinfo="skip",
+                showlegend=True,
+            ))
+            fig.add_trace(go.Scatter(
+                x=bm_cx, y=bm_cy,
+                mode="markers",
+                marker=dict(size=6, color="#475569", symbol="diamond"),
+                name="Središta greda (info)",
+                hovertext=bm_tips,
+                hoverinfo="text",
                 showlegend=False,
             ))
 
@@ -880,7 +904,10 @@ def _fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = Non
     # 2b. Room Slabs: Architectural room floor fill
     slabs_all = etabs_data.get("slabs", pd.DataFrame())
     if not slabs_all.empty:
-        for _, s in slabs_all.iterrows():
+        slabs_to_draw = slabs_all[slabs_all["story"] == active_story_name] if (active_story_name and "story" in slabs_all.columns) else slabs_all
+        if slabs_to_draw.empty:
+            slabs_to_draw = slabs_all
+        for _, s in slabs_to_draw.iterrows():
             pts = s.get("pts_coords")
             if isinstance(pts, (list, tuple)) and len(pts) >= 3:
                 poly_x = [p[0] for p in pts] + [pts[0][0]]

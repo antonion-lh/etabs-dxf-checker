@@ -122,6 +122,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     spandrel_assigns: dict[str, str] = {}
     modal_cases: list[dict] = []
     line_assigns: dict[str, str] = {}
+    line_story_assigns: dict[str, list[dict]] = {}
     area_assigns: dict[str, str] = {}
     area_story_assigns: dict[str, list[dict]] = {}
 
@@ -287,6 +288,49 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "diameter_mm": d_mm,
                 }
 
+        # 3b. SECTION DESIGNER SECTIONS
+        elif "SECTION DESIGNER" in current_block:
+            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() == "SDSECTION" else tokens[0]
+            sec_name = sec_name.strip('"').strip("'")
+            shape_type_val = _get_kw_val(tokens, "SHAPETYPE", "").upper()
+            mat_name = _get_kw_val(tokens, "MATERIAL", "")
+
+            if ("CONCRETE" in shape_type_val or "RECT" in shape_type_val) and "REBAR" not in shape_type_val:
+                d_str = _get_kw_val(tokens, "D")
+                b_str = _get_kw_val(tokens, "B")
+                if d_str and b_str:
+                    try:
+                        d_val = float(d_str) * 1000.0
+                        b_val = float(b_str) * 1000.0
+                        existing = frame_sections.get(sec_name, {})
+                        existing.update({
+                            "sec_name": sec_name,
+                            "material": mat_name or existing.get("material", ""),
+                            "shape_type": "rectangular",
+                            "height_mm": max(d_val, b_val),
+                            "width_mm": min(d_val, b_val),
+                        })
+                        frame_sections[sec_name] = existing
+                    except ValueError:
+                        pass
+            elif "CIRC" in shape_type_val and "REBAR" not in shape_type_val:
+                d_str = _get_kw_val(tokens, "D") or _get_kw_val(tokens, "DIA")
+                if d_str:
+                    try:
+                        d_val = float(d_str) * 1000.0
+                        existing = frame_sections.get(sec_name, {})
+                        existing.update({
+                            "sec_name": sec_name,
+                            "material": mat_name or existing.get("material", ""),
+                            "shape_type": "circular",
+                            "diameter_mm": d_val,
+                            "width_mm": d_val,
+                            "height_mm": d_val,
+                        })
+                        frame_sections[sec_name] = existing
+                    except ValueError:
+                        pass
+
         # 4. SHELL / AREA / WALL / SLAB SECTIONS
         elif any(k in current_block for k in ("SHELL", "AREA", "WALL", "SLAB")) and any(k in current_block for k in ("SEC", "PROP")):
             sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("SHELL", "AREA", "WALL", "SLAB", "PROP", "SECTION", "SHELLPROP") else tokens[0]
@@ -335,27 +379,43 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             type_hint = _get_kw_val(tokens, "TYPE").lower()
 
             if not (i_pt and j_pt):
-                # Positional tokens: LINE "1" "1" "2" [PROP "SEC"]
-                start_i = 2 if tokens[0].upper() in ("LINE", "FRAME") else 1
-                if len(tokens) >= start_i + 2:
-                    i_pt = tokens[start_i]
-                    j_pt = tokens[start_i + 1]
+                # Positional ETABS tokens: LINE "C1" COLUMN "1" "1" 1 or LINE "B1" BEAM "1" "2" 0
+                if len(tokens) >= 5 and tokens[2].upper() in ("COLUMN", "BEAM", "BRACE", "FRAME"):
+                    type_hint = tokens[2].lower()
+                    i_pt = tokens[3]
+                    j_pt = tokens[4]
+                else:
+                    start_i = 2 if tokens[0].upper() in ("LINE", "FRAME") else 1
+                    if len(tokens) >= start_i + 2:
+                        i_pt = tokens[start_i]
+                        j_pt = tokens[start_i + 1]
 
             if f_name and i_pt and j_pt:
                 raw_frames.append({
-                    "name": f_name,
-                    "i_pt": i_pt,
-                    "j_pt": j_pt,
-                    "prop": prop,
+                    "name": f_name.strip('"').strip("'"),
+                    "i_pt": i_pt.strip('"').strip("'"),
+                    "j_pt": j_pt.strip('"').strip("'"),
+                    "prop": prop.strip('"').strip("'") if prop else "",
                     "type_hint": type_hint,
                 })
 
         # 5b. LINE ASSIGNMENTS
         elif ("LINE" in current_block or "FRAME" in current_block) and "ASSIGN" in current_block and "HINGE" not in current_block and "LOAD" not in current_block:
-            f_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("LINE", "FRAME") else tokens[0]
+            f_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("LINE", "FRAME", "LINEASSIGN", "FRAMEASSIGN") else tokens[0]
+            st_name = tokens[2].strip('"').strip("'") if len(tokens) > 2 and tokens[0].upper() in ("LINEASSIGN", "FRAMEASSIGN") and not tokens[2].upper().startswith("SEC") else ""
             sec = _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SEC")
+            if not sec and "SECTION" in [t.upper() for t in tokens]:
+                idx = [t.upper() for t in tokens].index("SECTION")
+                if idx + 1 < len(tokens):
+                    sec = tokens[idx + 1].strip('"').strip("'")
             if f_name and sec:
-                line_assigns[f_name] = sec
+                f_clean = f_name.strip('"').strip("'")
+                sec_clean = sec.strip('"').strip("'")
+                line_assigns[f_name] = sec_clean
+                line_assigns[f_clean] = sec_clean
+                if f_clean not in line_story_assigns:
+                    line_story_assigns[f_clean] = []
+                line_story_assigns[f_clean].append({"story": st_name, "section": sec_clean})
 
         # 6. AREA CONNECTIVITIES (WALLS & SLABS)
         elif any(k in current_block for k in ("AREA", "SHELL", "WALL", "SLAB")) and ("CONNECT" in current_block or ("OBJECT" in current_block and "LOAD" not in current_block and "ASSIGN" not in current_block)):
@@ -518,7 +578,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         ) and "HINGE" not in current_block and "LOAD" not in current_block:
             tokens_upper = [t.upper() for t in tokens]
             jname = ""
-            if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "SPRING", "POINT", "JOINT"):
+            if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "SPRING", "POINT", "JOINT", "POINTASSIGN", "JOINTASSIGN"):
                 jname = tokens[1] if len(tokens) > 1 else ""
             elif _get_kw_val(tokens, "POINT") or _get_kw_val(tokens, "JOINT") or _get_kw_val(tokens, "NAME"):
                 jname = _get_kw_val(tokens, "POINT") or _get_kw_val(tokens, "JOINT") or _get_kw_val(tokens, "NAME")
@@ -529,12 +589,13 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if jname:
                 jname = jname.strip('"').strip("'")
-                u1 = (_get_kw_val(tokens, "U1") or "").upper() in ("YES", "1", "TRUE")
-                u2 = (_get_kw_val(tokens, "U2") or "").upper() in ("YES", "1", "TRUE")
-                u3 = (_get_kw_val(tokens, "U3") or "").upper() in ("YES", "1", "TRUE")
-                r1 = (_get_kw_val(tokens, "R1") or "").upper() in ("YES", "1", "TRUE")
-                r2 = (_get_kw_val(tokens, "R2") or "").upper() in ("YES", "1", "TRUE")
-                r3 = (_get_kw_val(tokens, "R3") or "").upper() in ("YES", "1", "TRUE")
+                restr_str = (_get_kw_val(tokens, "RESTRAINT") or "").upper()
+                u1 = (_get_kw_val(tokens, "U1") or "").upper() in ("YES", "1", "TRUE") or ("UX" in restr_str)
+                u2 = (_get_kw_val(tokens, "U2") or "").upper() in ("YES", "1", "TRUE") or ("UY" in restr_str)
+                u3 = (_get_kw_val(tokens, "U3") or "").upper() in ("YES", "1", "TRUE") or ("UZ" in restr_str)
+                r1 = (_get_kw_val(tokens, "R1") or "").upper() in ("YES", "1", "TRUE") or ("RX" in restr_str)
+                r2 = (_get_kw_val(tokens, "R2") or "").upper() in ("YES", "1", "TRUE") or ("RY" in restr_str)
+                r3 = (_get_kw_val(tokens, "R3") or "").upper() in ("YES", "1", "TRUE") or ("RZ" in restr_str)
 
                 if not any([u1, u2, u3, r1, r2, r3]):
                     if any(k in tokens_upper for k in ("FIXED", "FIX", "UPETOST")):
@@ -544,7 +605,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     elif any(k in tokens_upper for k in ("ROLLER", "KLIZNI")):
                         u3 = True
                     else:
-                        start_dof = 2 if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "POINT", "JOINT", "SPRING") else 1
+                        start_dof = 2 if tokens[0].upper() in ("RESTRAINT", "SUPPORT", "POINT", "JOINT", "SPRING", "POINTASSIGN") else 1
                         dof_toks = tokens[start_dof:start_dof + 6]
                         flags = [dt.upper().strip('"').strip("'") in ("1", "YES", "TRUE", "Y") for dt in dof_toks]
                         if len(flags) >= 1: u1 = flags[0]
@@ -570,23 +631,30 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     rtype = "Partial / Spring"
                     is_supp = True
                 else:
-                    rtype = "FREE"
+                    rtype = "Free"
                     is_supp = False
+
+                pt_c = _get_pt(jname)
+                pz = pt_c[2] if pt_c else 0.0
 
                 raw_restraints.append({
                     "joint_name": jname,
-                    "restraint_type": rtype,
                     "is_supported": is_supp,
+                    "restraint_type": rtype,
+                    "z_coord": pz,
                     "u1": u1, "u2": u2, "u3": u3,
                     "r1": r1, "r2": r2, "r3": r3,
                 })
 
         # 11. PLASTIC HINGES
-        elif "HINGE" in current_block:
-            fname = _get_kw_val(tokens, "FRAME") or (tokens[1] if len(tokens) > 1 and tokens[0].upper() == "HINGE" else "")
-            hprop = _get_kw_val(tokens, "PROP", "Default_Hinge")
-            reldist_str = _get_kw_val(tokens, "RELDIST") or _get_kw_val(tokens, "RELPOS", "0.0")
-            dof = _get_kw_val(tokens, "DOF", "M3")
+        elif "HINGE" in current_block and not ("PROP" in current_block and "ASSIGN" not in current_block):
+            fname = _get_kw_val(tokens, "FRAME") or (tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("HINGE", "HINGEASSIGN") else "")
+            st_name = tokens[2].strip('"').strip("'") if len(tokens) > 2 and tokens[0].upper() == "HINGEASSIGN" and not tokens[2].upper().startswith("HINGE") else ""
+            hprop = _get_kw_val(tokens, "HINGEPROP") or _get_kw_val(tokens, "PROP")
+            if not hprop:
+                continue
+            reldist_str = _get_kw_val(tokens, "RDISTANCE") or _get_kw_val(tokens, "RELDIST") or _get_kw_val(tokens, "RELPOS", "0.0")
+            dof = _get_kw_val(tokens, "DOF") or ("M3" if "M3" in hprop.upper() else ("M2" if "M2" in hprop.upper() else "M"))
             try:
                 reldist = float(reldist_str)
             except ValueError:
@@ -594,8 +662,9 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
             if fname:
                 raw_hinges.append({
-                    "frame_name": fname,
-                    "hinge_prop": hprop,
+                    "frame_name": fname.strip('"').strip("'"),
+                    "story": st_name,
+                    "hinge_prop": hprop.strip('"').strip("'"),
                     "rel_dist": reldist,
                     "dof": dof,
                 })
@@ -921,10 +990,13 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         closest = min(stories, key=lambda s: abs((s["z_bottom"] + s["z_top"])/2.0 - z_mid))
         return closest["name"]
 
+    story_map = {s["name"]: s for s in stories}
+
     # Post-process: Attach coordinates & classify elements
     columns, beams, braces = [], [], []
 
     for f in raw_frames:
+        fname = f["name"]
         p1 = _get_pt(f["i_pt"])
         p2 = _get_pt(f["j_pt"])
         if not p1 or not p2:
@@ -933,59 +1005,101 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         x1, y1, z1 = p1
         x2, y2, z2 = p2
         dx, dy, dz = x2 - x1, y2 - y1, z2 - z1
-        length = math.sqrt(dx*dx + dy*dy + dz*dz)
-        if length < 1e-4:
-            continue
+        length_3d = math.sqrt(dx*dx + dy*dy + dz*dz)
 
-        sec_data = frame_sections.get(f["prop"], {})
-        mat_name = sec_data.get("material") or materials_dict.get(sec_data.get("material", ""), {}).get("name", "")
+        assigns = line_story_assigns.get(fname, [])
+        if not assigns:
+            assigns = [{"story": "", "section": f.get("prop") or line_assigns.get(fname, "")}]
 
-        if f["type_hint"] == "column" or abs(dz) / length > 0.8:
-            x_match = (x1 + x2) / 2.0
-            y_match = (y1 + y2) / 2.0
-            columns.append({
-                "name": f["name"],
-                "element_type": "column",
-                "x_start": x1, "y_start": y1, "z_start": min(z1, z2),
-                "x_end": x2, "y_end": y2, "z_end": max(z1, z2),
-                "x_match": x_match, "y_match": y_match,
-                "story": _get_elem_story((z1 + z2) / 2.0),
-                "section": f["prop"],
-                "material": mat_name,
-                "shape_type": sec_data.get("shape_type", "rectangular"),
-                "width_mm": sec_data.get("width_mm"),
-                "height_mm": sec_data.get("height_mm"),
-                "diameter_mm": sec_data.get("diameter_mm"),
-            })
-        elif f["type_hint"] == "beam" or abs(dz) / length < 0.2:
-            x_match = (x1 + x2) / 2.0
-            y_match = (y1 + y2) / 2.0
-            beams.append({
-                "name": f["name"],
-                "element_type": "beam",
-                "x_start": x1, "y_start": y1, "z_start": z1,
-                "x_end": x2, "y_end": y2, "z_end": z2,
-                "x_match": x_match, "y_match": y_match,
-                "story": _get_elem_story(z1),
-                "section": f["prop"],
-                "material": mat_name,
-                "shape_type": sec_data.get("shape_type", "rectangular"),
-                "width_mm": sec_data.get("width_mm"),
-                "height_mm": sec_data.get("height_mm"),
-                "diameter_mm": sec_data.get("diameter_mm"),
-            })
-        else:
-            braces.append({
-                "name": f["name"],
-                "element_type": "brace",
-                "x_match": (x1 + x2) / 2.0,
-                "y_match": (y1 + y2) / 2.0,
-                "story": _get_elem_story((z1 + z2) / 2.0),
-                "section": f["prop"],
-                "material": mat_name,
-            })
+        is_col_hint = (f["type_hint"] == "column") or (f["i_pt"] == f["j_pt"]) or (length_3d > 1e-4 and abs(dz) / length_3d > 0.8)
+        is_bm_hint = (f["type_hint"] == "beam") or (length_3d > 1e-4 and abs(dz) / length_3d < 0.2 and not is_col_hint)
 
-    story_map = {s["name"]: s for s in stories}
+        for asgn in assigns:
+            st_name = asgn.get("story", "")
+            prop_key = asgn.get("section") or f.get("prop") or line_assigns.get(fname, "")
+            sec_data = frame_sections.get(prop_key, {})
+            mat_name = sec_data.get("material") or materials_dict.get(sec_data.get("material", ""), {}).get("name", "")
+
+            # Dimension fallback from name if not in sec_data
+            w_mm = sec_data.get("width_mm")
+            h_mm = sec_data.get("height_mm")
+            if (w_mm is None or h_mm is None) and prop_key:
+                m_dim = re.search(r'(\d+)[/xX](\d+)', prop_key)
+                if m_dim:
+                    d1 = float(m_dim.group(1)) * 10.0
+                    d2 = float(m_dim.group(2)) * 10.0
+                    w_mm = min(d1, d2)
+                    h_mm = max(d1, d2)
+
+            st_obj = story_map.get(st_name)
+
+            if is_col_hint:
+                if st_obj:
+                    cz_bot = st_obj["z_bottom"]
+                    cz_top = st_obj["z_top"]
+                    elem_story = st_name
+                else:
+                    cz_bot = min(z1, z2)
+                    cz_top = max(z1, z2)
+                    if cz_top - cz_bot < 0.1:
+                        cz_bot = 0.0
+                        cz_top = 3.6
+                    elem_story = _get_elem_story((cz_bot + cz_top) / 2.0)
+
+                x_match = (x1 + x2) / 2.0
+                y_match = (y1 + y2) / 2.0
+                columns.append({
+                    "name": fname,
+                    "element_type": "column",
+                    "x_start": x1, "y_start": y1, "z_start": cz_bot,
+                    "x_end": x2, "y_end": y2, "z_end": cz_top,
+                    "x_match": x_match, "y_match": y_match,
+                    "story": elem_story,
+                    "section": prop_key,
+                    "material": mat_name,
+                    "shape_type": sec_data.get("shape_type", "rectangular"),
+                    "width_mm": w_mm,
+                    "height_mm": h_mm,
+                    "diameter_mm": sec_data.get("diameter_mm"),
+                })
+
+            elif is_bm_hint:
+                if st_obj:
+                    cz_bm = st_obj["z_top"]
+                    elem_story = st_name
+                else:
+                    cz_bm = z1 if abs(z1) > 1e-4 else 3.6
+                    elem_story = _get_elem_story(cz_bm)
+
+                x_match = (x1 + x2) / 2.0
+                y_match = (y1 + y2) / 2.0
+                beams.append({
+                    "name": fname,
+                    "element_type": "beam",
+                    "x_start": x1, "y_start": y1, "z_start": cz_bm,
+                    "x_end": x2, "y_end": y2, "z_end": cz_bm,
+                    "x_match": x_match, "y_match": y_match,
+                    "story": elem_story,
+                    "section": prop_key,
+                    "material": mat_name,
+                    "shape_type": sec_data.get("shape_type", "rectangular"),
+                    "width_mm": w_mm,
+                    "height_mm": h_mm,
+                    "diameter_mm": sec_data.get("diameter_mm"),
+                })
+            else:
+                x_match = (x1 + x2) / 2.0
+                y_match = (y1 + y2) / 2.0
+                elem_story = st_name or _get_elem_story((z1 + z2) / 2.0)
+                braces.append({
+                    "name": fname,
+                    "element_type": "brace",
+                    "x_match": x_match,
+                    "y_match": y_match,
+                    "story": elem_story,
+                    "section": prop_key,
+                    "material": mat_name,
+                })
     walls, slabs = [], []
     for a in raw_areas:
         aname = a["name"]
@@ -997,7 +1111,11 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         assigns = area_story_assigns.get(aname, [])
         if not assigns:
-            assigns = [{"story": "", "section": str(a.get("prop") or "")}]
+            if atype == "floor" and stories and all(abs(p[2]) < 1e-4 for p in v_pts):
+                # Floor slab defined in planar 2D coordinates across floor stories
+                assigns = [{"story": s["name"], "section": str(a.get("prop") or "")} for s in stories]
+            else:
+                assigns = [{"story": "", "section": str(a.get("prop") or "")}]
 
         # Extract 2D endpoints
         xy_uniq = []
@@ -1026,6 +1144,14 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
         for asgn in assigns:
             st_name = asgn.get("story", "")
             prop_key = asgn.get("section") or str(a.get("prop") or "").strip().strip('"').strip("'")
+            if not prop_key and atype == "floor" and area_sections:
+                for sk, sv in area_sections.items():
+                    if "ploc" in sk.lower() or "slab" in sk.lower() or sv.get("thickness_mm", 0) <= 300:
+                        prop_key = sk
+                        break
+                if not prop_key:
+                    prop_key = list(area_sections.keys())[0]
+
             sec_data = area_sections.get(prop_key, {})
             if not sec_data and prop_key:
                 for sk, sv in area_sections.items():
@@ -1135,17 +1261,19 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "pts_coords": w_pts_3d,
                 })
             else:
-                s_pts_3d = [(p[0], p[1], z_bot) for p in v_pts]
+                z_slab = z_top if (st_obj and atype == "floor") else z_bot
+                s_pts_3d = [(p[0], p[1], z_slab) for p in v_pts]
                 slabs.append({
-                    "name": aname,
+                    "name": f"{aname}_{elem_st}" if len(assigns) > 1 and elem_st else aname,
+                    "base_name": aname,
                     "element_type": "slab",
-                    "centroid_x": cx, "centroid_y": cy, "centroid_z": z_bot,
+                    "centroid_x": cx, "centroid_y": cy, "centroid_z": z_slab,
                     "x_match": cx, "y_match": cy,
                     "x_start": wx1, "y_start": wy1,
                     "x_end": wx2, "y_end": wy2,
                     "story": elem_st,
                     "prop_name": prop_display,
-                    "material": mat_name or "Wood",
+                    "material": mat_name or "Concrete",
                     "thickness_mm": thick_mm,
                     "width_mm": None,
                     "height_mm": thick_mm,
