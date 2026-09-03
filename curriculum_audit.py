@@ -1410,15 +1410,16 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
 
     if len(crit_fails) >= 2:
         grade = min(grade, 2)
-        grade_label = "Dovoljan (2) — Više kritičnih propusta u opterećenjima ili kombinacijama"
+        cf_names = " i ".join([f"T{cf.get('num')} ({cf.get('title', '')})" for cf in crit_fails[:2]])
+        grade_label = f"Dovoljan (2) — Blokiraju točke: {cf_names}"
         badge_color = "#ea580c"
     elif len(crit_fails) == 1:
         grade = min(grade, 3)
-        grade_label = f"Dobar (3) — Kritičan nedostatak: {crit_fails[0].get('title', 'Osnovno pravilo')}"
+        grade_label = f"Dobar (3) — Blokira točka T{crit_fails[0].get('num')}: {crit_fails[0].get('title', 'Kritično pravilo')}"
         badge_color = "#d97706"
     elif c11_bad and c25_bad:
         grade = min(grade, 3)
-        grade_label = "Dobar (3) — Zidovi nisu dodijeljeni Pier-ovima i izduženi omjeri stranica (>1:3)"
+        grade_label = "Dobar (3) — Blokiraju točke T11 (Izduženi paneli >1:3) i T25 (Nedodijeljeni Pierovi)"
         badge_color = "#d97706"
     elif c11_bad or c25_bad:
         grade = min(grade, 4)

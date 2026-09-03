@@ -39,7 +39,7 @@ from ui_styles import (
 )
 from ui_views import render_drawing, fig_2d, fig_3d, safe_df, render_instructions
 
-# Backward compatibility aliases
+# Backward compatibility aliases for test suite
 _kpi_strip = render_kpi_strip
 _fig_2d = fig_2d
 _fig_3d = fig_3d
@@ -86,30 +86,46 @@ STROSSMAYER_SHEET_MAP = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# Performance Caching (Fast 0ms Tab Switching)
+# Performance Caching (Deterministic Hashable Keys)
 # ─────────────────────────────────────────────────────────────
 @st.cache_data(show_spinner=False)
-def _cached_parse_e2k(e2k_content: str, _cfg: Config):
-    return parse_e2k(io.StringIO(e2k_content), _cfg)
+def _cached_parse_e2k(e2k_content: str, cfg: Config):
+    return parse_e2k(io.StringIO(e2k_content), cfg)
 
 @st.cache_data(show_spinner=False)
-def _cached_parse_dxf_bytes(dxf_bytes: bytes, _cfg: Config):
+def _cached_parse_dxf_bytes(dxf_bytes: bytes, cfg: Config):
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
     try:
         tmp.write(dxf_bytes)
         tmp.close()
-        return parse_dxf(tmp.name, _cfg)
+        return parse_dxf(tmp.name, cfg)
     finally:
         try: os.unlink(tmp.name)
         except Exception: pass
 
 @st.cache_data(show_spinner=False)
-def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
-    return validate(_etabs_data, _df_dxf, _cfg)
+def _cached_validate(e2k_content: str, dxf_bytes: bytes, cfg: Config):
+    etabs_data = parse_e2k(io.StringIO(e2k_content), cfg)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
+    try:
+        tmp.write(dxf_bytes)
+        tmp.close()
+        df_dxf = parse_dxf(tmp.name, cfg)
+    finally:
+        try: os.unlink(tmp.name)
+        except Exception: pass
+    return validate(etabs_data, df_dxf, cfg)
 
 @st.cache_data(show_spinner=False)
-def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
-    return run_curriculum_audit(_etabs_data, _results_data)
+def _cached_curriculum_audit(e2k_content: str, has_results: bool = False):
+    etabs_data = parse_e2k(io.StringIO(e2k_content), Config())
+    results_data = None
+    if has_results:
+        try:
+            results_data = parse_etabs_results(create_demo_etabs_results(etabs_data))
+        except Exception:
+            results_data = None
+    return run_curriculum_audit(etabs_data, results_data)
 
 # ─────────────────────────────────────────────────────────────
 # Sidebar: Minimal, Focused Engineering Controls
@@ -129,15 +145,13 @@ def _sidebar() -> tuple:
                 "strossmayer": "STROSSMAYER_2.e2k",
                 "commercial": "demo_commercial.e2k",
                 "small": "sample_building.e2k",
-                "trnsko": "trnsko_model.e2k",
             }
             cur_label = display_map.get(demo_name, "STROSSMAYER_2.e2k")
             st.markdown(f"<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ {cur_label}</div>", unsafe_allow_html=True)
             demo_desc_map = {
                 "strossmayer": "1436 zidova · 4 etaže (OŠ Strossmayer)",
-                "commercial": "304 stupa · 554 grede (2 etaže)",
+                "commercial": "304 stupa · Prizemlje DXF",
                 "small": "4 stupa · 1 greda · 1 zid",
-                "trnsko": "238 stupova · 384 grede · 140 ploča",
             }
             st.caption(demo_desc_map.get(demo_name, ""))
         else:
@@ -153,20 +167,17 @@ def _sidebar() -> tuple:
                 st.caption("20 stranica (Tehnički opis + nacrti)")
             elif demo_name == "commercial":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ commercial.dxf</div>", unsafe_allow_html=True)
-                st.caption("CAD tlocrt stupova")
+                st.caption("CAD tlocrt stupova prizemlja")
             elif demo_name == "small":
                 st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ sample.dxf</div>", unsafe_allow_html=True)
                 st.caption("CAD tlocrt")
-            elif demo_name == "trnsko":
-                st.markdown("<div class='mono' style='font-size:12px; color:#16A34A; font-weight:600;'>✓ trnsko.pdf</div>", unsafe_allow_html=True)
-                st.caption("14 stranica nacrta")
         else:
             uploaded_drawing_file = st.file_uploader("Učitaj .dxf ili .pdf nacrt", type=["pdf", "dxf", "jpg", "png"], key="sb_drawing_up", label_visibility="collapsed")
 
         st.markdown("---")
 
-        # Tolerances
-        st.markdown("### Tolerancije")
+        # Tolerances & Scale
+        st.markdown("### Tolerancije i mjerilo")
         col_t1, col_t2 = st.columns(2)
         with col_t1:
             tol_pos_val = st.selectbox("Pozicija (m)", ["0.05", "0.10", "0.15", "0.20", "0.30"], index=2, key="sb_tol_pos")
@@ -175,6 +186,19 @@ def _sidebar() -> tuple:
         with col_t2:
             tol_sec_val = st.selectbox("Presjek (mm)", ["1", "2", "5", "10", "20"], index=2, key="sb_tol_sec")
             tol_sec = float(tol_sec_val)
+
+        dxf_scale_label = st.selectbox(
+            "Jedinica DXF nacrta",
+            ["Centimetri (cm, 0.01)", "Milimetri (mm, 0.001)", "Metri (m, 1.0)"],
+            index=0,
+            key="sb_dxf_unit_scale"
+        )
+        scale_map = {
+            "Centimetri (cm, 0.01)": 0.01,
+            "Milimetri (mm, 0.001)": 0.001,
+            "Metri (m, 1.0)": 1.0,
+        }
+        dxf_scale = scale_map[dxf_scale_label]
 
         st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -193,7 +217,7 @@ def _sidebar() -> tuple:
         )
 
         cfg = Config(
-            dxf_unit_scale=0.01,
+            dxf_unit_scale=dxf_scale,
             spatial_tolerance_frame=tol_frame,
             spatial_tolerance_area=tol_area,
             section_tolerance_mm=tol_sec,
@@ -253,6 +277,8 @@ def main():
                 has_data = True
                 is_pdf_mode = False
                 project_label = "Poslovni centar"
+                # Commercial demo DXF is a column layout plan
+                cfg.extract_elements = ["columns"]
         elif demo_choice == "small":
             dxf_target = SMALL_SAMPLE_DXF
             e2k_target = SMALL_SAMPLE_E2K
@@ -264,17 +290,6 @@ def main():
                 has_data = True
                 is_pdf_mode = False
                 project_label = "Referentni model"
-        elif demo_choice == "trnsko":
-            e2k_target = os.path.join(SCRIPT_DIR, "trnsko_model.e2k")
-            if os.path.exists(e2k_target):
-                with open(e2k_target, "r", encoding="utf-8", errors="replace") as f:
-                    e2k_content = f.read()
-                is_pdf_mode = True
-                has_data = True
-                trnsko_pdf = os.path.join(SCRIPT_DIR, ".user_uploaded", "media_1788429757620.pdf")
-                if os.path.exists(trnsko_pdf):
-                    uploaded_drawing = trnsko_pdf
-                project_label = "OŠ Trnsko"
 
     elif uploaded_e2k:
         e2k_content = uploaded_e2k.getvalue().decode("utf-8", errors="replace")
@@ -300,17 +315,13 @@ def main():
         c_l1, c_l2 = st.columns(2, gap="medium")
         with c_l1:
             st.markdown("<div style='text-align: center; margin-bottom: 8px; font-weight:600; color:#374151;'>Ogledni primjeri</div>", unsafe_allow_html=True)
-            if st.button("Otvori OŠ Strossmayer (Zidana zgrada + PDF)", use_container_width=True, type="primary"):
+            if st.button("Otvori OŠ Strossmayer (Zidana zgrada + PDF elaborat)", use_container_width=True, type="primary"):
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "strossmayer"
                 st.rerun()
-            if st.button("Otvori Poslovni centar (AB okvir + CAD DXF)", use_container_width=True):
+            if st.button("Otvori Poslovni centar (AB okvir + CAD DXF nacrt)", use_container_width=True):
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "commercial"
-                st.rerun()
-            if st.button("Otvori OŠ Trnsko (Okvir sa zglobovima)", use_container_width=True):
-                st.session_state["use_demo"] = True
-                st.session_state["demo_choice_key"] = "trnsko"
                 st.rerun()
         with c_l2:
             st.markdown("<div style='text-align: center; margin-bottom: 8px; font-weight:600; color:#374151;'>Vlastiti model</div>", unsafe_allow_html=True)
@@ -359,8 +370,7 @@ def main():
                 df_res.attrs["restraints"] = etabs_data.get("restraints", pd.DataFrame())
                 df_res.attrs["hinges"] = etabs_data.get("hinges", pd.DataFrame())
             else:
-                df_dxf = _cached_parse_dxf_bytes(dxf_bytes, cfg)
-                df_res = _cached_validate(etabs_data, df_dxf, cfg)
+                df_res = _cached_validate(e2k_content, dxf_bytes, cfg)
 
             # Optional Phase 2 results
             results_data = None
@@ -452,8 +462,8 @@ def main():
 
     # ── TAB 2: Revizija (Triage Code-Review) ───────────────────
     with t_audit:
-        results_data = df_res.attrs.get("results_data")
-        audit_results = _cached_curriculum_audit(etabs_data, results_data)
+        has_res = (df_res.attrs.get("results_data") is not None)
+        audit_results = _cached_curriculum_audit(e2k_content, has_results=has_res)
         score_data = calculate_audit_score(audit_results)
 
         # Summary Bar
@@ -466,6 +476,7 @@ def main():
           <div>
             <span style="font-size: 16px; font-weight: 600; color: #111827;">Ocjena: {grade_num} — {grade_simple}</span>
             <span style="color: #6B7280; font-size: 13px; margin-left: 12px;">{pct_num} / 100 bodova</span>
+            <span style="color: #9CA3AF; font-size: 12px; margin-left: 12px;">{score_data.get('grade_label', '')}</span>
           </div>
           <div class="mono" style="color: #6B7280; font-size: 12px;">
             {len(audit_results)} točaka provjereno
@@ -583,65 +594,69 @@ def main():
     with t_report:
         st.markdown("<div style='font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 12px;'>Revizijski elaborat</div>", unsafe_allow_html=True)
 
-        date_str = datetime.now().strftime("%d.%m.%Y.")
-        score_data = calculate_audit_score(_cached_curriculum_audit(etabs_data, df_res.attrs.get("results_data")))
-        grade_num = score_data.get("grade", 1)
-        grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
+        if df_res is None or df_res.empty:
+            st.info("Nema podataka za generiranje elaborata. Učitajte model ili odaberite demo projekt.")
+        else:
+            date_str = datetime.now().strftime("%d.%m.%Y.")
+            has_res = (df_res.attrs.get("results_data") is not None)
+            score_data = calculate_audit_score(_cached_curriculum_audit(e2k_content, has_results=has_res))
+            grade_num = score_data.get("grade", 1)
+            grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
 
-        meta_col1, meta_col2 = st.columns([2, 3])
-        with meta_col1:
-            st.markdown(f"""
-            <table style="width: 100%; font-size: 13px; color: #374151; border-collapse: collapse;">
-              <tr><td style="padding: 4px 0; color: #6B7280; width: 80px;">Projekt:</td><td style="font-weight: 600;">{project_label or "—"}</td></tr>
-              <tr><td style="padding: 4px 0; color: #6B7280;">Model:</td><td class="mono">{os.path.basename(DEMO_SKOLA_E2K) if use_demo else (project_label or "model.e2k")}</td></tr>
-              <tr><td style="padding: 4px 0; color: #6B7280;">Datum:</td><td>{date_str}</td></tr>
-              <tr><td style="padding: 4px 0; color: #6B7280;">Ocjena:</td><td style="font-weight: 600;">{grade_num} — {grade_simple} ({score_data['percentage']}%)</td></tr>
-            </table>
-            """, unsafe_allow_html=True)
+            meta_col1, meta_col2 = st.columns([2, 3])
+            with meta_col1:
+                st.markdown(f"""
+                <table style="width: 100%; font-size: 13px; color: #374151; border-collapse: collapse;">
+                  <tr><td style="padding: 4px 0; color: #6B7280; width: 80px;">Projekt:</td><td style="font-weight: 600;">{project_label or "—"}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #6B7280;">Model:</td><td class="mono">{os.path.basename(DEMO_SKOLA_E2K) if use_demo else (project_label or "model.e2k")}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #6B7280;">Datum:</td><td>{date_str}</td></tr>
+                  <tr><td style="padding: 4px 0; color: #6B7280;">Ocjena:</td><td style="font-weight: 600;">{grade_num} — {grade_simple} ({score_data['percentage']}%)</td></tr>
+                </table>
+                """, unsafe_allow_html=True)
 
-            st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
-            try:
-                html_code = generate_html(df_res, None, cfg)
-            except Exception as e:
-                html_code = f"<p>Greška pri generiranju HTML izvještaja: {e}</p>"
+                try:
+                    html_code = generate_html(df_res, None, cfg)
+                except Exception as e:
+                    html_code = f"<p>Greška pri generiranju HTML izvještaja: {e}</p>"
 
-            pdf_bytes = None
-            try:
-                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-                    tmp_pdf_path = tmp_pdf.name
-                generate_pdf(df_res, tmp_pdf_path, cfg)
-                with open(tmp_pdf_path, "rb") as f_pdf:
-                    pdf_bytes = f_pdf.read()
-            except Exception as e:
                 pdf_bytes = None
-            finally:
-                try: os.unlink(tmp_pdf_path)
-                except Exception: pass
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+                        tmp_pdf_path = tmp_pdf.name
+                    generate_pdf(df_res, tmp_pdf_path, cfg)
+                    with open(tmp_pdf_path, "rb") as f_pdf:
+                        pdf_bytes = f_pdf.read()
+                except Exception as e:
+                    pdf_bytes = None
+                finally:
+                    try: os.unlink(tmp_pdf_path)
+                    except Exception: pass
 
-            btn_c1, btn_c2 = st.columns(2)
-            with btn_c1:
-                if pdf_bytes:
+                btn_c1, btn_c2 = st.columns(2)
+                with btn_c1:
+                    if pdf_bytes:
+                        st.download_button(
+                            "Preuzmi PDF elaborat",
+                            data=pdf_bytes,
+                            file_name="revizijski_elaborat.pdf",
+                            mime="application/pdf",
+                            use_container_width=True,
+                            type="primary"
+                        )
+                with btn_c2:
                     st.download_button(
-                        "Preuzmi PDF elaborat",
-                        data=pdf_bytes,
-                        file_name="revizijski_elaborat.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        type="primary"
+                        "Preuzmi HTML",
+                        data=html_code,
+                        file_name="revizijski_elaborat.html",
+                        mime="text/html",
+                        use_container_width=True
                     )
-            with btn_c2:
-                st.download_button(
-                    "Preuzmi HTML",
-                    data=html_code,
-                    file_name="revizijski_elaborat.html",
-                    mime="text/html",
-                    use_container_width=True
-                )
 
-        with meta_col2:
-            st.markdown("<div style='font-size: 12px; font-weight: 600; color: #6B7280; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
-            st.components.v1.html(html_code, height=480, scrolling=True)
+            with meta_col2:
+                st.markdown("<div style='font-size: 12px; font-weight: 600; color: #6B7280; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
+                st.components.v1.html(html_code, height=480, scrolling=True)
 
 if __name__ == "__main__":
     main()

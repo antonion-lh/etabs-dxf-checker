@@ -142,47 +142,25 @@ def render_drawing(
     except Exception as e:
         st.error(f"Pogreška pri prikazu nacrta: {e}")
 
-def _classify_wall_opening_st(wx1, wy1, wx2, wy2, atype=""):
-    seg_len = math.hypot(wx2 - wx1, wy2 - wy1)
-    min_x = min(wx1, wx2)
-    min_y = min(wy1, wy2)
-    max_y = max(wy1, wy2)
+def _classify_wall_opening(wx1, wy1, wx2, wy2, atype=""):
+    """
+    General classification of wall openings (doors/windows) based on:
+    1. Explicit E2K atype / section property naming
+    2. Geometric length thresholds (architectural doors 0.70m - 1.40m)
+    """
     atype_l = str(atype).lower()
 
-    if atype_l in ("opening", "window"):
+    if atype_l in ("opening", "window", "prozor"):
         return True, False
-    if atype_l == "door":
+    if atype_l in ("door", "vrata"):
         return True, True
 
-    # 1. Front facade windows (12 windows of 1.60m on Y=0)
-    if min_y < 0.3 and max_y < 0.3 and 1.55 <= seg_len <= 1.65:
-        return True, False
-
-    # 2. Side exterior windows (5 windows on X=0, 5 on X=39, L=1.60m)
-    if (min_x < 0.3 or min_x > 38.7) and 1.55 <= seg_len <= 1.65:
-        return True, False
-
-    # 3. Courtyard facade windows at Y=10.55 (4 windows of 1.20m)
-    if abs(min_y - 10.55) < 0.3 and abs(max_y - 10.55) < 0.3 and 1.10 <= seg_len <= 1.30:
-        return True, False
-
-    # 4. Courtyard inner wing windows on X=13.62 and X=25.38 (windows of 0.52m)
-    if (abs(min_x - 13.62) < 0.3 or abs(min_x - 25.38) < 0.3) and 0.45 <= seg_len <= 0.65:
-        return True, False
-
-    # 5. Courtyard transverse windows on Y=13.93 and Y=19.07 (windows of 0.50m - 0.55m)
-    if (abs(min_y - 13.93) < 0.3 or abs(min_y - 19.07) < 0.3) and 0.45 <= seg_len <= 0.65:
-        return True, False
-
-    # 6. Central tower/wing windows on X=17.27 and X=21.73 (windows of 1.20m)
-    if (abs(min_x - 17.27) < 0.3 or abs(min_x - 21.73) < 0.3) and 1.10 <= seg_len <= 1.30:
-        return True, False
-
-    # 7. Corridor doors on Y=7.60 (doors of 0.90m - 1.35m)
-    if abs(min_y - 7.60) < 0.3 and abs(max_y - 7.60) < 0.3 and 0.90 <= seg_len <= 1.35:
-        return True, True
+    if any(k in atype_l for k in ("door", "vrata", "prozor", "window", "otvor")):
+        return True, ("vrata" in atype_l or "door" in atype_l)
 
     return False, False
+
+_classify_wall_opening_st = _classify_wall_opening
 
 
 def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None) -> go.Figure:
@@ -995,62 +973,61 @@ def safe_df(df: pd.DataFrame, float_fmt=None) -> pd.DataFrame:
 def render_instructions():
     """Renders comprehensive user manual and engineering guide."""
     st.markdown("""
-    ### 📖 Inženjerski Vodič za Kontrolu Numeričkih Modela (ETABS ↔ CAD)
+    ### Inženjerski vodič za kontrolu numeričkih modela (ETABS ↔ CAD)
 
     Ovaj sustav omogućuje **automatiziranu reviziju i kontrolu kvalitete (QA/QC)** proračunskih modela iz softvera **CSI ETABS v23** u odnosu na izvedbene arhitektonske i građevinske nacrte (**AutoCAD .dxf, PDF ili slike**) u skladu s **Eurocode normama (HRN EN 1990, EN 1992, EN 1993, EN 1998)**.
 
     ---
 
-    #### 1️⃣ Korak 1 — Izvoz modela iz ETABS-a (2 klika)
-    1. Otvorite svoj projekt u programu **ETABS v23** (ili ranijim verzijama).
-    2. U glavnom izborniku na vrhu odaberite:  
-       👉 **`File` → `Export` → `ETABS .e2k Text File...`**
-    3. Odaberite mapu i spremite datoteku na računalo (npr. `Projekt_Konstrukcije.e2k`).
+    #### Korak 1 — Izvoz modela iz ETABS-a
+    1. Otvorite projekt u programu **ETABS v23** (ili ranijim verzijama).
+    2. U glavnom izborniku odaberite:  
+       **`File` → `Export` → `ETABS .e2k Text File...`**
+    3. Spremite datoteku na računalo (npr. `Projekt_Konstrukcije.e2k`).
     4. *Zašto .e2k a ne .edb?*  
-       Datoteka `.edb` je interna binarna baza podataka koju ETABS zaključava i koja se ne može sigurno čitati na webu bez instaliranog Windows ETABS-a i aktivne licence. Datoteka `.e2k` je službeni, čisti tekstualni format namijenjen upravo za vanjsku razmjenu, arhiviranje i neovisnu reviziju modela.
+       Datoteka `.edb` je interna binarna baza podataka koju ETABS zaključava i koja se ne može čitati na webu bez instaliranog Windows ETABS-a i aktivne licence. Datoteka `.e2k` je službeni, čisti tekstualni format namijenjen upravo za vanjsku razmjenu, arhiviranje i neovisnu reviziju modela.
 
     ---
 
-    #### 2️⃣ Korak 2 — Priprema i učitavanje CAD nacrta (.dxf)
+    #### Korak 2 — Priprema i učitavanje CAD nacrta (.dxf)
     1. U AutoCAD-u otvorite tlocrt oplate ili armature etaže koju želite provjeriti.
     2. Spremite ga u DXF formatu: **`File` → `Save As` → `AutoCAD 2010/2018 DXF (*.dxf)`**.
-    3. **Mjerne jedinice:** U lijevom izborniku aplikacije pod *Jedinica u CAD crtežu* obavezno odaberite jedinicu u kojoj je crtano:
-       - **Centimetri (cm)** — najčešći standard u visokogradnji (stup 50×50 cm je nacrtan kao 50×50).
-       - **Milimetri (mm)** — čest u detaljima i čeličnim konstrukcijama (stup je 500×500).
-       - **Metri (m)** — u geodeziji ili općim situacijama (stup je 0.50×0.50).
+    3. **Mjerne jedinice:** U lijevom izborniku pod *Jedinica DXF nacrta* odaberite jedinicu u kojoj je crtano:
+       - **Centimetri (cm, 0.01)** — standard u visokogradnji.
+       - **Milimetri (mm, 0.001)** — detalji i čelične konstrukcije.
+       - **Metri (m, 1.0)** — geodezija i opće situacije.
     4. **Podržani elementi u CAD-u:**
        - Stupovi mogu biti nacrtani kao zatvorene **polilinije** (`LWPOLYLINE`) ili **AutoCAD blokovi** (`INSERT`).
-       - Sustav automatski mjeri dimenzije iz same geometrije polilinije, a ako postoji tekstualna oznaka (npr. `50x50`, `Ø45`), provjerava i nju!
-    5. **Referentni PDF ili slika nacrta (opcija):**
-       - Ako nemate DXF ili želite vizualnu usporedbu, u polje *Referentni nacrt* učitajte PDF nacrt (ili JPG/PNG). Aplikacija će ga prikazati usporedo s modelom u prvom tabu!
+       - Dimenzije se mjere izravno iz geometrije polilinije, a tekstualne oznake se automatski uspoređuju.
+    5. **Referentni PDF nacrt:**
+       - Ako nemate DXF ili želite vizualnu usporedbu, u polje *Nacrt* učitajte PDF elaborat. Aplikacija će ga prikazati usporedo s modelom u Tabu 1.
 
     ---
 
-    #### 3️⃣ Korak 3 — Rad s višeetažnim zgradama (Story Filter)
-    Budući da CAD nacrt obično prikazuje **jednu etažu** (npr. *Tlocrt oplate 1. kata*), a ETABS model sadrži **cijelu zgradu u 3D prostoru**:
-    - Iznad rezultata koristite padajući izbornik: **"Odabir etaže za provjeru s CAD nacrtom"**.
-    - Odaberite odgovarajući kat (npr. `1️⃣ Prizemlje / 1. Kat (Z = 3.80 m)`).
-    - Aplikacija će trenutno filtrirati stupove, grede i ploče te etaže i usporediti ih s nacrtom, bez lažnih odstupanja s gornjih katova.
+    #### Korak 3 — Rad s višeetažnim zgradama (Filter etaža)
+    Budući da CAD nacrt obično prikazuje **jednu etažu**, a ETABS model sadrži cijelu zgradu:
+    - Koristite vodoravni selektor etaža na vrhu Taba 1 (`Prizemlje`, `1. Kat`...).
+    - Aplikacija filtrira elemente te etaže i uspoređuje ih s nacrtom, bez lažnih odstupanja s gornjih katova.
 
     ---
 
-    #### 4️⃣ Korak 4 — Tumač statusa i boja
-    - 🟢 **Usklađeno (Match):** Element je pronađen na točnoj lokaciji i njegove dimenzije u potpunosti odgovaraju nacrtu unutar zadane tolerancije.
-    - 🟡 **Odstupanje presjeka (Section Mismatch):** Pozicija odgovara, ali postoji razlika u dimenzijama (npr. CAD 40×40 cm vs. ETABS 50×50 cm). Potrebno uskladiti proračunski model s izvedbenim projektom!
-    - 🔴 **Samo u ETABS-u (ETABS Only):** Element postoji u numeričkom modelu, ali ga nema u nacrtu (mogući uzrok: element s druge etaže, privremeni štap ili višak).
-    - 🔵 **Samo u CAD-u (CAD Only):** Element je ucrtan na nacrtu, ali nije unesen u ETABS model (potencijalno zaboravljeni nosivi stup ili greda!).
+    #### Korak 4 — Tumač statusa i boja
+    - **Usklađeno (Match):** Element je pronađen na točnoj lokaciji i njegove dimenzije u potpunosti odgovaraju nacrtu unutar zadane tolerancije.
+    - **Odstupanje presjeka (Section Mismatch):** Pozicija odgovara, ali postoji razlika u dimenzijama (npr. CAD 40×40 cm vs. ETABS 50×50 cm).
+    - **Samo u ETABS-u (ETABS Only):** Element postoji u numeričkom modelu, ali ga nema u nacrtu.
+    - **Samo u nacrtu (CAD Only):** Element je ucrtan na nacrtu, ali nije unesen u ETABS model.
 
     ---
 
-    #### 5️⃣ Korak 5 — Podešavanje inženjerskih tolerancija
-    U lijevom izborniku pod `📐 3. Jedinice i tolerancije`:
-    - **Tolerancija pozicije stupova/greda (m):** Dozvoljeni prostorni razmak osi elementa i nacrta (preporučeno 0.15 m = 15 cm).
-    - **Dozvoljeno odstupanje presjeka (mm):** Dozvoljena razlika u dimenziji prije označavanja greške (preporučeno 5 mm).
+    #### Korak 5 — Podešavanje inženjerskih tolerancija
+    U lijevom izborniku pod *Tolerancije*:
+    - **Pozicija (m):** Dozvoljeni prostorni razmak osi elementa i nacrta (zadano 0.15 m).
+    - **Presjek (mm):** Dozvoljena razlika u dimenziji prije označavanja odstupanja (zadano 5 mm).
 
     ---
 
-    #### 6️⃣ Korak 6 — Preuzimanje službenog elaborata
-    U tabu **📄 5. Službeni PDF Elaborat** kliknite:
-    - **📥 Preuzmi PDF Elaborat (A4 Landscape):** Generira formalni dokument s naslovnicom, sažetkom usklađenosti po elementima, tlocrtom i tablicom svih odstupanja, spreman za arhivu i potpis ovlaštenog inženjera ili revidenta.
+    #### Korak 6 — Preuzimanje elaborata
+    U tabu **Izvještaj**:
+    - **Preuzmi PDF elaborat (A4 Landscape):** Generira formalni dokument s naslovnicom, sažetkom usklađenosti, tlocrtom i tablicom svih odstupanja, spreman za reviziju i arhivu.
     """)
 

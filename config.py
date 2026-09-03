@@ -34,6 +34,16 @@ class Config:
         else:
             self.spatial_tolerance = self.spatial_tolerance_frame
 
+    def __hash__(self):
+        return hash((
+            self.spatial_tolerance_frame,
+            self.spatial_tolerance_area,
+            self.section_tolerance_mm,
+            self.dxf_unit_scale,
+            tuple(sorted(self.extract_elements)),
+            self.dxf_origin_offset,
+        ))
+
     # ------------------------------------------------------------------ #
     # Section dimension matching
     # ------------------------------------------------------------------ #
