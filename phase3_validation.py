@@ -385,7 +385,7 @@ def run_structural_sanity_checks(etabs_dict: dict, cfg: Config) -> list[dict]:
                 "category": "Support",
                 "severity": "ERROR",
                 "element": r.get("joint_name", ""),
-                "issue": f"Ground-level joint at ({r.get('x', 0):.2f}, {r.get('y', 0):.2f}) has NO restraints (FREE)! Column is floating.",
+                "issue": f"Čvor u bazi na koti ({r.get('x', 0):.2f}, {r.get('y', 0):.2f}) nema zadane ležajeve (slobodan čvor)! Element lebdi.",
             })
 
     # 3. Unloaded Floor Slabs Audit
@@ -400,7 +400,7 @@ def run_structural_sanity_checks(etabs_dict: dict, cfg: Config) -> list[dict]:
                     "category": "Area Load",
                     "severity": "WARNING",
                     "element": s_name,
-                    "issue": f"Slab {s_name} has NO surface loads assigned in ETABS model.",
+                    "issue": f"Stropna ploča {s_name} nema zadano plošno opterećenje u modelu (korisno opterećenje Q / dodatno stalno VT od slojeva poda).",
                 })
 
     return alerts
