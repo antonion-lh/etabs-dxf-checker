@@ -69,7 +69,7 @@ def render_drawing(
                     st.session_state["active_pdf_page"] = target_pg
                     st.session_state["_last_synced_story"] = active_story_name
 
-            st.markdown(f"###### 📑 Projektni elaborat: **{file_name}** ({num_pages} str.)")
+            st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px;'>Nacrt: {file_name} ({num_pages} str.)</div>", unsafe_allow_html=True)
 
             # Quick navigation bar
             ctrl1, ctrl2, ctrl3 = st.columns([2.4, 1.2, 1.4])
@@ -80,11 +80,12 @@ def render_drawing(
 
                 for p in range(1, num_pages + 1):
                     if demo_sheet_map and p in demo_sheet_map:
-                        page_labels.append(demo_sheet_map[p])
+                        clean_title = demo_sheet_map[p].replace("📄 ", "").replace("📐 ", "")
+                        page_labels.append(clean_title)
                     elif p in toc_dict:
-                        page_labels.append(f"📄 Str. {p}: {toc_dict[p]}")
+                        page_labels.append(f"Str. {p}: {toc_dict[p]}")
                     else:
-                        page_labels.append(f"📄 Stranica {p} od {num_pages}")
+                        page_labels.append(f"Stranica {p} od {num_pages}")
 
                 cur_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
                 chosen_opt = st.selectbox(
@@ -102,7 +103,7 @@ def render_drawing(
 
             with ctrl3:
                 st.download_button(
-                    label=f"📥 Preuzmi PDF ({len(raw)/1024/1024:.1f} MB)",
+                    label=f"Preuzmi PDF ({len(raw)/1024/1024:.1f} MB)",
                     data=raw,
                     file_name=file_name,
                     mime="application/pdf",
@@ -113,11 +114,11 @@ def render_drawing(
             if num_pages > 1:
                 np_col1, np_col2 = st.columns(2)
                 with np_col1:
-                    if st.button("◀ Prethodna stranica", key="btn_pdf_prev", use_container_width=True, disabled=(st.session_state["active_pdf_page"] <= 1)):
+                    if st.button("◀ Prethodna", key="btn_pdf_prev", use_container_width=True, disabled=(st.session_state["active_pdf_page"] <= 1)):
                         st.session_state["active_pdf_page"] = max(1, st.session_state["active_pdf_page"] - 1)
                         st.rerun()
                 with np_col2:
-                    if st.button("Sljedeća stranica ▶", key="btn_pdf_next", use_container_width=True, disabled=(st.session_state["active_pdf_page"] >= num_pages)):
+                    if st.button("Sljedeća ▶", key="btn_pdf_next", use_container_width=True, disabled=(st.session_state["active_pdf_page"] >= num_pages)):
                         st.session_state["active_pdf_page"] = min(num_pages, st.session_state["active_pdf_page"] + 1)
                         st.rerun()
 
@@ -127,7 +128,7 @@ def render_drawing(
             img_bytes = pix.tobytes("png")
 
             caption_txt = page_labels[sel_page_idx] if sel_page_idx < len(page_labels) else f"Stranica {sel_page_idx + 1}"
-            st.image(img_bytes, use_container_width=True, caption=f"📄 {file_name} — {caption_txt}")
+            st.image(img_bytes, use_container_width=True, caption=f"{file_name} — {caption_txt}")
 
         else:
             from PIL import Image
@@ -186,11 +187,11 @@ def _classify_wall_opening_st(wx1, wy1, wx2, wy2, atype=""):
 
 def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None) -> go.Figure:
     COLOR_MAP = {
-        Status.MATCH:            ("#10b981", "Usklađeno s nacrtom"),
-        Status.SECTION_MISMATCH: ("#f59e0b", "Odstupanje dimenzija"),
-        Status.ETABS_ONLY:       ("#ef4444", "Samo u ETABS-u"),
-        Status.DXF_ONLY:         ("#3b82f6", "Samo u CAD nacrtu"),
-        "Za provjeru s PDF-om":  ("#0284c7", "Element u modelu"),
+        Status.MATCH:            ("#16A34A", "Usklađeno"),
+        Status.SECTION_MISMATCH: ("#D97706", "Odstupanje presjeka"),
+        Status.ETABS_ONLY:       ("#DC2626", "Samo u ETABS-u"),
+        Status.DXF_ONLY:         ("#2563EB", "Samo u nacrtu"),
+        "Za provjeru s PDF-om":  ("#374151", "Element u modelu"),
     }
 
     fig = go.Figure()
