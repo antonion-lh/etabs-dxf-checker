@@ -113,6 +113,7 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
     raw_stories: list[dict] = []
     line_assigns: dict[str, str] = {}
     area_assigns: dict[str, str] = {}
+    area_story_assigns: dict[str, list[dict]] = {}
 
     current_block = ""
 
@@ -141,11 +142,16 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 except ValueError:
                     pass
             else:
-                # Positional coordinates: POINT "1" 10.0 5.0 3.0 or "1" 10.0 5.0 3.0
+                # Positional coordinates: POINT "1" 10.0 5.0 3.0 or POINT "1" 10.0 5.0
                 start_idx = 2 if tokens[0].upper() in ("POINT", "JOINT") else 1
                 if len(tokens) >= start_idx + 3:
                     try:
                         _save_pt(p_name, (float(tokens[start_idx]), float(tokens[start_idx + 1]), float(tokens[start_idx + 2])))
+                    except ValueError:
+                        pass
+                elif len(tokens) >= start_idx + 2:
+                    try:
+                        _save_pt(p_name, (float(tokens[start_idx]), float(tokens[start_idx + 1]), 0.0))
                     except ValueError:
                         pass
 
@@ -273,33 +279,30 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         # 4. SHELL / AREA / WALL / SLAB SECTIONS
         elif any(k in current_block for k in ("SHELL", "AREA", "WALL", "SLAB")) and any(k in current_block for k in ("SEC", "PROP")):
-            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("SHELL", "AREA", "WALL", "SLAB", "PROP", "SECTION") else tokens[0]
+            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("SHELL", "AREA", "WALL", "SLAB", "PROP", "SECTION", "SHELLPROP") else tokens[0]
             if sec_name:
                 sec_name = sec_name.strip('"').strip("'")
                 thick_str = (
+                    _get_kw_val(tokens, "WALLTHICKNESS") or
+                    _get_kw_val(tokens, "SLABTHICKNESS") or
                     _get_kw_val(tokens, "THICKNESS") or
                     _get_kw_val(tokens, "THICK") or
                     _get_kw_val(tokens, "T") or
                     _get_kw_val(tokens, "BENDING") or
                     _get_kw_val(tokens, "MEMBRANE")
                 )
-                if not thick_str:
-                    for tok in tokens[1:]:
-                        try:
-                            fval = float(tok)
-                            if 0.01 <= fval <= 5.0:
-                                thick_str = tok
-                                break
-                        except ValueError:
-                            pass
 
-                try:
-                    thick = float(thick_str) if thick_str else 0.25
-                    thick_mm = thick * 1000 if thick < 10 else thick
-                except ValueError:
-                    thick_mm = 250.0
+                existing = area_sections.get(sec_name, {})
+                if thick_str:
+                    try:
+                        thick = float(thick_str)
+                        thick_mm = thick * 1000 if thick < 10 else thick
+                    except ValueError:
+                        thick_mm = 250.0
+                else:
+                    thick_mm = existing.get("thickness_mm", 250.0)
 
-                mat_val = _get_kw_val(tokens, "MAT") or _get_kw_val(tokens, "MATERIAL", "")
+                mat_val = _get_kw_val(tokens, "MAT") or _get_kw_val(tokens, "MATERIAL", "") or existing.get("material", "")
                 if not mat_val:
                     for tok in tokens:
                         t_clean = tok.strip('"').strip("'")
@@ -351,22 +354,30 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
             type_hint = _get_kw_val(tokens, "TYPE").lower()
 
             pts = []
-            tokens_upper = [t.upper() for t in tokens]
-            for kw in ("PT", "PTS", "J", "JOINTS", "NODES"):
-                if kw in tokens_upper:
-                    idx = tokens_upper.index(kw)
-                    for j in range(idx + 1, len(tokens)):
+            if len(tokens) >= 4 and tokens[2].upper() in ("PANEL", "FLOOR", "WALL", "SLAB", "OPENING"):
+                type_hint = tokens[2].lower()
+                try:
+                    num_pts = int(tokens[3])
+                    pts = [tokens[4 + i].strip('"').strip("'") for i in range(num_pts) if 4 + i < len(tokens)]
+                except (ValueError, IndexError):
+                    pts = []
+            else:
+                tokens_upper = [t.upper() for t in tokens]
+                for kw in ("PT", "PTS", "J", "JOINTS", "NODES"):
+                    if kw in tokens_upper:
+                        idx = tokens_upper.index(kw)
+                        for j in range(idx + 1, len(tokens)):
+                            if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
+                                break
+                            pts.append(tokens[j])
+                        break
+
+                if not pts:
+                    start_j = 2 if tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else 1
+                    for j in range(start_j, len(tokens)):
                         if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
                             break
                         pts.append(tokens[j])
-                    break
-
-            if not pts:
-                start_j = 2 if tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else 1
-                for j in range(start_j, len(tokens)):
-                    if tokens[j].upper() in ("PROP", "PROPERTY", "SECTION", "SEC", "TYPE", "NUMPTS"):
-                        break
-                    pts.append(tokens[j])
 
             if a_name and pts:
                 raw_areas.append({
@@ -378,9 +389,16 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         # 6b. AREA / WALL / SHELL ASSIGNMENTS
         elif any(k in current_block for k in ("AREA", "SHELL", "WALL", "SLAB")) and "ASSIGN" in current_block and "LOAD" not in current_block:
-            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB") else tokens[0]
+            a_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("AREA", "SHELL", "WALL", "SLAB", "AREAASSIGN", "SHELLASSIGN") else tokens[0]
+            st_name = tokens[2].strip('"').strip("'") if len(tokens) > 2 and tokens[0].upper() in ("AREAASSIGN", "SHELLASSIGN") else ""
             sec = _get_kw_val(tokens, "SECTION") or _get_kw_val(tokens, "PROP") or _get_kw_val(tokens, "PROPERTY") or _get_kw_val(tokens, "SEC")
-            if not sec and len(tokens) >= 3:
+            if not sec and "SECTION" in [t.upper() for t in tokens]:
+                idx = [t.upper() for t in tokens].index("SECTION")
+                if idx + 1 < len(tokens):
+                    sec = tokens[idx + 1].strip('"').strip("'")
+                    if idx + 2 < len(tokens) and not tokens[idx + 2].startswith('"') and tokens[idx + 2].upper() not in ("OBJMESHTYPE", "ADDRESTRAINT", "CARDINALPOINT"):
+                        sec += " " + tokens[idx + 2].strip('"').strip("'")
+            if not sec and len(tokens) >= 3 and not st_name:
                 sec = tokens[2]
             elif not sec and len(tokens) == 2:
                 sec = tokens[1]
@@ -389,6 +407,9 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 sec_clean = sec.strip('"').strip("'")
                 area_assigns[a_name] = sec_clean
                 area_assigns[a_clean] = sec_clean
+                if a_clean not in area_story_assigns:
+                    area_story_assigns[a_clean] = []
+                area_story_assigns[a_clean].append({"story": st_name, "section": sec_clean})
 
         # 7. LOAD PATTERNS
         elif "LOAD" in current_block and "PAT" in current_block:
@@ -857,112 +878,134 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                 "material": mat_name,
             })
 
+    story_map = {s["name"]: s for s in stories}
     walls, slabs = [], []
     for a in raw_areas:
-        v_pts = [_get_pt(pt) for pt in a["pts"] if _get_pt(pt) is not None]
-        if len(v_pts) < 3:
+        aname = a["name"]
+        atype = a.get("type_hint", "").lower()
+        pts_names = a.get("pts", [])
+        v_pts = [_get_pt(pt) for pt in pts_names if _get_pt(pt) is not None]
+        if not v_pts:
             continue
 
-        cx = sum(p[0] for p in v_pts) / len(v_pts)
-        cy = sum(p[1] for p in v_pts) / len(v_pts)
-        cz = sum(p[2] for p in v_pts) / len(v_pts)
+        assigns = area_story_assigns.get(aname, [])
+        if not assigns:
+            assigns = [{"story": "", "section": str(a.get("prop") or "")}]
 
-        prop_key = str(a.get("prop") or "").strip().strip('"').strip("'")
-        sec_data = area_sections.get(prop_key, {})
-        if not sec_data and prop_key:
-            for sk, sv in area_sections.items():
-                if sk.lower() == prop_key.lower():
-                    sec_data = sv
-                    break
-
-        thick_mm = sec_data.get("thickness_mm", 250.0)
-        mat_name = sec_data.get("material", "")
-        if not mat_name and materials_dict:
-            for mk, mv in materials_dict.items():
-                if mv.get("type", "").lower() in ("concrete", "masonry"):
-                    mat_name = mk
-                    break
-
-        v1 = (v_pts[1][0] - v_pts[0][0], v_pts[1][1] - v_pts[0][1], v_pts[1][2] - v_pts[0][2])
-        v2 = (v_pts[2][0] - v_pts[0][0], v_pts[2][1] - v_pts[0][1], v_pts[2][2] - v_pts[0][2])
-        nz = abs(v1[0]*v2[1] - v1[1]*v2[0])
-        mag = math.sqrt(
-            (v1[1]*v2[2] - v1[2]*v2[1])**2 +
-            (v1[2]*v2[0] - v1[0]*v2[2])**2 +
-            (v1[0]*v2[1] - v1[1]*v2[0])**2
-        )
-        norm_z = nz / mag if mag > 1e-6 else 1.0
-
-        is_wall = (a["type_hint"] == "wall" or norm_z < 0.5)
-        prop_display = prop_key or sec_data.get("sec_name") or (f"WALL_{int(thick_mm)}" if is_wall else f"SLAB_{int(thick_mm)}")
-
-        # Extract endpoints for 2D floorplan trajectory
-        xy_pts = []
+        # Extract 2D endpoints
+        xy_uniq = []
         for p in v_pts:
-            pt_xy = (round(p[0], 2), round(p[1], 2))
-            if pt_xy not in xy_pts:
-                xy_pts.append(pt_xy)
+            xy = (round(p[0], 2), round(p[1], 2))
+            if xy not in xy_uniq:
+                xy_uniq.append(xy)
 
-        if len(xy_pts) >= 2:
-            max_d2 = -1.0
-            best_pair = (xy_pts[0], xy_pts[1])
-            for i in range(len(xy_pts)):
-                for j in range(i + 1, len(xy_pts)):
-                    d2 = (xy_pts[i][0] - xy_pts[j][0])**2 + (xy_pts[i][1] - xy_pts[j][1])**2
+        if len(xy_uniq) >= 2:
+            wx1, wy1 = xy_uniq[0]
+            wx2, wy2 = xy_uniq[1]
+            max_d2 = (wx2 - wx1)**2 + (wy2 - wy1)**2
+            for i in range(len(xy_uniq)):
+                for j in range(i + 1, len(xy_uniq)):
+                    d2 = (xy_uniq[i][0] - xy_uniq[j][0])**2 + (xy_uniq[i][1] - xy_uniq[j][1])**2
                     if d2 > max_d2:
                         max_d2 = d2
-                        best_pair = (xy_pts[i], xy_pts[j])
-            wx1, wy1 = best_pair[0]
-            wx2, wy2 = best_pair[1]
-        elif len(xy_pts) == 1:
-            wx1, wy1 = xy_pts[0]
-            wx2, wy2 = xy_pts[0]
+                        wx1, wy1 = xy_uniq[i]
+                        wx2, wy2 = xy_uniq[j]
+        elif len(xy_uniq) == 1:
+            wx1, wy1 = xy_uniq[0]
+            wx2, wy2 = xy_uniq[0]
         else:
-            wx1, wy1, wx2, wy2 = cx, cy, cx, cy
+            wx1, wy1, wx2, wy2 = 0.0, 0.0, 0.0, 0.0
 
-        elem_st = _get_elem_story(cz)
-        st_obj = next((s for s in stories if s["name"] == elem_st), None)
-        z_cut = (st_obj["z_bottom"] + 1.2) if st_obj else (cz)
-        z_min_val = min(p[2] for p in v_pts) if v_pts else cz
-        z_max_val = max(p[2] for p in v_pts) if v_pts else cz
-        is_cut = (z_min_val <= z_cut <= z_max_val) if abs(z_max_val - z_min_val) > 0.5 else True
+        for asgn in assigns:
+            st_name = asgn.get("story", "")
+            prop_key = asgn.get("section") or str(a.get("prop") or "").strip().strip('"').strip("'")
+            sec_data = area_sections.get(prop_key, {})
+            if not sec_data and prop_key:
+                for sk, sv in area_sections.items():
+                    if sk.lower() == prop_key.lower():
+                        sec_data = sv
+                        break
 
-        if is_wall:
-            walls.append({
-                "name": a["name"],
-                "element_type": "wall",
-                "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
-                "z_min": z_min_val, "z_max": z_max_val,
-                "is_cut": is_cut,
-                "x_match": cx, "y_match": cy,
-                "x_start": wx1, "y_start": wy1,
-                "x_end": wx2, "y_end": wy2,
-                "story": elem_st,
-                "prop_name": prop_display,
-                "material": mat_name,
-                "thickness_mm": thick_mm,
-                "width_mm": None,
-                "height_mm": thick_mm,
-                "shape_type": "shell",
-                "pts_coords": v_pts,
-            })
-        else:
-            slabs.append({
-                "name": a["name"],
-                "element_type": "slab",
-                "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
-                "x_match": cx, "y_match": cy,
-                "x_start": wx1, "y_start": wy1,
-                "x_end": wx2, "y_end": wy2,
-                "story": _get_elem_story(cz),
-                "prop_name": prop_display,
-                "material": mat_name,
-                "thickness_mm": thick_mm,
-                "width_mm": None,
-                "height_mm": thick_mm,
-                "shape_type": "shell",
-                "pts_coords": v_pts,
-            })
+            thick_mm = sec_data.get("thickness_mm", 250.0)
+            if "60" in prop_key and thick_mm == 250.0:
+                thick_mm = 600.0
+            elif "45" in prop_key and thick_mm == 250.0:
+                thick_mm = 450.0
+            elif "30" in prop_key and thick_mm == 250.0:
+                thick_mm = 300.0
+
+            mat_name = sec_data.get("material", "")
+            if not mat_name and materials_dict:
+                for mk, mv in materials_dict.items():
+                    if mv.get("type", "").lower() in ("concrete", "masonry"):
+                        mat_name = mk
+                        break
+
+            st_obj = story_map.get(st_name)
+            if st_obj:
+                z_bot = st_obj["z_bottom"]
+                z_top = st_obj["z_top"]
+                elem_st = st_name
+            else:
+                cz_calc = sum(p[2] for p in v_pts) / len(v_pts)
+                elem_st = _get_elem_story(cz_calc)
+                st_obj2 = story_map.get(elem_st)
+                z_bot = st_obj2["z_bottom"] if st_obj2 else min(p[2] for p in v_pts)
+                z_top = st_obj2["z_top"] if st_obj2 else max(p[2] for p in v_pts)
+
+            cx = (wx1 + wx2) / 2.0
+            cy = (wy1 + wy2) / 2.0
+            cz = (z_bot + z_top) / 2.0
+
+            is_wall = atype in ("panel", "wall") or "ZID" in prop_key.upper() or "WALL" in prop_key.upper()
+            if not is_wall and len(v_pts) >= 3:
+                v1 = (v_pts[1][0] - v_pts[0][0], v_pts[1][1] - v_pts[0][1], v_pts[1][2] - v_pts[0][2])
+                v2 = (v_pts[2][0] - v_pts[0][0], v_pts[2][1] - v_pts[0][1], v_pts[2][2] - v_pts[0][2])
+                nz = abs(v1[0]*v2[1] - v1[1]*v2[0])
+                mag = math.sqrt((v1[1]*v2[2] - v1[2]*v2[1])**2 + (v1[2]*v2[0] - v1[0]*v2[2])**2 + (v1[0]*v2[1] - v1[1]*v2[0])**2)
+                norm_z = nz / mag if mag > 1e-6 else 0.0
+                is_wall = (norm_z < 0.5)
+
+            prop_display = prop_key or sec_data.get("sec_name") or (f"WALL_{int(thick_mm)}" if is_wall else f"SLAB_{int(thick_mm)}")
+
+            if is_wall:
+                w_pts_3d = [(wx1, wy1, z_bot), (wx2, wy2, z_bot), (wx2, wy2, z_top), (wx1, wy1, z_top)]
+                walls.append({
+                    "name": aname,
+                    "element_type": "wall",
+                    "centroid_x": cx, "centroid_y": cy, "centroid_z": cz,
+                    "z_min": z_bot, "z_max": z_top,
+                    "is_cut": True,
+                    "x_match": cx, "y_match": cy,
+                    "x_start": wx1, "y_start": wy1,
+                    "x_end": wx2, "y_end": wy2,
+                    "story": elem_st,
+                    "prop_name": prop_display,
+                    "material": mat_name or "Masonry",
+                    "thickness_mm": thick_mm,
+                    "width_mm": None,
+                    "height_mm": thick_mm,
+                    "shape_type": "shell",
+                    "pts_coords": w_pts_3d,
+                })
+            else:
+                s_pts_3d = [(p[0], p[1], z_top) for p in v_pts]
+                slabs.append({
+                    "name": aname,
+                    "element_type": "slab",
+                    "centroid_x": cx, "centroid_y": cy, "centroid_z": z_top,
+                    "x_match": cx, "y_match": cy,
+                    "x_start": wx1, "y_start": wy1,
+                    "x_end": wx2, "y_end": wy2,
+                    "story": elem_st,
+                    "prop_name": prop_display,
+                    "material": mat_name or "Wood",
+                    "thickness_mm": thick_mm,
+                    "width_mm": None,
+                    "height_mm": thick_mm,
+                    "shape_type": "shell",
+                    "pts_coords": s_pts_3d,
+                })
 
     restraints = []
     for r in raw_restraints:
