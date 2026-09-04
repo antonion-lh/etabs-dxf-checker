@@ -125,6 +125,12 @@ def _cached_validate_pdf(_etabs_data: dict, pdf_bytes: bytes, _cfg: Config):
 def _cached_pdf_has_dims(pdf_bytes: bytes) -> bool:
     return pdf_has_dimension_text(pdf_bytes)
 
+@st.cache_data(show_spinner=False, max_entries=6)
+def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int):
+    from raster_vectorize import vectorize_floorplan, Params
+    params = Params(threshold=threshold, min_len_px=min_len_px, max_gap_px=max_gap_px, denoise_iters=denoise_iters, dpi_cap=dpi_cap)
+    return vectorize_floorplan(pdf_or_img_bytes, filename, params)
+
 @st.cache_data(show_spinner=False)
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
     return run_curriculum_audit(_etabs_data, results_data=_results_data)
@@ -597,11 +603,12 @@ def main():
         stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0}]
 
     # ── Main Tabs (4 clean sections, NO EMOJIS) ───────────────
-    t_model, t_audit, t_elements, t_report = st.tabs([
+    t_model, t_audit, t_elements, t_report, t_vektor = st.tabs([
         "Model",
         "Revizija",
         "Elementi",
         "Izvještaj",
+        "Vektorizacija",
     ])
 
     # ── TAB 1: Model (Task 2) ─────────────────────────────────
@@ -1428,6 +1435,78 @@ def main():
             st.markdown("---")
             with st.expander("Inženjerske upute za pripremu modela i nacrta", expanded=False):
                 render_instructions()
+
+    # -- TAB 5: Vektorizacija (raster -> DXF linije, poluautomatski) --
+    with t_vektor:
+        st.markdown(
+            "### Vektorizacija skeniranog tlocrta\n"
+            "Poluautomatska pretvorba **skeniranog** tlocrta (PDF/slika) u DXF linije. "
+            "Ovo je asistent — rezultat je gruba geometrija zidova koju treba **ručno "
+            "dovršiti i zatvoriti** u CAD-u prije daljnje upotrebe."
+        )
+        _vf = st.file_uploader(
+            "Učitaj skenirani tlocrt (PDF, PNG ili JPG)",
+            type=["pdf", "png", "jpg", "jpeg"],
+            key="vektor_upload",
+        )
+
+        with st.expander("Parametri detekcije", expanded=False):
+            _auto_thr = st.checkbox("Automatski prag (Otsu)", value=True, key="vektor_auto_thr")
+            if _auto_thr:
+                _threshold = None
+                st.caption("Prag se određuje automatski (Otsu metoda).")
+            else:
+                _threshold = st.slider("Prag binarizacije", 0, 255, 127, key="vektor_thr")
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                _min_len_px = st.slider("Min. duljina linije (px)", 10, 300, 60, key="vektor_minlen")
+                _max_gap_px = st.slider("Max. praznina spajanja (px)", 0, 50, 12, key="vektor_maxgap")
+            with _c2:
+                _denoise_iters = st.slider("Uklanjanje šuma (iteracije)", 0, 3, 1, key="vektor_denoise")
+                _dpi_cap = st.slider("DPI (rasterizacija PDF-a)", 100, 300, 200, step=50, key="vektor_dpi")
+
+        if _vf is not None:
+            try:
+                _raw = _vf.getvalue()
+                _res = _cached_vectorize(
+                    _raw, _vf.name, _threshold, _min_len_px, _max_gap_px, _denoise_iters, _dpi_cap
+                )
+            except Exception as _e:
+                _res = None
+                st.error(f"Greška pri vektorizaciji: {_e}")
+
+            if _res is not None:
+                if _res.get("warning"):
+                    st.warning(_res["warning"])
+                if not _res.get("ok"):
+                    st.error(_res.get("warning") or "Vektorizacija nije uspjela.")
+                    st.stop()
+
+                st.metric("Detektirano linija", _res.get("n_segments", 0))
+
+                _col_l, _col_r = st.columns(2)
+                with _col_l:
+                    if _res.get("gray") is not None:
+                        st.image(_res["gray"], caption="Original (sivo)", clamp=True, use_container_width=True)
+                with _col_r:
+                    if _res.get("overlay_png") is not None:
+                        st.image(_res["overlay_png"], caption="Detektirane linije", use_container_width=True)
+
+                if _res.get("dxf_bytes"):
+                    st.download_button(
+                        "Preuzmi DXF",
+                        data=_res["dxf_bytes"],
+                        file_name="vektorizirani_tlocrt.dxf",
+                        mime="application/dxf",
+                        key="vektor_dxf_dl",
+                    )
+                st.caption(
+                    "DXF sadrži detektirane linije na sloju **VEKTOR_ZID**. Linije treba "
+                    "dovršiti i zatvoriti u CAD-u. Automatska usporedba s ETABS modelom nije "
+                    "dio ovog koraka."
+                )
+        else:
+            st.info("Učitaj skenirani tlocrt (PDF/PNG/JPG) za pokretanje vektorizacije.")
 
 if __name__ == "__main__":
     main()
