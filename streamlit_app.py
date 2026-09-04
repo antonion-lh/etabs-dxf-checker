@@ -548,7 +548,9 @@ def main():
         else:
             view_opts = ["2D Tlocrt", "3D Model"]
 
-        tb_col1, tb_col_z, tb_col2 = st.columns([2.8, 1.2, 3.0])
+        # Row: story selector (left) + view mode (right). Z-badge goes on its own
+        # line below so long story names cannot overlap the neighbouring control.
+        tb_col1, tb_col2 = st.columns([3.4, 2.6])
         with tb_col1:
             sel_story = st.segmented_control(
                 "Odabir etaže:",
@@ -557,7 +559,14 @@ def main():
                 key="tab1_story_pills",
                 label_visibility="collapsed"
             ) or story_opts[0]
-
+        with tb_col2:
+            sel_view = st.segmented_control(
+                "Prikaz modela:",
+                options=view_opts,
+                default="2D Tlocrt",
+                key="tab1_view_pills",
+                label_visibility="collapsed"
+            ) or "2D Tlocrt"
         if sel_story != "Sve etaže" and sel_story in story_names:
             curr_idx = story_names.index(sel_story)
             selected_story_data = stories[curr_idx]
@@ -567,30 +576,20 @@ def main():
             active_story_name = None
             selected_story_data = None
             chosen_z = None
-
-        with tb_col_z:
-            if sel_story != "Sve etaže" and selected_story_data:
-                z_bot = selected_story_data.get("z_bottom", 0.0)
-                z_top = selected_story_data.get("z_top", 4.0)
-                z_bg = "#161B22" if is_dark else "#F9FAFB"
-                z_bdr = "#30363D" if is_dark else "#E5E7EB"
-                z_txt = "#8B949E" if is_dark else "#6B7280"
-                st.markdown(
-                    f"<div class='mono' style='font-size:11px; color:{z_txt};"
-                    f"padding:4px 8px; background:{z_bg}; border:1px solid "
-                    f"{z_bdr}; border-radius:4px; display:inline-block; margin-top:2px;'>"
-                    f"Z = {z_bot:.1f} – {z_top:.1f} m</div>",
-                    unsafe_allow_html=True
-                )
-
-        with tb_col2:
-            sel_view = st.segmented_control(
-                "Prikaz modela:",
-                options=view_opts,
-                default="2D Tlocrt",
-                key="tab1_view_pills",
-                label_visibility="collapsed"
-            ) or "2D Tlocrt"
+        # Z-range badge on its own line (no horizontal overlap with controls)
+        if sel_story != "Sve etaže" and selected_story_data:
+            z_bot = selected_story_data.get("z_bottom", 0.0)
+            z_top = selected_story_data.get("z_top", 4.0)
+            z_bg = "#161B22" if is_dark else "#F9FAFB"
+            z_bdr = "#30363D" if is_dark else "#E5E7EB"
+            z_txt = "#8B949E" if is_dark else "#6B7280"
+            st.markdown(
+                f"<div class='mono' style='font-size:11px; color:{z_txt};"
+                f"padding:3px 10px; background:{z_bg}; border:1px solid "
+                f"{z_bdr}; border-radius:4px; display:inline-block; margin:2px 0 6px 0;'>"
+                f"{sel_story} · Z = {z_bot:.1f} – {z_top:.1f} m</div>",
+                unsafe_allow_html=True
+            )
 
         if sel_story != "Sve etaže" and selected_story_data:
             if "story" in df_res.columns:
