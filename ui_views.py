@@ -928,10 +928,9 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
                 x=mesh_x, y=mesh_y, z=mesh_z,
                 i=mesh_i, j=mesh_j, k=mesh_k,
                 color="#dc2626" if etabs_color_mode else "#10b981",
-                opacity=1.0,  # Opaque so window/door voids read as true holes
+                opacity=0.75,
                 flatshading=True,
-                lighting=dict(ambient=0.72, diffuse=0.45, specular=0.05),
-                lightposition=dict(x=100, y=200, z=300),
+                lighting=dict(ambient=0.90, diffuse=0.1, specular=0.0),
                 name="Plohe zidova (ETABS)",
                 hoverinfo="skip",
             ))
@@ -940,8 +939,8 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
             fig.add_trace(go.Scatter3d(
                 x=w_xs, y=w_ys, z=w_zs,
                 mode="lines",
-                line=dict(color="#7f1d1d" if etabs_color_mode else "#047857", width=2.5),
-                name="Rubovi zidova / otvora",
+                line=dict(color="#ffffff" if etabs_color_mode else "#059669", width=2.0),
+                name="Mreža zidova (ETABS)",
                 hoverinfo="skip",
             ))
 
