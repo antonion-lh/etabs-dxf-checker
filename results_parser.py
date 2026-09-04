@@ -275,14 +275,42 @@ def parse_etabs_results(source: Union[str, Path, bytes, io.BytesIO, io.StringIO]
 def create_demo_etabs_results(etabs_data: dict) -> bytes:
     """
     Generate a realistic ETABS results Excel workbook (.xlsx) tailored to the loaded model.
+
+    Values are scaled from the actual model geometry (footprint, story count,
+    story mass) so that different buildings produce distinct, plausible Phase 2
+    numbers instead of identical hardcoded figures.
     Enables instant 1-click testing of Phase 2 features.
     """
     stories = etabs_data.get("stories", [])
     story_names = [s["name"] for s in stories] if stories else ["Story2", "Story1"]
-    
-    # 1. Story Drifts
+    n_stories = max(len(story_names), 1)
+
+    # --- Derive a rough building mass and seismic base shear from geometry ---
+    all_pts = etabs_data.get("all_points", {})
+    xs = [p[0] for p in all_pts.values()] if all_pts else []
+    ys = [p[1] for p in all_pts.values()] if all_pts else []
+    span_x = (max(xs) - min(xs)) if len(xs) >= 2 else 20.0
+    span_y = (max(ys) - min(ys)) if len(ys) >= 2 else 15.0
+    footprint = max(span_x * span_y * 0.70, 40.0)  # m2, discount for shape
+
+    cols = etabs_data.get("columns", pd.DataFrame())
+    walls = etabs_data.get("walls", pd.DataFrame())
+    n_cols = len(cols) if not cols.empty else 0
+    n_walls = len(walls) if not walls.empty else 0
+
+    # Approx. seismic weight per floor: ~10 kN/m2 gravity load on the footprint
+    w_per_floor = footprint * 10.0                 # kN
+    w_total = w_per_floor * n_stories              # kN
+    # Base shear ~ 0.10-0.15 of seismic weight (EC8 low-ductility estimate)
+    base_shear_total = round(w_total * 0.12, 1)
+    # Masonry (wall-dominant) buildings are stiffer -> slightly lower drift, higher shear
+    is_wall_dominant = n_walls > max(n_cols, 1) * 2
+    shear_x_total = base_shear_total * (1.05 if is_wall_dominant else 1.0)
+    shear_y_total = base_shear_total * (0.92 if is_wall_dominant else 0.95)
+
+    # 1. Story Drifts — wall-dominant buildings drift less
     drifts_data = []
-    base_drift = 0.0018
+    base_drift = 0.0014 if is_wall_dominant else 0.0022
     for idx, s in enumerate(reversed(story_names)):
         drift_x = round(base_drift * (1.0 + 0.35 * idx), 4)
         drift_y = round(base_drift * (0.95 + 0.30 * idx), 4)
@@ -290,31 +318,36 @@ def create_demo_etabs_results(etabs_data: dict) -> bytes:
         drifts_data.append({"Story": s, "Output Case": "E_Y Max", "Direction": "Y", "Drift": drift_y, "Label": "Edge"})
     df_drifts = pd.DataFrame(drifts_data)
 
-    # 2. Story Forces
+    # 2. Story Forces — cumulative shear grows toward the base
     forces_data = []
-    tot_h = len(story_names)
     for idx, s in enumerate(reversed(story_names)):
-        vx = round(1200.0 * (idx + 1) / tot_h, 1)
-        vy = round(1100.0 * (idx + 1) / tot_h, 1)
-        p = round(16500.0 * (idx + 1), 1)
+        frac = (idx + 1) / n_stories
+        vx = round(shear_x_total * frac, 1)
+        vy = round(shear_y_total * frac, 1)
+        p = round(w_per_floor * (idx + 1), 1)
         forces_data.append({"Story": s, "Output Case": "1.35G + 1.50Q", "Location": "Bottom", "P": -p, "VX": vx, "VY": vy})
     df_forces = pd.DataFrame(forces_data)
 
-    # 3. Joint Reactions
-    cols = etabs_data.get("columns", pd.DataFrame())
-    pts = sorted(list(set(cols["x_start"].dropna().index))) if not cols.empty else range(1, 25)
+    # 3. Joint Reactions — scaled so total roughly matches building weight
+    n_supports = max(n_cols, n_walls, 8)
+    n_supports = min(n_supports, 60)
+    avg_fz = w_total / n_supports if n_supports else 500.0
     react_data = []
-    for p_id in pts[:40]:
-        fz = round(450.0 + 350.0 * (math.sin(float(p_id))**2), 1)
+    for p_id in range(1, n_supports + 1):
+        # Vary +-35% around the average to create a realistic spread
+        fz = round(avg_fz * (0.65 + 0.70 * (math.sin(float(p_id)) ** 2)), 1)
         react_data.append({"Story": "Base", "Joint": str(p_id), "Output Case": "1.35G + 1.50Q", "FX": 25.0, "FY": 18.0, "FZ": fz})
     df_react = pd.DataFrame(react_data)
 
-    # 4. Frame Design Summary
+    # 4. Frame Design Summary — utilization scales with column density
     design_data = []
-    for c_id in range(1, 20):
-        pmm = round(0.45 + 0.40 * (math.sin(c_id)**2), 2)
-        rebar_pct = round(1.0 + 0.8 * (math.cos(c_id)**2), 2)
-        design_data.append({"Story": "Story1", "Frame": f"C{c_id}", "Design Sect": "STUP40/30_sd", "PMM Ratio": pmm, "Rebar %": rebar_pct, "Status": "OK"})
+    n_design = min(max(n_cols, 8), 40)
+    # Denser column grids -> lower average utilization per column
+    util_base = 0.75 if n_cols and n_cols < 40 else 0.55
+    for c_id in range(1, n_design + 1):
+        pmm = round(min(util_base + 0.20 * (math.sin(c_id) ** 2), 0.99), 2)
+        rebar_pct = round(1.0 + 0.8 * (math.cos(c_id) ** 2), 2)
+        design_data.append({"Story": story_names[-1] if story_names else "Story1", "Frame": f"C{c_id}", "Design Sect": "STUP40/30_sd", "PMM Ratio": pmm, "Rebar %": rebar_pct, "Status": "OK"})
     df_design = pd.DataFrame(design_data)
 
     # 5. Write to BytesIO Excel
