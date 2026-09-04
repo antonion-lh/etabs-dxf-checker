@@ -654,21 +654,42 @@ def main():
         score_bdr_col = "#30363D" if is_dark else "#E5E7EB"
         score_trk_col = "#21262D" if is_dark else "#E2E8F0"
 
+        capped = score_data.get("capped", False)
+        raw_grade = score_data.get("raw_grade", grade_num)
+        raw_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(raw_grade, "")
+        if capped:
+            pct_note = (
+                f"<span style=\"color: {score_sub_col}; font-size: 13px; margin-left: 12px;\">"
+                f"Bodovni indeks: {pct_num}% (odgovara ocjeni {raw_grade})</span>"
+                f"<span style=\"color: {bar_color}; font-size: 12px; margin-left: 12px; font-weight: 600;\">"
+                f"Snižena zbog kritičnih točaka</span>"
+            )
+        else:
+            pct_note = (
+                f"<span style=\"color: {score_sub_col}; font-size: 13px; margin-left: 12px;\">{pct_num} / 100 bodova</span>"
+                f"<span style=\"color: {score_sub_col}; font-size: 12px; margin-left: 12px;\">{score_data.get('grade_label', '')}</span>"
+            )
         st.markdown(f"""
         <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid {score_bdr_col}; padding-bottom: 10px; margin-bottom: 8px;">
           <div>
             <span style="font-size: 16px; font-weight: 600; color: {score_title_col};">Ocjena: {grade_num} — {grade_simple}</span>
-            <span style="color: {score_sub_col}; font-size: 13px; margin-left: 12px;">{pct_num} / 100 bodova</span>
-            <span style="color: {score_sub_col}; font-size: 12px; margin-left: 12px;">{score_data.get('grade_label', '')}</span>
+            {pct_note}
           </div>
           <div class="mono" style="color: {score_sub_col}; font-size: 12px;">
             {len(audit_results)} točaka provjereno
           </div>
         </div>
-        <div style="background:{score_trk_col}; border-radius:3px; height:5px; width:100%; margin-bottom:14px; overflow:hidden;">
+        <div style="background:{score_trk_col}; border-radius:3px; height:5px; width:100%; margin-bottom:{'6px' if capped else '14px'}; overflow:hidden;">
           <div style="background:{bar_color}; width:{min(max(pct_num, 0), 100)}%; height:100%; border-radius:3px;"></div>
         </div>
         """, unsafe_allow_html=True)
+
+        if capped:
+            st.markdown(
+                f'<div style="font-size:12px; color:{bar_color}; margin-bottom:14px;">'
+                f'{score_data.get("grade_label", "")}</div>',
+                unsafe_allow_html=True
+            )
 
         sanity_alerts = df_res.attrs.get("sanity_alerts", [])
         if sanity_alerts:

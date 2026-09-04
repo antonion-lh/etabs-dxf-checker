@@ -1351,6 +1351,8 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
         return {
             "percentage": 0.0,
             "grade": 0,
+            "raw_grade": 0,
+            "capped": False,
             "grade_label": "Nema podataka za evaluaciju",
             "badge_color": "#94a3b8",
             "total_checks": 0,
@@ -1401,6 +1403,9 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
         grade_label = "Nedovoljan (1) — Model ima kritične pogreške"
         badge_color = "#dc2626"
 
+    # Remember the raw (points-only) grade before dealbreaker guardrails apply
+    raw_grade = grade
+
     # Engineering Dealbreaker Rules (Curriculum Integrity Guardrails)
     crit_fails = [a for a in audit_results if a.get("status") == "FAIL" and a.get("weight", 0) >= 8]
     c11 = next((a for a in audit_results if a.get("num") == 11), None)
@@ -1430,6 +1435,8 @@ def calculate_audit_score(audit_results: list[dict]) -> dict:
     return {
         "percentage": pct,
         "grade": grade,
+        "raw_grade": raw_grade,
+        "capped": bool(grade < raw_grade),
         "grade_label": grade_label,
         "badge_color": badge_color,
         "total_checks": len(audit_results),
