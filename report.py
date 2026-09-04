@@ -509,7 +509,8 @@ def generate_html(
     cfg: Config = DEFAULT_CONFIG,
 ) -> str:
     """Write HTML report and return the HTML string (for PDF conversion)."""
-    counts = df_result["status"].value_counts() if not df_result.empty else {}
+    has_status = (not df_result.empty) and ("status" in df_result.columns)
+    counts = df_result["status"].value_counts() if has_status else {}
     cols   = [c for c in DISPLAY_COLS if c in df_result.columns]
 
     html = _HTML_TEMPLATE.format(
@@ -580,8 +581,9 @@ def _generate_pdf_reportlab(df: pd.DataFrame, output_path: str, cfg: Config) -> 
     story = []
 
     # Title & Metadata
-    counts = df["status"].value_counts() if not df.empty else {}
-    is_pdf_mode = ("Za provjeru s PDF-om" in counts) or (not df.empty and (df["status"] == "Za provjeru s PDF-om").any())
+    _has_status = (not df.empty) and ("status" in df.columns)
+    counts = df["status"].value_counts() if _has_status else {}
+    is_pdf_mode = ("Za provjeru s PDF-om" in counts) or (_has_status and (df["status"] == "Za provjeru s PDF-om").any())
     report_title = "ETABS v23 Model & PDF Elaborat Verification Report" if is_pdf_mode else "ETABS v23 ↔ DXF Structural Validation Report"
     story.append(Paragraph(f"<b>{report_title}</b>", title_style))
     story.append(Paragraph(

@@ -237,7 +237,8 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
 
         # 3. FRAME SECTIONS
         elif "FRAME" in current_block and "SEC" in current_block:
-            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() == "FRAME" else tokens[0]
+            sec_name = tokens[1] if len(tokens) > 1 and tokens[0].upper() in ("FRAME", "FRAMESECTION", "FRAMESEC") else tokens[0]
+            sec_name = sec_name.strip('"').strip("'")
             if sec_name:
                 shape = _get_kw_val(tokens, "SHAPE", "RECTANGULAR").upper()
                 mat_name = _get_kw_val(tokens, "MAT", "")

@@ -98,3 +98,42 @@ def test_e2k_validation_integration():
     counts = df_res["status"].value_counts()
     assert counts.get(Status.MATCH, 0) >= 4
     assert counts.get(Status.SECTION_MISMATCH, 0) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for bugs found in comprehensive audit (2026-09)
+# ---------------------------------------------------------------------------
+import io as _io
+
+
+def test_framesection_keyword_attaches_dimensions():
+    """Regression: real ETABS uses one-word FRAMESECTION keyword.
+
+    Previously the parser only recognised `FRAME "name"` (with a space), so
+    `FRAMESECTION "name"` lost the section name and all beam/column dimensions
+    came back as None. Verify all keyword variants attach dimensions.
+    """
+    base = (
+        '$ STORIES\n'
+        '  STORY "S1" HEIGHT 3.0\n'
+        '$ POINT COORDINATES\n'
+        '  POINT "1" 0 0 0\n'
+        '  POINT "2" 5 0 0\n'
+        '$ FRAME SECTIONS\n'
+        '  {secline}\n'
+        '$ LINE CONNECTIVITIES\n'
+        '  LINE "B1"  BEAM  "1" "2"  0\n'
+        '$ LINE ASSIGNS\n'
+        '  LINEASSIGN  "B1"  "S1"  SECTION "B4040"\n'
+    )
+    variants = [
+        'FRAMESECTION "B4040" MATERIAL "C25/30" SHAPE "Rectangular" T3 0.4 T2 0.4',
+        'FRAME "B4040" MAT "C25/30" SHAPE "RECTANGULAR" T3 0.4 T2 0.4',
+        'FRAMESEC "B4040" MAT "C25/30" SHAPE "Rectangular" T3 0.4 T2 0.4',
+    ]
+    for secline in variants:
+        r = parse_e2k(_io.StringIO(base.format(secline=secline)), Config())
+        assert not r["beams"].empty, f"No beam parsed for: {secline}"
+        b = r["beams"].iloc[0]
+        assert b.get("width_mm") == 400.0, f"width wrong for {secline}: {b.get('width_mm')}"
+        assert b.get("height_mm") == 400.0, f"height wrong for {secline}: {b.get('height_mm')}"

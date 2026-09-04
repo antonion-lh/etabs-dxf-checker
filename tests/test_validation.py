@@ -269,3 +269,39 @@ class TestMultiTypeValidation:
         assert "10 čvorova baze" in alerts[0]["element"]
 
 
+
+
+# ---------------------------------------------------------------------------
+# Regression: NaN/inf DXF centroids must not crash the KD-tree matcher
+# ---------------------------------------------------------------------------
+import pandas as _pd
+import io as _io2
+import os as _os2
+import sys as _sys2
+_sys2.path.insert(0, _os2.path.join(_os2.path.dirname(__file__), ".."))
+from phase1_e2k import parse_e2k as _parse_e2k
+from phase3_validation import validate as _validate, Status as _Status
+from config import Config as _Config
+
+
+def test_validation_survives_nonfinite_dxf_centroids():
+    """A DXF with NaN/inf centroids must not raise; valid rows still match."""
+    e2k = (
+        '$ STORIES\n  STORY "S1" HEIGHT 3.0\n'
+        '$ POINT COORDINATES\n  POINT "1" 0 0 0\n'
+        '$ FRAME SECTIONS\n  FRAMESECTION "C40" MAT "C30/37" SHAPE "Rectangular" T3 0.4 T2 0.4\n'
+        '$ LINE CONNECTIVITIES\n  LINE "C1" COLUMN "1" "1" 1\n'
+        '$ LINE ASSIGNS\n  LINEASSIGN "C1" "S1" SECTION "C40"\n'
+    )
+    e = _parse_e2k(_io2.StringIO(e2k), _Config())
+    df_dxf = _pd.DataFrame([
+        {"element_type": "column", "centroid_x_m": float("nan"), "centroid_y_m": 0.0,
+         "dim1_mm": 400, "dim2_mm": 400, "dim_text": "40x40"},
+        {"element_type": "column", "centroid_x_m": float("inf"), "centroid_y_m": 1.0,
+         "dim1_mm": 400, "dim2_mm": 400, "dim_text": "40x40"},
+        {"element_type": "column", "centroid_x_m": 0.0, "centroid_y_m": 0.0,
+         "dim1_mm": 400, "dim2_mm": 400, "dim_text": "40x40"},
+    ])
+    # Must not raise
+    res = _validate(e, df_dxf, _Config())
+    assert res is not None and len(res) >= 1

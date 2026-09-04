@@ -163,3 +163,32 @@ def test_generate_reports_integration(sample_validation_df, tmp_path):
     generate_reports(sample_validation_df, cfg)
     assert out_html.exists()
     assert out_pdf.exists()
+
+
+# ---------------------------------------------------------------------------
+# Regression: report generation must not crash when the DataFrame lacks a
+# 'status' column (non-empty but minimal frame).
+# ---------------------------------------------------------------------------
+import pandas as _pd_r
+import tempfile as _tf_r
+import os as _os_r
+import sys as _sys_r
+_sys_r.path.insert(0, _os_r.path.join(_os_r.path.dirname(__file__), ".."))
+from report import generate_html as _gen_html, generate_pdf as _gen_pdf
+from config import Config as _Config_r
+
+
+def test_report_without_status_column():
+    df = _pd_r.DataFrame([{"element_type": "column", "etabs_name": "C1"}])
+    html = _gen_html(df, None, _Config_r())
+    assert isinstance(html, str) and len(html) > 100
+    fd, path = _tf_r.mkstemp(suffix=".pdf")
+    _os_r.close(fd)
+    try:
+        _gen_pdf(df, path, _Config_r())
+        assert _os_r.path.getsize(path) > 0
+    finally:
+        try:
+            _os_r.unlink(path)
+        except OSError:
+            pass

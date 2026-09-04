@@ -123,6 +123,15 @@ def _match_type(
     """
     results = []
 
+    # Drop DXF rows with non-finite centroids (malformed/degenerate geometry)
+    # so the KD-tree never receives NaN/inf, which would raise and abort the
+    # whole validation for an otherwise usable model.
+    if df_dxf is not None and not df_dxf.empty and {"centroid_x_m", "centroid_y_m"}.issubset(df_dxf.columns):
+        _finite = np.isfinite(df_dxf["centroid_x_m"].to_numpy(dtype=float)) & \
+                  np.isfinite(df_dxf["centroid_y_m"].to_numpy(dtype=float))
+        if not _finite.all():
+            df_dxf = df_dxf[_finite].reset_index(drop=True)
+
     etabs_has = not df_etabs.empty
     dxf_has   = not df_dxf.empty
 
