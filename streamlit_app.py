@@ -275,33 +275,6 @@ def _sidebar() -> tuple:
             report_hinges=True,
         )
 
-        # Postavke prikaza (Tema i Font)
-        st.markdown("<div class='sidebar-section-label'>Postavke prikaza</div>", unsafe_allow_html=True)
-        col_ui1, col_ui2 = st.columns(2)
-        with col_ui1:
-            theme_mode = st.segmented_control(
-                "Tema:",
-                options=["Svijetla", "Tamna"],
-                default=st.session_state.get("app_theme", "Svijetla"),
-                key="sb_theme_ctrl",
-                label_visibility="collapsed"
-            ) or "Svijetla"
-            if theme_mode != st.session_state.get("app_theme"):
-                st.session_state["app_theme"] = theme_mode
-                st.rerun()
-
-        with col_ui2:
-            font_choice = st.segmented_control(
-                "Font:",
-                options=["Normal", "Veliki"],
-                default=st.session_state.get("app_font_scale", "Normal"),
-                key="sb_font_ctrl",
-                label_visibility="collapsed"
-            ) or "Normal"
-            if font_choice != st.session_state.get("app_font_scale"):
-                st.session_state["app_font_scale"] = font_choice
-                st.rerun()
-
         st.markdown("---")
         if st.session_state.get("use_demo"):
             if st.button("Isključi demo / Učitaj vlastiti projekt", use_container_width=True, key="btn_reset_session"):
@@ -401,23 +374,52 @@ def main():
         if not has_data:
             st.session_state.pop("_header_badge", None)
 
-    # ── Top App Header Bar ────────────────────────────────────
+    # ── Top App Header & Controls ─────────────────────────────
+    is_dark = (st.session_state.get("app_theme") == "Tamna")
     active_badge = st.session_state.get("_header_badge") if has_data else None
-    try:
-        render_header_bar(
-            project_name=project_label,
-            version="v2.1.0",
-            status_badge=active_badge
-        )
-    except TypeError:
-        render_header_bar(project_name=project_label, version="v2.1.0")
+
+    col_hdr, col_theme, col_font = st.columns([3.4, 1.2, 1.2])
+    with col_hdr:
+        try:
+            render_header_bar(
+                project_name=project_label,
+                version="v2.1.0",
+                status_badge=active_badge
+            )
+        except TypeError:
+            render_header_bar(project_name=project_label, version="v2.1.0")
+
+    with col_theme:
+        theme_mode = st.segmented_control(
+            "Tema:",
+            options=["Svijetla", "Tamna"],
+            default=st.session_state.get("app_theme", "Svijetla"),
+            key="top_theme_ctrl",
+            label_visibility="collapsed"
+        ) or "Svijetla"
+        if theme_mode != st.session_state.get("app_theme"):
+            st.session_state["app_theme"] = theme_mode
+            st.rerun()
+
+    with col_font:
+        font_choice = st.segmented_control(
+            "Font:",
+            options=["Normal", "Veliki"],
+            default=st.session_state.get("app_font_scale", "Normal"),
+            key="top_font_ctrl",
+            label_visibility="collapsed"
+        ) or "Normal"
+        if font_choice != st.session_state.get("app_font_scale"):
+            st.session_state["app_font_scale"] = font_choice
+            st.rerun()
 
     # ── Landing State: Minimalist clean screen ────────────────
     if not has_data:
         render_landing_screen()
         c_l1, c_l2 = st.columns(2, gap="large")
         with c_l1:
-            st.markdown("<div style='margin-bottom: 8px; font-weight:600; color:#1E293B; font-size:14px;'>Ogledni inženjerski primjeri</div>", unsafe_allow_html=True)
+            lbl_c = "#F0F6FC" if is_dark else "#1E293B"
+            st.markdown(f"<div style='margin-bottom: 8px; font-weight:600; color:{lbl_c}; font-size:14px;'>Ogledni inženjerski primjeri</div>", unsafe_allow_html=True)
             if st.button("OŠ Strossmayer — Zidana zgrada + PDF elaborat", use_container_width=True, type="primary"):
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "strossmayer"
@@ -613,7 +615,8 @@ def main():
         elif sel_view == "Usporedno s nacrtom" and has_drawing:
             col_m, col_d = st.columns(2, gap="medium")
             with col_m:
-                st.markdown("<div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px;'>Numerički model (ETABS)</div>", unsafe_allow_html=True)
+                m_txt_c = "#F0F6FC" if is_dark else "#111827"
+                st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: {m_txt_c}; margin-bottom: 6px;'>Numerički model (ETABS)</div>", unsafe_allow_html=True)
                 st.plotly_chart(fig_2d(df_eval, etabs_data, active_story_name=active_story_name), use_container_width=True, config=cad_plot_cfg)
             with col_d:
                 render_drawing(uploaded_drawing, active_story_z=chosen_z, active_story_name=active_story_name, demo_sheet_map=demo_sheet_map)
@@ -632,21 +635,31 @@ def main():
         grade_num = score_data.get("grade", 1)
         grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
         pct_num = score_data.get("percentage", 0.0)
-        badge_colors = {5: "#16A34A", 4: "#2563EB", 3: "#D97706", 2: "#EA580C", 1: "#DC2626"}
-        bar_color = badge_colors.get(grade_num, "#6B7280")
+        badge_colors = {
+            5: "#3FB950" if is_dark else "#16A34A",
+            4: "#58A6FF" if is_dark else "#2563EB",
+            3: "#D29922" if is_dark else "#D97706",
+            2: "#DB6D28" if is_dark else "#EA580C",
+            1: "#F85149" if is_dark else "#DC2626"
+        }
+        bar_color = badge_colors.get(grade_num, "#8B949E" if is_dark else "#6B7280")
+        score_title_col = "#F0F6FC" if is_dark else "#111827"
+        score_sub_col = "#8B949E" if is_dark else "#6B7280"
+        score_bdr_col = "#30363D" if is_dark else "#E5E7EB"
+        score_trk_col = "#21262D" if is_dark else "#E2E8F0"
 
         st.markdown(f"""
-        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #E5E7EB; padding-bottom: 10px; margin-bottom: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid {score_bdr_col}; padding-bottom: 10px; margin-bottom: 8px;">
           <div>
-            <span style="font-size: 16px; font-weight: 600; color: #111827;">Ocjena: {grade_num} — {grade_simple}</span>
-            <span style="color: #6B7280; font-size: 13px; margin-left: 12px;">{pct_num} / 100 bodova</span>
-            <span style="color: #9CA3AF; font-size: 12px; margin-left: 12px;">{score_data.get('grade_label', '')}</span>
+            <span style="font-size: 16px; font-weight: 600; color: {score_title_col};">Ocjena: {grade_num} — {grade_simple}</span>
+            <span style="color: {score_sub_col}; font-size: 13px; margin-left: 12px;">{pct_num} / 100 bodova</span>
+            <span style="color: {score_sub_col}; font-size: 12px; margin-left: 12px;">{score_data.get('grade_label', '')}</span>
           </div>
-          <div class="mono" style="color: #6B7280; font-size: 12px;">
+          <div class="mono" style="color: {score_sub_col}; font-size: 12px;">
             {len(audit_results)} točaka provjereno
           </div>
         </div>
-        <div style="background:#E2E8F0; border-radius:3px; height:5px; width:100%; margin-bottom:14px; overflow:hidden;">
+        <div style="background:{score_trk_col}; border-radius:3px; height:5px; width:100%; margin-bottom:14px; overflow:hidden;">
           <div style="background:{bar_color}; width:{min(max(pct_num, 0), 100)}%; height:100%; border-radius:3px;"></div>
         </div>
         """, unsafe_allow_html=True)
@@ -656,15 +669,18 @@ def main():
             for alert in sanity_alerts:
                 sev = alert.get("severity", "WARNING")
                 if sev == "ERROR":
-                    bg, bc = "#FEF2F2", "#DC2626"
+                    bg = "rgba(248, 81, 73, 0.15)" if is_dark else "#FEF2F2"
+                    bc = "#F85149" if is_dark else "#DC2626"
                     prefix = "Greška"
                 else:
-                    bg, bc = "#FFFBEB", "#D97706"
+                    bg = "rgba(210, 153, 34, 0.15)" if is_dark else "#FFFBEB"
+                    bc = "#D29922" if is_dark else "#D97706"
                     prefix = "Upozorenje"
+                txt_c = "#F0F6FC" if is_dark else "#374151"
                 st.markdown(
                     f'<div style="background:{bg}; border-left:3px solid {bc};'
                     f'border-radius:0 4px 4px 0; padding:8px 12px;'
-                    f'margin-bottom:6px; font-size:12px;">'
+                    f'margin-bottom:6px; font-size:12px; color:{txt_c};">'
                     f'<strong style="color:{bc};">{prefix} · '
                     f'{alert.get("category","")}</strong> — '
                     f'{alert.get("issue","")}</div>',
@@ -687,16 +703,23 @@ def main():
         cols = st.columns(4)
         for col, (label, tnum, item, hint) in zip(cols, card_data):
             finding_short = item["finding"][:60] + "..." if item else "—"
-            status_color = "#16A34A" if (item and item["status"] == "PASS") else                            "#D97706" if (item and item["status"] == "WARNING") else                            "#DC2626" if (item and item["status"] == "FAIL") else "#6B7280"
+            status_color = ("#3FB950" if is_dark else "#16A34A") if (item and item["status"] == "PASS") else \
+                           ("#D29922" if is_dark else "#D97706") if (item and item["status"] == "WARNING") else \
+                           ("#F85149" if is_dark else "#DC2626") if (item and item["status"] == "FAIL") else \
+                           ("#8B949E" if is_dark else "#6B7280")
+            card_bg = "#161B22" if is_dark else "#FAFAFA"
+            card_bdr = "#30363D" if is_dark else "#E5E7EB"
+            card_lbl = "#8B949E" if is_dark else "#6B7280"
+            card_val = "#F0F6FC" if is_dark else "#111827"
             col.markdown(f"""
-            <div style="border:1px solid #E5E7EB; border-left:3px solid {status_color};
-                 border-radius:4px; padding:10px 12px; background:#FAFAFA;">
-              <div style="font-size:10px; font-weight:700; color:#6B7280;
+            <div style="border:1px solid {card_bdr}; border-left:3px solid {status_color};
+                 border-radius:4px; padding:10px 12px; background:{card_bg};">
+              <div style="font-size:10px; font-weight:700; color:{card_lbl};
                    text-transform:uppercase; letter-spacing:0.05em;">
                    {tnum} · {label}</div>
-              <div style="font-size:12px; color:#111827; margin:4px 0;
+              <div style="font-size:12px; color:{card_val}; margin:4px 0;
                    line-height:1.4;">{finding_short}</div>
-              <div style="font-size:10px; color:{status_color};">{hint}</div>
+              <div style="font-size:10px; color:{status_color}; font-weight:600;">{hint}</div>
             </div>""", unsafe_allow_html=True)
 
         # Task 4: Faza 2 Dashboard
@@ -847,9 +870,10 @@ def main():
 
         # Task 6: Triage details with st.expander
         if attention_items:
-            st.markdown(f"<div style='font-size: 14px; font-weight: 600; color: #111827; margin: 12px 0 8px 0;'>Zahtijeva pažnju ({len(attention_items)})</div>", unsafe_allow_html=True)
+            att_title_c = "#F0F6FC" if is_dark else "#111827"
+            st.markdown(f"<div style='font-size: 14px; font-weight: 600; color: {att_title_c}; margin: 12px 0 8px 0;'>Zahtijeva pažnju ({len(attention_items)})</div>", unsafe_allow_html=True)
             for item in attention_items:
-                border_col = "#DC2626" if item["status"] == "FAIL" else "#D97706"
+                border_col = "#F85149" if (is_dark and item["status"] == "FAIL") else "#DC2626" if item["status"] == "FAIL" else "#D29922" if is_dark else "#D97706"
                 with st.expander(
                     f"{'✗' if item['status'] == 'FAIL' else '⚠'} "
                     f"T{item['num']} · {item['title']}",
@@ -863,23 +887,26 @@ def main():
                     if item.get("recommendation"):
                         st.info(f"Uputa za ispravak: {item['recommendation']}")
         elif "Usklađene" not in flt_status:
-            st.markdown("<div style='color: #16A34A; font-weight: 600; margin: 12px 0;'>✓ Nema uočenih grešaka ni upozorenja u modelu.</div>", unsafe_allow_html=True)
+            pass_c = "#3FB950" if is_dark else "#16A34A"
+            st.markdown(f"<div style='color: {pass_c}; font-weight: 600; margin: 12px 0;'>✓ Nema uočenih grešaka ni upozorenja u modelu.</div>", unsafe_allow_html=True)
 
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
         with st.expander(f"Zadovoljava ({len(pass_items)})", expanded=False):
+            mut_c = "#8B949E" if is_dark else "#6B7280"
             for item in pass_items:
                 st.markdown(
                     f"✓ **T{item['num']}** {item['title']} — "
-                    f"<span style='color:#6B7280'>{item['finding'][:80]}</span>",
+                    f"<span style='color:{mut_c}'>{item['finding'][:80]}</span>",
                     unsafe_allow_html=True
                 )
 
         with st.expander(f"Info / ne primjenjuje se ({len(info_items)})", expanded=False):
+            info_mut_c = "#8B949E" if is_dark else "#9CA3AF"
             for item in info_items:
                 st.markdown(
                     f"○ **T{item['num']}** {item['title']} — "
-                    f"<span style='color:#9CA3AF'>{item['finding'][:80]}</span>",
+                    f"<span style='color:{info_mut_c}'>{item['finding'][:80]}</span>",
                     unsafe_allow_html=True
                 )
 
@@ -922,21 +949,27 @@ def main():
                 n_et  = len(dfd[dfd["status"] == Status.ETABS_ONLY])
                 n_dx  = len(dfd[dfd["status"] == Status.DXF_ONLY])
                 pct   = round(100 * n_ok / total_el) if total_el else 0
+                tot_c = "#F0F6FC" if is_dark else "#111827"
+                ok_c = "#3FB950" if is_dark else "#16A34A"
+                mis_c = "#D29922" if is_dark else "#D97706"
+                et_c = "#F85149" if is_dark else "#DC2626"
+                dx_c = "#58A6FF" if is_dark else "#2563EB"
+                mut_c = "#8B949E" if is_dark else "#6B7280"
                 st.markdown(
-                    f'<div style="font-size:12px; color:#6B7280;'
+                    f'<div style="font-size:12px; color:{mut_c};'
                     f'margin-bottom:10px;">'
-                    f'<span style="color:#111827; font-weight:600;">'
+                    f'<span style="color:{tot_c}; font-weight:600;">'
                     f'{total_el} elemenata</span>'
                     f'&nbsp;·&nbsp;'
-                    f'<span style="color:#16A34A;">{n_ok} usklađeno</span>'
+                    f'<span style="color:{ok_c};">{n_ok} usklađeno</span>'
                     f'&nbsp;·&nbsp;'
-                    f'<span style="color:#D97706;">{n_mis} odstupanje</span>'
+                    f'<span style="color:{mis_c};">{n_mis} odstupanje</span>'
                     f'&nbsp;·&nbsp;'
-                    f'<span style="color:#DC2626;">{n_et} samo ETABS</span>'
+                    f'<span style="color:{et_c};">{n_et} samo ETABS</span>'
                     f'&nbsp;·&nbsp;'
-                    f'<span style="color:#2563EB;">{n_dx} samo nacrt</span>'
+                    f'<span style="color:{dx_c};">{n_dx} samo nacrt</span>'
                     f'&nbsp;·&nbsp;'
-                    f'<strong style="color:#111827;">{pct}% usklađeno</strong>'
+                    f'<strong style="color:{tot_c};">{pct}% usklađeno</strong>'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -1155,12 +1188,14 @@ def main():
 
             meta_col1, meta_col2 = st.columns([2, 3])
             with meta_col1:
+                tbl_txt = "#F0F6FC" if is_dark else "#374151"
+                tbl_lbl = "#8B949E" if is_dark else "#6B7280"
                 st.markdown(f"""
-                <table style="width: 100%; font-size: 13px; color: #374151; border-collapse: collapse;">
-                  <tr><td style="padding: 4px 0; color: #6B7280; width: 80px;">Projekt:</td><td style="font-weight: 600;">{project_label or "—"}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #6B7280;">Model:</td><td class="mono">{_model_filename}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #6B7280;">Datum:</td><td>{date_str}</td></tr>
-                  <tr><td style="padding: 4px 0; color: #6B7280;">Ocjena:</td><td style="font-weight: 600;">{grade_num} — {grade_simple} ({score_data['percentage']}%)</td></tr>
+                <table style="width: 100%; font-size: 13px; color: {tbl_txt}; border-collapse: collapse;">
+                  <tr><td style="padding: 4px 0; color: {tbl_lbl}; width: 80px;">Projekt:</td><td style="font-weight: 600;">{project_label or "—"}</td></tr>
+                  <tr><td style="padding: 4px 0; color: {tbl_lbl};">Model:</td><td class="mono">{_model_filename}</td></tr>
+                  <tr><td style="padding: 4px 0; color: {tbl_lbl};">Datum:</td><td>{date_str}</td></tr>
+                  <tr><td style="padding: 4px 0; color: {tbl_lbl};">Ocjena:</td><td style="font-weight: 600;">{grade_num} — {grade_simple} ({score_data['percentage']}%)</td></tr>
                 </table>
                 """, unsafe_allow_html=True)
 
@@ -1241,7 +1276,7 @@ def main():
                     )
 
             with meta_col2:
-                st.markdown("<div style='font-size: 12px; font-weight: 600; color: #6B7280; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size: 12px; font-weight: 600; color: {tbl_lbl}; margin-bottom: 6px;'>Pretpregled izvještaja</div>", unsafe_allow_html=True)
                 st.components.v1.html(html_code, height=480, scrolling=True)
 
             # Task 8: Expander with engineering instructions

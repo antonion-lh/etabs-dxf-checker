@@ -69,7 +69,9 @@ def render_drawing(
                     st.session_state["active_pdf_page"] = target_pg
                     st.session_state["_last_synced_story"] = active_story_name
 
-            st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: #111827; margin-bottom: 6px;'>Nacrt: {file_name} ({num_pages} str.)</div>", unsafe_allow_html=True)
+            is_dark_doc = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
+            doc_title_col = "#F0F6FC" if is_dark_doc else "#111827"
+            st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: {doc_title_col}; margin-bottom: 6px;'>Nacrt: {file_name} ({num_pages} str.)</div>", unsafe_allow_html=True)
 
             # Quick navigation bar
             ctrl1, ctrl2, ctrl3 = st.columns([2.4, 1.2, 1.4])
@@ -635,14 +637,14 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
         if s_disp and s_disp.lower() in ("base", "podnozje", "podnožje"):
             s_disp = "Prizemlje"
 
-    bg_col = "#0B0F19" if is_dark else "#ffffff"
-    title_col = "#F8FAFC" if is_dark else "#0f172a"
-    grid_col = "#1E293B" if is_dark else "#f1f5f9"
-    zero_col = "#334155" if is_dark else "#cbd5e1"
-    tick_col = "#94A3B8" if is_dark else "#64748b"
-    leg_bg = "rgba(19, 27, 46, 0.92)" if is_dark else "rgba(255,255,255,0.9)"
-    leg_border = "#334155" if is_dark else "#e2e8f0"
-    leg_text = "#E2E8F0" if is_dark else "#334155"
+    bg_col = "#0D1117" if is_dark else "#ffffff"
+    title_col = "#F0F6FC" if is_dark else "#0f172a"
+    grid_col = "#21262D" if is_dark else "#f1f5f9"
+    zero_col = "#30363D" if is_dark else "#cbd5e1"
+    tick_col = "#8B949E" if is_dark else "#64748b"
+    leg_bg = "rgba(22, 27, 34, 0.95)" if is_dark else "rgba(255,255,255,0.9)"
+    leg_border = "#30363D" if is_dark else "#e2e8f0"
+    leg_text = "#F0F6FC" if is_dark else "#334155"
 
     fig.update_layout(
         title=dict(
@@ -946,7 +948,7 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
             ))
 
     is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
-    fig_bg = "#0B0F19" if is_dark else "#ffffff"
+    fig_bg = "#0D1117" if is_dark else "#ffffff"
 
     fig.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
