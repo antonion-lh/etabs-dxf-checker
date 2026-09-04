@@ -104,7 +104,20 @@ def _match_type(
     element_type: str,
 ) -> pd.DataFrame:
     """
-    Match one element type. Returns a DataFrame of results for that type.
+    Match one element type using story-aware, unique (one-to-one) matching.
+
+    A DXF drawing shows a SINGLE floor plan, while the ETABS model contains all
+    stories. Matching every ETABS element (all floors) against the DXF by X/Y
+    only causes double-counting: stacked columns on different floors all hit the
+    same DXF point.
+
+    Strategy:
+      1. Pick the ETABS story that best overlaps the DXF plan (reference_story).
+      2. Compare only that story against the DXF, greedily by smallest distance,
+         so each DXF point is claimed at most once (no double-counting).
+      3. Elements on other stories are reported as ETABS_ONLY with an
+         informative note that they belong to a different floor (not a false
+         mismatch).
     """
     results = []
 
@@ -118,43 +131,98 @@ def _match_type(
         dxf_xy = df_dxf[["centroid_x_m", "centroid_y_m"]].to_numpy(dtype=float)
         tree   = KDTree(dxf_xy)
 
-    # --- ETABS → DXF -------------------------------------------------------
-    if etabs_has:
-        for _, er in df_etabs.iterrows():
-            ex = _get_coord(er, "x_match", "centroid_x", "x_bot", "x", default=0.0)
-            ey = _get_coord(er, "y_match", "centroid_y", "y_bot", "y", default=0.0)
-
-            if tree is not None:
-                dist, idx = tree.query([ex, ey], k=1)
-            else:
-                dist, idx = float("inf"), -1
-
-            if dist <= tol and idx >= 0:
-                dxf_matched[idx] = True
-                dr = df_dxf.iloc[idx]
-
-                ew = er.get("width_mm") if er.get("width_mm") is not None else er.get("section_w_mm")
-                eh = er.get("height_mm") if er.get("height_mm") is not None else er.get("section_h_mm")
-                dw = dr.get("dim1_mm") if dr.get("dim1_mm") is not None else dr.get("width_mm")
-                dh = dr.get("dim2_mm") if dr.get("dim2_mm") is not None else dr.get("height_mm")
-
-                sec_ok = _dims_match(ew, eh, dw, dh, sec_tol)
-                status = Status.MATCH if sec_ok else Status.SECTION_MISMATCH
-
-                notes = ""
-                if not sec_ok:
-                    if None not in (ew, eh, dw, dh):
-                        notes = f"ETABS: {ew:.0f}×{eh:.0f} mm | DXF: {dw:.0f}×{dh:.0f} mm"
-                    else:
-                        notes = "Section dimension parse failed on one side"
-
-                results.append(_row(status, er, dr, dist, element_type, notes))
-            else:
-                near = f"{dist:.3f} m" if dist < float("inf") else "N/A"
+    # No ETABS elements: everything in DXF is DXF-only
+    if not etabs_has:
+        if dxf_has:
+            for i in range(len(df_dxf)):
+                dr = df_dxf.iloc[i]
                 results.append(_row(
-                    Status.ETABS_ONLY, er, None, dist, element_type,
-                    f"No DXF match within {tol} m (nearest: {near})"
+                    Status.DXF_ONLY, None, dr, None, element_type,
+                    "In DXF only — not found in ETABS model"
                 ))
+        return pd.DataFrame(results)
+
+    # Choose the ETABS story that best overlaps the DXF plan.
+    # Score each story by SECTION-level match quality (position + dimensions),
+    # not just X/Y proximity, so the floor whose sections truly match the
+    # drawing wins over a floor that merely shares column positions.
+    has_story = "story" in df_etabs.columns and df_etabs["story"].notna().any()
+    reference_story = None
+    if has_story and tree is not None:
+        story_scores: dict = {}
+        for story_val, grp in df_etabs.groupby("story"):
+            score = 0.0
+            for _, er in grp.iterrows():
+                ex = _get_coord(er, "x_match", "centroid_x", "x_bot", "x", default=0.0)
+                ey = _get_coord(er, "y_match", "centroid_y", "y_bot", "y", default=0.0)
+                d, idx = tree.query([ex, ey], k=1)
+                if d <= tol and idx >= 0:
+                    dr = df_dxf.iloc[int(idx)]
+                    ew = er.get("width_mm") if er.get("width_mm") is not None else er.get("section_w_mm")
+                    eh = er.get("height_mm") if er.get("height_mm") is not None else er.get("section_h_mm")
+                    dw = dr.get("dim1_mm") if dr.get("dim1_mm") is not None else dr.get("width_mm")
+                    dh = dr.get("dim2_mm") if dr.get("dim2_mm") is not None else dr.get("height_mm")
+                    # Full section match counts 1.0; position-only match counts 0.25
+                    score += 1.0 if _dims_match(ew, eh, dw, dh, sec_tol) else 0.25
+            story_scores[story_val] = score
+        if story_scores and max(story_scores.values()) > 0:
+            reference_story = max(story_scores, key=story_scores.get)
+
+    # ETABS → DXF: unique greedy matching on the reference story
+    candidates = []
+    other_story_rows = []
+    for _, er in df_etabs.iterrows():
+        ex = _get_coord(er, "x_match", "centroid_x", "x_bot", "x", default=0.0)
+        ey = _get_coord(er, "y_match", "centroid_y", "y_bot", "y", default=0.0)
+        er_story = er.get("story") if has_story else None
+
+        if tree is not None:
+            dist, idx = tree.query([ex, ey], k=1)
+        else:
+            dist, idx = float("inf"), -1
+
+        if reference_story is not None and er_story != reference_story:
+            other_story_rows.append(er)
+            continue
+        candidates.append((float(dist), er, int(idx)))
+
+    # Sort by distance so the closest ETABS element claims each DXF point first
+    candidates.sort(key=lambda c: c[0])
+    for dist, er, idx in candidates:
+        if dist <= tol and idx >= 0 and not dxf_matched[idx]:
+            dxf_matched[idx] = True
+            dr = df_dxf.iloc[idx]
+
+            ew = er.get("width_mm") if er.get("width_mm") is not None else er.get("section_w_mm")
+            eh = er.get("height_mm") if er.get("height_mm") is not None else er.get("section_h_mm")
+            dw = dr.get("dim1_mm") if dr.get("dim1_mm") is not None else dr.get("width_mm")
+            dh = dr.get("dim2_mm") if dr.get("dim2_mm") is not None else dr.get("height_mm")
+
+            sec_ok = _dims_match(ew, eh, dw, dh, sec_tol)
+            status = Status.MATCH if sec_ok else Status.SECTION_MISMATCH
+
+            notes = ""
+            if not sec_ok:
+                if None not in (ew, eh, dw, dh):
+                    notes = f"ETABS: {ew:.0f}×{eh:.0f} mm | DXF: {dw:.0f}×{dh:.0f} mm"
+                else:
+                    notes = "Section dimension parse failed on one side"
+
+            results.append(_row(status, er, dr, dist, element_type, notes))
+        else:
+            near = f"{dist:.3f} m" if dist < float("inf") else "N/A"
+            results.append(_row(
+                Status.ETABS_ONLY, er, None, dist, element_type,
+                f"Nema para na nacrtu unutar {tol} m (najbliži: {near})"
+            ))
+
+    # Elements from stories not shown on this DXF plan
+    for er in other_story_rows:
+        st_name = er.get("story", "")
+        results.append(_row(
+            Status.ETABS_ONLY, er, None, None, element_type,
+            f"Element etaže '{st_name}' — nacrt prikazuje etažu '{reference_story}'"
+        ))
 
     # --- DXF-only ----------------------------------------------------------
     if dxf_has:
