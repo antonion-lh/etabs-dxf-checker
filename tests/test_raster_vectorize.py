@@ -458,3 +458,46 @@ def test_vectorize_corrupt_pdf():
     assert res["ok"] is False
     assert res["warning"] is not None
     assert res["n_segments"] == 0
+
+
+def _multipage_pdf_bytes():
+    """3-stranicni PDF: str0 prazna, str1 s debelim okvirom zidova, str2 prazna."""
+    import fitz
+    doc = fitz.open()
+    doc.new_page(width=300, height=300)               # str0: prazna
+    p1 = doc.new_page(width=400, height=400)          # str1: zidovi
+    p1.draw_rect(fitz.Rect(50, 50, 350, 58), fill=(0, 0, 0), color=(0, 0, 0))
+    p1.draw_rect(fitz.Rect(50, 342, 350, 350), fill=(0, 0, 0), color=(0, 0, 0))
+    p1.draw_rect(fitz.Rect(50, 50, 58, 350), fill=(0, 0, 0), color=(0, 0, 0))
+    p1.draw_rect(fitz.Rect(342, 50, 350, 350), fill=(0, 0, 0), color=(0, 0, 0))
+    doc.new_page(width=300, height=300)               # str2: prazna
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_pdf_page_count():
+    data = _multipage_pdf_bytes()
+    assert r.pdf_page_count(data) == 3
+    assert r.pdf_page_count(b"x") == 0           # nije PDF
+    assert r.pdf_page_count(b"") == 0            # prazno
+
+
+def test_vectorize_page_selection():
+    data = _multipage_pdf_bytes()
+    # str0 je prazna -> nema linija
+    res0 = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50), page=0)
+    assert res0["n_segments"] == 0
+    assert res0["page"] == 0
+    # str1 ima debele zidove -> detektirano vise linija
+    res1 = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50), page=1)
+    assert res1["n_segments"] >= 1
+    assert res1["page"] == 1
+
+
+def test_vectorize_thick_walls_survive():
+    """Regresija: debeli zid (vise paralelnih linija) NE smije biti obrisan kao
+    'gusti paralelni sum' u reduce_noise."""
+    data = _multipage_pdf_bytes()
+    res = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50), page=1)
+    assert res["n_segments"] >= 4  # bar 4 strane okvira

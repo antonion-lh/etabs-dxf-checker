@@ -388,9 +388,15 @@ def reduce_noise(
         blo, bhi = (by0, by1) if by0 <= by1 else (by1, by0)
         return min(ahi, bhi) >= max(alo, blo)
 
+    # Gusti-paralelni filtar (stubiste/srafura) primjenjuje se SAMO na KRATKE
+    # segmente. Dugi segmenti su gotovo sigurno zidne linije (ili debljina zida
+    # razlozena na vise paralelnih linija) pa ih se NE smije brisati kao sum.
+    dense_len_max = float(min_len_px) * 4.0
     horizontals = []  # type: List[Segment]
     verticals = []    # type: List[Segment]
     for s in long_segs:
+        if _seg_len(s) >= dense_len_max:
+            continue  # dugacki segment - imun na gusti filtar
         (x0, y0), (x1, y1) = s
         if y0 == y1:
             horizontals.append(s)
@@ -487,10 +493,29 @@ def _make_overlay(gray: "np.ndarray", segments: List[Segment]) -> bytes:
     return buf.getvalue()
 
 
+def pdf_page_count(raw_bytes: bytes) -> int:
+    """Vraca broj stranica PDF-a; 0 ako ulaz nije citljiv PDF."""
+    if not raw_bytes:
+        return 0
+    try:
+        import fitz  # lazy import
+    except Exception:
+        return 0
+    try:
+        doc = fitz.open(stream=raw_bytes, filetype="pdf")
+    except Exception:
+        return 0
+    try:
+        return len(doc)
+    finally:
+        doc.close()
+
+
 def vectorize_floorplan(
     raw_bytes: bytes,
     filename: str,
     params: Optional[Params] = None,
+    page: int = 0,
 ) -> Dict[str, Any]:
     """Orkestrira cijeli tok vektorizacije od ulaza do rezultata.
 
@@ -525,6 +550,7 @@ def vectorize_floorplan(
             ),
             "overlay_png": None,
             "n_segments": 0,
+            "page": page,
             "ok": ok,
             "warning": warning,
         }
@@ -539,7 +565,7 @@ def vectorize_floorplan(
         gray = rasterize_input(
             raw_bytes,
             filename,
-            page=0,
+            page=page,
             dpi_cap=params.dpi_cap,
             max_side_px=params.max_side_px,
         )
@@ -549,13 +575,16 @@ def vectorize_floorplan(
     binary = binarize(gray, params.threshold)
     clean = denoise(binary, params.denoise_iters)
 
+    # Detekcija PRIMARNO na neociscenom binary: morfolosko denoise (3x3 opening)
+    # je destruktivno za tanke CAD linije (1-2 px) pa bi na clean izgubili
+    # vecinu zidova. Denoise (clean) sluzi samo kao rezervni izvor ako binary
+    # da premalo segmenata (npr. jako sumovita slika gdje binary "eksplodira").
     raw_segments = detect_line_segments(
-        clean, params.min_len_px, params.angle_tol_deg
+        binary, params.min_len_px, params.angle_tol_deg
     )
     if not raw_segments:
-        # Fallback: denoise je vjerojatno pojeo pretanke linije -> koristi binary.
         raw_segments = detect_line_segments(
-            binary, params.min_len_px, params.angle_tol_deg
+            clean, params.min_len_px, params.angle_tol_deg
         )
 
     merged = merge_collinear(raw_segments, params.max_gap_px, params.angle_tol_deg)
@@ -584,6 +613,7 @@ def vectorize_floorplan(
         "dxf_bytes": dxf_bytes,
         "overlay_png": overlay_png,
         "n_segments": len(segments),
+        "page": page,
         "ok": True,
         "warning": warning,
     }

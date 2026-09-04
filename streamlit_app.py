@@ -125,11 +125,16 @@ def _cached_validate_pdf(_etabs_data: dict, pdf_bytes: bytes, _cfg: Config):
 def _cached_pdf_has_dims(pdf_bytes: bytes) -> bool:
     return pdf_has_dimension_text(pdf_bytes)
 
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_pdf_pages(pdf_bytes: bytes) -> int:
+    from raster_vectorize import pdf_page_count
+    return pdf_page_count(pdf_bytes)
+
 @st.cache_data(show_spinner=False, max_entries=6)
-def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int):
+def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int, page: int = 0):
     from raster_vectorize import vectorize_floorplan, Params
     params = Params(threshold=threshold, min_len_px=min_len_px, max_gap_px=max_gap_px, denoise_iters=denoise_iters, dpi_cap=dpi_cap)
-    return vectorize_floorplan(pdf_or_img_bytes, filename, params)
+    return vectorize_floorplan(pdf_or_img_bytes, filename, params, page=page)
 
 @st.cache_data(show_spinner=False)
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
@@ -1450,6 +1455,23 @@ def main():
             key="vektor_upload",
         )
 
+        # Odabir stranice za visestranicne PDF-ove: tlocrti su cesto na kasnijim
+        # stranicama, pa je hardkodirana prva stranica bila pogresna.
+        _page = 0
+        _raw = _vf.getvalue() if _vf is not None else None
+        if _vf is not None and _vf.name.lower().endswith(".pdf"):
+            _npages = _cached_pdf_pages(_raw)
+            if _npages > 1:
+                st.caption(
+                    f"PDF ima {_npages} stranica. Tlocrti su obično na kasnijim "
+                    f"stranicama — odaberite stranicu na kojoj je tlocrt."
+                )
+                _page = int(st.number_input(
+                    "Stranica PDF-a (za vektorizaciju)",
+                    min_value=1, max_value=_npages, value=1, step=1,
+                    key="vektor_page",
+                )) - 1
+
         with st.expander("Parametri detekcije", expanded=False):
             _auto_thr = st.checkbox("Automatski prag (Otsu)", value=True, key="vektor_auto_thr")
             if _auto_thr:
@@ -1467,9 +1489,8 @@ def main():
 
         if _vf is not None:
             try:
-                _raw = _vf.getvalue()
                 _res = _cached_vectorize(
-                    _raw, _vf.name, _threshold, _min_len_px, _max_gap_px, _denoise_iters, _dpi_cap
+                    _raw, _vf.name, _threshold, _min_len_px, _max_gap_px, _denoise_iters, _dpi_cap, _page
                 )
             except Exception as _e:
                 _res = None
@@ -1492,18 +1513,26 @@ def main():
                     if _res.get("overlay_png") is not None:
                         st.image(_res["overlay_png"], caption="Detektirane linije", use_container_width=True)
 
+                st.markdown("---")
+                st.markdown(
+                    "**Kako dalje (uređivanje se radi u CAD-u, ne u ovoj aplikaciji):**\n"
+                    "1. Preuzmite DXF pritiskom na gumb ispod.\n"
+                    "2. Otvorite ga u CAD programu (AutoCAD, DraftSight, LibreCAD i sl.).\n"
+                    "3. Ondje ispravite i zatvorite linije zidova u konačni tlocrt.\n\n"
+                    "Ova aplikacija služi samo za **pregled i izvoz** — prikaz gore je "
+                    "samo kontrolni pregled detekcije, a ne uređivač."
+                )
                 if _res.get("dxf_bytes"):
                     st.download_button(
-                        "Preuzmi DXF",
+                        "Preuzmi DXF (za uređivanje u CAD-u)",
                         data=_res["dxf_bytes"],
                         file_name="vektorizirani_tlocrt.dxf",
                         mime="application/dxf",
                         key="vektor_dxf_dl",
                     )
                 st.caption(
-                    "DXF sadrži detektirane linije na sloju **VEKTOR_ZID**. Linije treba "
-                    "dovršiti i zatvoriti u CAD-u. Automatska usporedba s ETABS modelom nije "
-                    "dio ovog koraka."
+                    "DXF sadrži detektirane linije na sloju **VEKTOR_ZID**. Automatska "
+                    "usporedba s ETABS modelom nije dio ovog koraka."
                 )
         else:
             st.info("Učitaj skenirani tlocrt (PDF/PNG/JPG) za pokretanje vektorizacije.")
