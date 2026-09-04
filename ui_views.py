@@ -51,56 +51,85 @@ def render_drawing(
                 st.warning("Priloženi PDF dokument ne sadrži stranice.")
                 return
 
-            if "active_pdf_page" not in st.session_state:
+            if st.session_state.get("_active_pdf_filename") != file_name:
+                st.session_state["_active_pdf_filename"] = file_name
                 st.session_state["active_pdf_page"] = 1
+                st.session_state["_last_synced_story"] = None
+
+            page_labels_dict = {}
+            toc = doc.get_toc()
+            toc_dict = {item[2]: item[1] for item in toc if len(item) >= 3} if toc else {}
+
+            for p in range(1, num_pages + 1):
+                if demo_sheet_map and p in demo_sheet_map:
+                    lbl = demo_sheet_map[p].replace("📄 ", "").replace("📐 ", "").strip()
+                    if not lbl.lower().startswith("str"):
+                        lbl = f"Str. {p}: {lbl}"
+                    page_labels_dict[p] = lbl
+                elif p in toc_dict and str(toc_dict[p]).strip():
+                    page_labels_dict[p] = f"Str. {p}: {str(toc_dict[p]).strip()}"
+                else:
+                    page_labels_dict[p] = f"Stranica {p} od {num_pages}"
 
             if active_story_name and st.session_state.get("_last_synced_story") != active_story_name:
-                s_lower = str(active_story_name).lower()
+                st.session_state["_last_synced_story"] = active_story_name
+                s_lower = str(active_story_name).lower().strip()
                 target_pg = None
-                if demo_sheet_map:
+
+                stross_story_map = {
+                    "story1": 14,
+                    "story2": 15,
+                    "story3": 16,
+                    "story4": 17,
+                }
+                if demo_sheet_map and s_lower in stross_story_map and stross_story_map[s_lower] <= num_pages:
+                    target_pg = stross_story_map[s_lower]
+                elif demo_sheet_map:
                     for p_num, p_title in demo_sheet_map.items():
-                        if "priz" in s_lower and "priz" in p_title.lower():
+                        t_low = p_title.lower()
+                        if "priz" in s_lower and "priz" in t_low:
                             target_pg = p_num
                             break
-                        elif ("1" in s_lower or "prvi" in s_lower) and ("1" in p_title or "i. kat" in p_title.lower()):
+                        elif ("1" in s_lower or "prvi" in s_lower) and ("1. kat" in t_low or "i. kat" in t_low):
                             target_pg = p_num
                             break
-                        elif ("2" in s_lower or "drugi" in s_lower) and ("2" in p_title or "ii. kat" in p_title.lower()):
+                        elif ("2" in s_lower or "drugi" in s_lower) and ("2. kat" in t_low or "ii. kat" in t_low):
                             target_pg = p_num
                             break
-                if target_pg:
+                        elif ("3" in s_lower or "treci" in s_lower) and ("3. kat" in t_low or "iii. kat" in t_low):
+                            target_pg = p_num
+                            break
+                        elif "krov" in s_lower and "krov" in t_low:
+                            target_pg = p_num
+                            break
+                elif toc_dict:
+                    for p_num, p_title in toc_dict.items():
+                        t_low = str(p_title).lower()
+                        if s_lower in t_low or any(w in t_low for w in s_lower.split() if len(w) > 3):
+                            target_pg = p_num
+                            break
+
+                if target_pg and 1 <= target_pg <= num_pages:
                     st.session_state["active_pdf_page"] = target_pg
-                    st.session_state["_last_synced_story"] = active_story_name
+
+            cur_page = st.session_state.get("active_pdf_page", 1)
+            if not isinstance(cur_page, int) or cur_page < 1 or cur_page > num_pages:
+                st.session_state["active_pdf_page"] = 1
 
             is_dark_doc = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
             doc_title_col = "#F0F6FC" if is_dark_doc else "#111827"
             st.markdown(f"<div style='font-size: 13px; font-weight: 600; color: {doc_title_col}; margin-bottom: 6px;'>Nacrt: {file_name} ({num_pages} str.)</div>", unsafe_allow_html=True)
 
             # Quick navigation bar
-            ctrl1, ctrl2, ctrl3 = st.columns([2.4, 1.2, 1.4])
+            ctrl1, ctrl2, ctrl3 = st.columns([2.5, 1.1, 1.4])
             with ctrl1:
-                page_labels = []
-                toc = doc.get_toc()
-                toc_dict = {item[2]: item[1] for item in toc if len(item) >= 3} if toc else {}
-
-                for p in range(1, num_pages + 1):
-                    if demo_sheet_map and p in demo_sheet_map:
-                        clean_title = demo_sheet_map[p].replace("📄 ", "").replace("📐 ", "")
-                        page_labels.append(clean_title)
-                    elif p in toc_dict:
-                        page_labels.append(f"Str. {p}: {toc_dict[p]}")
-                    else:
-                        page_labels.append(f"Stranica {p} od {num_pages}")
-
-                cur_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
-                chosen_opt = st.selectbox(
+                st.selectbox(
                     "Odabir stranice nacrta:",
-                    page_labels,
-                    index=cur_idx,
-                    key="pdf_sheet_dropdown",
+                    options=list(range(1, num_pages + 1)),
+                    format_func=lambda p: page_labels_dict.get(p, f"Stranica {p} od {num_pages}"),
+                    key="active_pdf_page",
                     label_visibility="collapsed"
                 )
-                st.session_state["active_pdf_page"] = page_labels.index(chosen_opt) + 1
 
             with ctrl2:
                 dpi_choice = st.selectbox("Oštrina:", ["120 DPI", "160 DPI", "200 DPI"], index=1, key="pdf_dpi_opt", label_visibility="collapsed")
@@ -117,22 +146,27 @@ def render_drawing(
                 )
 
             if num_pages > 1:
-                np_col1, np_col2 = st.columns(2)
-                with np_col1:
-                    if st.button("◀ Prethodna", key="btn_pdf_prev", use_container_width=True, disabled=(st.session_state["active_pdf_page"] <= 1)):
-                        st.session_state["active_pdf_page"] = max(1, st.session_state["active_pdf_page"] - 1)
-                        st.rerun()
-                with np_col2:
-                    if st.button("Sljedeća ▶", key="btn_pdf_next", use_container_width=True, disabled=(st.session_state["active_pdf_page"] >= num_pages)):
-                        st.session_state["active_pdf_page"] = min(num_pages, st.session_state["active_pdf_page"] + 1)
-                        st.rerun()
+                def _prev_pdf_page():
+                    c = int(st.session_state.get("active_pdf_page", 1))
+                    st.session_state["active_pdf_page"] = max(1, c - 1)
 
-            sel_page_idx = min(max(st.session_state["active_pdf_page"] - 1, 0), num_pages - 1)
+                def _next_pdf_page():
+                    c = int(st.session_state.get("active_pdf_page", 1))
+                    st.session_state["active_pdf_page"] = min(num_pages, c + 1)
+
+                np_col1, np_col2 = st.columns(2)
+                cur_p = int(st.session_state.get("active_pdf_page", 1))
+                with np_col1:
+                    st.button("◀ Prethodna", key="btn_pdf_prev", use_container_width=True, disabled=(cur_p <= 1), on_click=_prev_pdf_page)
+                with np_col2:
+                    st.button("Sljedeća ▶", key="btn_pdf_next", use_container_width=True, disabled=(cur_p >= num_pages), on_click=_next_pdf_page)
+
+            sel_page_idx = min(max(int(st.session_state.get("active_pdf_page", 1)) - 1, 0), num_pages - 1)
             page = doc[sel_page_idx]
             pix = page.get_pixmap(dpi=dpi_val, alpha=False)
             img_bytes = pix.tobytes("png")
 
-            caption_txt = page_labels[sel_page_idx] if sel_page_idx < len(page_labels) else f"Stranica {sel_page_idx + 1}"
+            caption_txt = page_labels_dict.get(sel_page_idx + 1, f"Stranica {sel_page_idx + 1}")
             st.image(img_bytes, use_container_width=True, caption=f"{file_name} — {caption_txt}")
 
         else:

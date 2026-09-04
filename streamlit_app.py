@@ -367,6 +367,7 @@ def main():
         st.session_state.pop("tab1_view_pills", None)
         st.session_state.pop("active_pdf_page", None)
         st.session_state.pop("_last_synced_story", None)
+        st.session_state.pop("_active_pdf_filename", None)
         st.session_state.pop("audit_cat_filter", None)
         st.session_state.pop("audit_filter_status", None)
         st.session_state.pop("sub_elem_view", None)
