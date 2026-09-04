@@ -47,6 +47,9 @@ def render_drawing(
             import fitz  # PyMuPDF
             doc = fitz.open(stream=raw, filetype="pdf")
             num_pages = len(doc)
+            if num_pages == 0:
+                st.warning("Priloženi PDF dokument ne sadrži stranice.")
+                return
 
             if "active_pdf_page" not in st.session_state:
                 st.session_state["active_pdf_page"] = 1
@@ -165,7 +168,7 @@ def _classify_wall_opening(wx1, wy1, wx2, wy2, atype=""):
 _classify_wall_opening_st = _classify_wall_opening
 
 
-def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None) -> go.Figure:
+def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None, is_dark: bool = None) -> go.Figure:
     COLOR_MAP = {
         Status.MATCH:            ("#16A34A", "Usklađeno"),
         Status.SECTION_MISMATCH: ("#D97706", "Odstupanje presjeka"),
@@ -221,7 +224,8 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
 
     status_map = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
-    is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
+    if is_dark is None:
+        is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
 
     # 1. Background Slab Polygons
     if not slabs_all.empty or (max_x > min_x and max_y > min_y):
@@ -657,17 +661,16 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
         plot_bgcolor=bg_col,
         paper_bgcolor=bg_col,
         xaxis=dict(
-            title="X koordinata (m)",
+            title=dict(text="X koordinata (m)", font=dict(color=tick_col)),
             range=[min_x - pad_x, max_x + pad_x],
             showgrid=True,
             gridcolor=grid_col,
             zeroline=True,
             zerolinecolor=zero_col,
             tickfont=dict(size=11, color=tick_col),
-            titlefont=dict(color=tick_col),
         ),
         yaxis=dict(
-            title="Y koordinata (m)",
+            title=dict(text="Y koordinata (m)", font=dict(color=tick_col)),
             range=[min_y - pad_y, max_y + pad_y],
             scaleanchor="x",
             scaleratio=1,
@@ -676,7 +679,6 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
             zeroline=True,
             zerolinecolor=zero_col,
             tickfont=dict(size=11, color=tick_col),
-            titlefont=dict(color=tick_col),
         ),
         legend=dict(
             orientation="h",
@@ -693,7 +695,7 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
 # ─────────────────────────────────────────────────────────────
 # 3D Model: Fast segmented wireframe matching ETABS appearance
 # ─────────────────────────────────────────────────────────────
-def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True, active_story_name: str = None) -> go.Figure:
+def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True, active_story_name: str = None, is_dark: bool = None) -> go.Figure:
     fig = go.Figure()
 
     cols = etabs_data.get("columns", pd.DataFrame())
@@ -947,7 +949,8 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
                 hoverinfo="skip",
             ))
 
-    is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
+    if is_dark is None:
+        is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
     fig_bg = "#0D1117" if is_dark else "#ffffff"
 
     fig.update_layout(

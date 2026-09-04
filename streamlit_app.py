@@ -571,10 +571,13 @@ def main():
             if sel_story != "Sve etaže" and selected_story_data:
                 z_bot = selected_story_data.get("z_bottom", 0.0)
                 z_top = selected_story_data.get("z_top", 4.0)
+                z_bg = "#161B22" if is_dark else "#F9FAFB"
+                z_bdr = "#30363D" if is_dark else "#E5E7EB"
+                z_txt = "#8B949E" if is_dark else "#6B7280"
                 st.markdown(
-                    f"<div class='mono' style='font-size:11px; color:#6B7280;"
-                    f"padding:4px 8px; background:#F9FAFB; border:1px solid"
-                    f"#E5E7EB; border-radius:4px; display:inline-block; margin-top:2px;'>"
+                    f"<div class='mono' style='font-size:11px; color:{z_txt};"
+                    f"padding:4px 8px; background:{z_bg}; border:1px solid "
+                    f"{z_bdr}; border-radius:4px; display:inline-block; margin-top:2px;'>"
                     f"Z = {z_bot:.1f} – {z_top:.1f} m</div>",
                     unsafe_allow_html=True
                 )
@@ -1103,8 +1106,9 @@ def main():
                     from steel_catalog import lookup_steel_section
                     info = lookup_steel_section(st_query) if st_query else None
                     if info:
+                        st_txt_c = "#F0F6FC" if is_dark else "#111827"
                         st.markdown(
-                            f"<div style='font-size:13px; color:#111827; padding:4px 0;'>"
+                            f"<div style='font-size:13px; color:{st_txt_c}; padding:4px 0;'>"
                             f"<strong>Profil:</strong> <span class='mono'>{info['name']}</span> ({info.get('shape', 'profil')})<br>"
                             f"• Visina <em>h</em> = <strong>{info.get('height_mm', '-')} mm</strong> | "
                             f"Širina <em>b</em> = <strong>{info.get('width_mm', '-')} mm</strong><br>"
@@ -1165,7 +1169,8 @@ def main():
 
     # ── TAB 4: Izvještaj (Task 8) ──────────────────────────────
     with t_report:
-        st.markdown("<div style='font-size: 15px; font-weight: 600; color: #111827; margin-bottom: 12px;'>Revizijski elaborat</div>", unsafe_allow_html=True)
+        hdr_c = "#F0F6FC" if is_dark else "#111827"
+        st.markdown(f"<div style='font-size: 15px; font-weight: 600; color: {hdr_c}; margin-bottom: 12px;'>Revizijski elaborat</div>", unsafe_allow_html=True)
 
         if df_res is None or df_res.empty:
             st.info("Nema podataka za generiranje elaborata. Učitajte model ili odaberite demo projekt.")
