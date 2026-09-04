@@ -378,7 +378,7 @@ def main():
     is_dark = (st.session_state.get("app_theme") == "Tamna")
     active_badge = st.session_state.get("_header_badge") if has_data else None
 
-    col_hdr, col_theme, col_font = st.columns([3.4, 1.2, 1.2])
+    col_hdr, col_theme, col_font = st.columns([3.6, 0.85, 0.85])
     with col_hdr:
         try:
             render_header_bar(
@@ -412,6 +412,8 @@ def main():
         if font_choice != st.session_state.get("app_font_scale"):
             st.session_state["app_font_scale"] = font_choice
             st.rerun()
+
+    st.markdown("<div class='app-header-divider'></div>", unsafe_allow_html=True)
 
     # ── Landing State: Minimalist clean screen ────────────────
     if not has_data:

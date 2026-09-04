@@ -11,13 +11,20 @@ import pandas as pd
 
 MINIMAL_ENGINEERING_CSS = """
 <style>
-/* Base container: minimal padding */
+/* Base container: comfortable top padding so Streamlit's fixed navbar never overlaps */
 .block-container {
-    padding-top: 1.25rem !important;
+    padding-top: 4.25rem !important;
     padding-bottom: 2.5rem !important;
     padding-left: 2rem !important;
     padding-right: 2rem !important;
     max-width: 1440px;
+}
+
+/* Streamlit Header Navbar */
+[data-testid="stHeader"] {
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    backdrop-filter: blur(8px);
+    z-index: 99 !important;
 }
 
 /* Typography — standard system fonts */
@@ -59,9 +66,7 @@ h3 {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    border-bottom: 1px solid #E5E7EB;
-    padding-bottom: 10px;
-    margin-bottom: 16px;
+    padding-bottom: 6px;
 }
 .app-header-left {
     display: flex;
@@ -70,13 +75,20 @@ h3 {
 }
 .app-header-title {
     font-size: 16px;
-    font-weight: 600;
-    color: #111827;
+    font-weight: 700;
+    color: #0F172A;
     margin: 0;
+    letter-spacing: -0.01em;
 }
 .app-header-meta {
     font-size: 12px;
-    color: #6B7280;
+    color: #64748B;
+    font-weight: 500;
+}
+.app-header-divider {
+    border-bottom: 1px solid #E2E8F0;
+    margin-top: 4px;
+    margin-bottom: 18px;
 }
 
 /* Clean sidebar styling */
@@ -272,8 +284,61 @@ h3 {
     color: #111827 !important;
 }
 
-/* Segmented control: čvršći kontrast aktivnog */
+/* Segmented control / Button groups (Theme & Font controls): high contrast, tactile, fully visible */
+[data-testid="stButtonGroup"],
+[data-testid="stSegmentedControl"] {
+    display: inline-flex !important;
+    background-color: #F1F5F9 !important;
+    border: 1.5px solid #CBD5E1 !important;
+    border-radius: 7px !important;
+    padding: 2px !important;
+    gap: 2px !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+[data-testid="stButtonGroup"] button,
+[data-testid="stSegmentedControl"] button {
+    background-color: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 5px !important;
+    padding: 4px 10px !important;
+    min-height: 28px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stButtonGroup"] button p,
+[data-testid="stButtonGroup"] button span,
+[data-testid="stButtonGroup"] button div,
+[data-testid="stSegmentedControl"] button p,
+[data-testid="stSegmentedControl"] button span,
+[data-testid="stSegmentedControl"] button div {
+    color: #475569 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    line-height: 1.2 !important;
+}
+[data-testid="stButtonGroup"] button:hover,
+[data-testid="stSegmentedControl"] button:hover {
+    background-color: rgba(255, 255, 255, 0.75) !important;
+}
+[data-testid="stButtonGroup"] button:hover p,
+[data-testid="stButtonGroup"] button:hover span,
+[data-testid="stSegmentedControl"] button:hover p,
+[data-testid="stSegmentedControl"] button:hover span {
+    color: #0F172A !important;
+}
+[data-testid="stButtonGroup"] button[aria-checked="true"],
 [data-testid="stSegmentedControl"] button[aria-checked="true"] {
+    background-color: #FFFFFF !important;
+    border: 1px solid #94A3B8 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+}
+[data-testid="stButtonGroup"] button[aria-checked="true"] p,
+[data-testid="stButtonGroup"] button[aria-checked="true"] span,
+[data-testid="stButtonGroup"] button[aria-checked="true"] div,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] p,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] span,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] div {
+    color: #0F172A !important;
     font-weight: 700 !important;
 }
 
@@ -305,31 +370,46 @@ h3 {
 [data-testid="stBaseButton-primary"] {
     background-color: #0F172A !important;
     color: #FFFFFF !important;
-    border: 1px solid #0F172A !important;
+    border: 1.5px solid #0F172A !important;
     border-radius: 6px !important;
     font-weight: 600 !important;
     font-size: 13px !important;
     letter-spacing: -0.01em !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
     transition: all 0.15s ease !important;
 }
 [data-testid="stBaseButton-primary"]:hover {
     background-color: #1E293B !important;
     border-color: #1E293B !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
 }
+[data-testid="stBaseButton-primary"] p,
+[data-testid="stBaseButton-primary"] span,
+[data-testid="stBaseButton-primary"] div {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
 [data-testid="stBaseButton-secondary"] {
-    background-color: #FFFFFF !important;
-    color: #1E293B !important;
-    border: 1px solid #E2E8F0 !important;
+    background-color: #F8FAFC !important;
+    color: #0F172A !important;
+    border: 1.5px solid #94A3B8 !important;
     border-radius: 6px !important;
-    font-weight: 500 !important;
+    font-weight: 600 !important;
     font-size: 13px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
     transition: all 0.15s ease !important;
 }
 [data-testid="stBaseButton-secondary"]:hover {
-    background-color: #F8FAFC !important;
-    border-color: #CBD5E1 !important;
+    background-color: #EDF2F7 !important;
+    border-color: #475569 !important;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1) !important;
+}
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-secondary"] span,
+[data-testid="stBaseButton-secondary"] div {
     color: #0F172A !important;
+    font-weight: 600 !important;
 }
 
 /* Own model card on landing screen */
@@ -379,7 +459,7 @@ DARK_ENGINEERING_CSS = """
 }
 
 /* 1. Global app background & text */
-.stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+.stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"], [data-testid="stMain"], .main, section.main, [data-testid="stBottom"] {
     background-color: #0D1117 !important;
     color: #F0F6FC !important;
 }
@@ -393,7 +473,7 @@ h1, h2, h3, h4, h5, h6 {
     color: #F0F6FC !important;
 }
 p, span, label {
-    color: #C9D1D9 !important;
+    color: #C9D1D9;
 }
 .mono {
     font-family: "SF Mono", "Menlo", "Consolas", monospace !important;
@@ -422,14 +502,21 @@ p, span, label {
 }
 
 /* 3. Header Dark */
+[data-testid="stHeader"] {
+    background-color: rgba(13, 17, 23, 0.96) !important;
+    backdrop-filter: blur(8px);
+}
 .app-header {
-    border-bottom: 1px solid #30363D !important;
+    border-bottom: none !important;
 }
 .app-header-title {
     color: #F0F6FC !important;
 }
 .app-header-meta {
     color: #8B949E !important;
+}
+.app-header-divider {
+    border-bottom: 1px solid #30363D !important;
 }
 
 /* 4. Tabs Dark */
@@ -456,24 +543,61 @@ p, span, label {
     background-color: #30363D !important;
 }
 
-/* 5. Segmented Control Dark */
+/* 5. Segmented Control / Button Group Dark */
+[data-testid="stButtonGroup"],
 [data-testid="stSegmentedControl"] {
+    display: inline-flex !important;
     background-color: #161B22 !important;
-    border: 1px solid #30363D !important;
-    border-radius: 6px !important;
+    border: 1.5px solid #30363D !important;
+    border-radius: 7px !important;
+    padding: 2px !important;
+    gap: 2px !important;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25) !important;
 }
+[data-testid="stButtonGroup"] button,
 [data-testid="stSegmentedControl"] button {
-    color: #8B949E !important;
     background-color: transparent !important;
+    border: 1px solid transparent !important;
+    border-radius: 5px !important;
+    padding: 4px 10px !important;
+    min-height: 28px !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
 }
+[data-testid="stButtonGroup"] button p,
+[data-testid="stButtonGroup"] button span,
+[data-testid="stButtonGroup"] button div,
+[data-testid="stSegmentedControl"] button p,
+[data-testid="stSegmentedControl"] button span,
+[data-testid="stSegmentedControl"] button div {
+    color: #8B949E !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+}
+[data-testid="stButtonGroup"] button:hover,
 [data-testid="stSegmentedControl"] button:hover {
+    background-color: #21262D !important;
+}
+[data-testid="stButtonGroup"] button:hover p,
+[data-testid="stButtonGroup"] button:hover span,
+[data-testid="stSegmentedControl"] button:hover p,
+[data-testid="stSegmentedControl"] button:hover span {
     color: #F0F6FC !important;
 }
+[data-testid="stButtonGroup"] button[aria-checked="true"],
 [data-testid="stSegmentedControl"] button[aria-checked="true"] {
     background-color: #21262D !important;
+    border: 1px solid #388BFD !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+[data-testid="stButtonGroup"] button[aria-checked="true"] p,
+[data-testid="stButtonGroup"] button[aria-checked="true"] span,
+[data-testid="stButtonGroup"] button[aria-checked="true"] div,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] p,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] span,
+[data-testid="stSegmentedControl"] button[aria-checked="true"] div {
     color: #58A6FF !important;
-    border: 1px solid #30363D !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
 }
 
 /* 6. Inputs, Selectboxes, Dropdowns */
@@ -586,21 +710,37 @@ input:focus, textarea:focus {
 [data-testid="stBaseButton-primary"] {
     background-color: #1F6FEB !important;
     color: #FFFFFF !important;
-    border: 1px solid #1F6FEB !important;
+    border: 1.5px solid #1F6FEB !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
 }
 [data-testid="stBaseButton-primary"]:hover {
     background-color: #388BFD !important;
     border-color: #388BFD !important;
 }
+[data-testid="stBaseButton-primary"] p,
+[data-testid="stBaseButton-primary"] span,
+[data-testid="stBaseButton-primary"] div {
+    color: #FFFFFF !important;
+    font-weight: 600 !important;
+}
+
 [data-testid="stBaseButton-secondary"] {
     background-color: #21262D !important;
-    color: #C9D1D9 !important;
-    border: 1px solid #30363D !important;
+    color: #F0F6FC !important;
+    border: 1.5px solid #484F58 !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+    transition: all 0.15s ease !important;
 }
 [data-testid="stBaseButton-secondary"]:hover {
     background-color: #30363D !important;
-    border-color: #484F58 !important;
+    border-color: #58A6FF !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+[data-testid="stBaseButton-secondary"] p,
+[data-testid="stBaseButton-secondary"] span,
+[data-testid="stBaseButton-secondary"] div {
     color: #F0F6FC !important;
+    font-weight: 600 !important;
 }
 
 /* 10. Alerts & Status in Dark Mode */
@@ -697,9 +837,23 @@ h3 {
 [data-testid="stExpander"] summary {
     font-size: 14px !important;
 }
+[data-testid="stButtonGroup"] button,
+[data-testid="stSegmentedControl"] button {
+    min-height: 32px !important;
+    padding: 5px 12px !important;
+}
+[data-testid="stButtonGroup"] button p,
+[data-testid="stButtonGroup"] button span,
+[data-testid="stSegmentedControl"] button p,
+[data-testid="stSegmentedControl"] button span {
+    font-size: 13.5px !important;
+}
 [data-testid="stBaseButton-primary"], [data-testid="stBaseButton-secondary"] {
     font-size: 14px !important;
     padding: 10px 18px !important;
+}
+[data-testid="stBaseButton-primary"] p, [data-testid="stBaseButton-secondary"] p {
+    font-size: 14px !important;
 }
 [data-testid="stSidebar"] .sidebar-section-label {
     font-size: 11px !important;
@@ -716,9 +870,11 @@ h3 {
 def inject_app_css(dark_mode: bool = None, font_scale: str = None):
     st.markdown(MINIMAL_ENGINEERING_CSS, unsafe_allow_html=True)
     if dark_mode is None and hasattr(st, "session_state"):
-        dark_mode = (st.session_state.get("app_theme") == "Tamna")
+        theme_val = st.session_state.get("top_theme_ctrl") or st.session_state.get("app_theme")
+        dark_mode = (theme_val == "Tamna")
     if font_scale is None and hasattr(st, "session_state"):
-        font_scale = "large" if (st.session_state.get("app_font_scale") == "Veliki") else "normal"
+        font_val = st.session_state.get("top_font_ctrl") or st.session_state.get("app_font_scale")
+        font_scale = "large" if (font_val == "Veliki") else "normal"
 
     if dark_mode:
         st.markdown(DARK_ENGINEERING_CSS, unsafe_allow_html=True)
@@ -752,9 +908,10 @@ def render_header_bar(
       <div class="app-header-left">
         <span class="app-header-title">ETABS Model Checker</span>
         <span class="app-header-meta">| &nbsp; {proj_txt}</span>
+        {badge_html}
       </div>
       <div class="app-header-meta">
-        <span>{version}</span>{badge_html}
+        <span>{version}</span>
       </div>
     </div>
     """, unsafe_allow_html=True)
