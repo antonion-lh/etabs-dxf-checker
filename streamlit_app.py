@@ -968,6 +968,22 @@ def main():
                     "geometrijske usporedbe s nacrtom."
                 )
 
+            else:
+                ref_stories = df_res.attrs.get("reference_stories", {}) or {}
+                if ref_stories:
+                    ref_list = ", ".join(sorted(set(str(v) for v in ref_stories.values())))
+                    note_bg = "#161B22" if is_dark else "#EFF6FF"
+                    note_txt = "#8B949E" if is_dark else "#1E40AF"
+                    st.markdown(
+                        f'<div style="background:{note_bg}; border-left:3px solid #2563EB;'
+                        f'border-radius:0 4px 4px 0; padding:8px 12px; margin-bottom:10px;'
+                        f'font-size:12px; color:{note_txt};">'
+                        f'Nacrt je uspore\u0111en s eta\u017eom <strong>{ref_list}</strong> '
+                        f'(automatski odabrana kao najbolje poklapanje s tlocrtom). '
+                        f'Elementi ostalih eta\u017ea ozna\u010deni su kao samo-ETABS uz napomenu o eta\u017ei.'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
             dfd = df_res.copy()
             total_el = len(dfd)
             if total_el > 0 and not is_pdf_mode and "status" in dfd.columns:

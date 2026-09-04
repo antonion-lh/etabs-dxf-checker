@@ -118,6 +118,8 @@ def _match_type(
       3. Elements on other stories are reported as ETABS_ONLY with an
          informative note that they belong to a different floor (not a false
          mismatch).
+
+    Returns a tuple: (results DataFrame, reference_story or None).
     """
     results = []
 
@@ -140,7 +142,7 @@ def _match_type(
                     Status.DXF_ONLY, None, dr, None, element_type,
                     "In DXF only — not found in ETABS model"
                 ))
-        return pd.DataFrame(results)
+        return pd.DataFrame(results), None
 
     # Choose the ETABS story that best overlaps the DXF plan.
     # Score each story by SECTION-level match quality (position + dimensions),
@@ -234,7 +236,7 @@ def _match_type(
                     "In DXF only — not found in ETABS model"
                 ))
 
-    return pd.DataFrame(results)
+    return pd.DataFrame(results), reference_story
 
 
 def _first_valid(row, *keys, default=None):
@@ -587,6 +589,7 @@ def validate(
         allowed = {et.rstrip("s") for et in cfg.extract_elements if et.rstrip("s") in VALID_ELEMENT_TYPES}
         active_types = active_types.intersection(allowed)
 
+    reference_stories: dict = {}
     for singular in sorted(active_types):
         plural = f"{singular}s"
         df_etabs_type = etabs_dict.get(plural, etabs_dict.get(singular, pd.DataFrame()))
@@ -601,7 +604,9 @@ def validate(
         log.info("Matching %s: ETABS=%d  DXF=%d  tol=%.2f m",
                  singular, len(df_etabs_type), len(df_dxf_type), tol)
 
-        df_res = _match_type(df_etabs_type, df_dxf_type, tol, cfg.section_tolerance_mm, singular)
+        df_res, ref_story = _match_type(df_etabs_type, df_dxf_type, tol, cfg.section_tolerance_mm, singular)
+        if ref_story is not None:
+            reference_stories[singular] = ref_story
         all_results.append(df_res)
 
     valid_results = [df for df in all_results if not df.empty]
@@ -624,6 +629,9 @@ def validate(
     # Run structural sanity checks
     sanity_alerts = run_structural_sanity_checks(etabs_dict, cfg)
     df_result.attrs["sanity_alerts"] = sanity_alerts
+
+    # Reference story chosen per element type for DXF comparison (Tab 3 note)
+    df_result.attrs["reference_stories"] = reference_stories
 
     def _to_recs(obj):
         if isinstance(obj, pd.DataFrame):
