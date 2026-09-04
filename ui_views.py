@@ -183,9 +183,9 @@ def render_drawing(
 
 def _classify_wall_opening(wx1, wy1, wx2, wy2, atype=""):
     """
-    General classification of wall openings (doors/windows) based on:
-    1. Explicit E2K atype / section property naming
-    2. Geometric length thresholds (architectural doors 0.70m - 1.40m)
+    Fallback classification of a wall panel as a door/window opening based on
+    the ETABS area type or property/section name keywords. Model-independent:
+    it never invents openings from raw coordinates. Returns (is_opening, is_door).
     """
     atype_l = str(atype).lower()
 
@@ -194,8 +194,10 @@ def _classify_wall_opening(wx1, wy1, wx2, wy2, atype=""):
     if atype_l in ("door", "vrata"):
         return True, True
 
-    if any(k in atype_l for k in ("door", "vrata", "prozor", "window", "otvor")):
-        return True, ("vrata" in atype_l or "door" in atype_l)
+    if any(k in atype_l for k in ("door", "vrata")):
+        return True, True
+    if any(k in atype_l for k in ("prozor", "window", "otvor", "opening", "win")):
+        return True, False
 
     return False, False
 
@@ -460,33 +462,51 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
                     showlegend=False,
                 ))
             elif is_door:
-                # 🚪 OTVOR ZA VRATA / PROLAZ (Door opening)
+                # OTVOR ZA VRATA / PROLAZ — clear void: opaque background fill cuts
+                # through the wall band, with crisp red jambs at each end.
+                void_fill = "#0D1117" if is_dark else "#FFFFFF"
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
                     fill="toself",
-                    fillcolor="rgba(241, 245, 249, 0.40)",
-                    line=dict(color="#94a3b8", width=1.0, dash="dash"),
+                    fillcolor=void_fill,
+                    line=dict(color="#94a3b8", width=1.0, dash="dot"),
                     mode="lines",
                     name="Otvor vrata",
                     hovertext=(
-                        f"<b>🚪 Otvor vrata / prolaz {w['name']}</b><br>"
+                        f"<b>Otvor vrata / prolaz {w['name']}</b><br>"
                         f"Širina otvora: {L:.2f} m<br>"
                         f"Položaj: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})"
                     ),
                     hoverinfo="text",
                     showlegend=False,
                 ))
+                if L >= 0.05:
+                    nxd = -dy / L
+                    nyd = dx / L
+                    htd = max(thick_m / 2.0, 0.12)
+                    # Crisp wall jambs (špalete) at both ends of the doorway
+                    for jx, jy in ((x1, y1), (x2, y2)):
+                        fig.add_trace(go.Scatter(
+                            x=[jx - nxd*htd, jx + nxd*htd],
+                            y=[jy - nyd*htd, jy + nyd*htd],
+                            mode="lines",
+                            line=dict(color="#991b1b", width=3.0),
+                            hoverinfo="skip",
+                            showlegend=False,
+                        ))
             else:
-                # 🪟 PROZORSKI OTVOR (Window opening with translucent glass wash & sill/jamb lines)
+                # PROZORSKI OTVOR — clear void: opaque background fill cuts the wall
+                # band, crisp red jambs at each end, and a thin double glazing line.
+                void_fill = "#0D1117" if is_dark else "#FFFFFF"
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
                     fill="toself",
-                    fillcolor="rgba(224, 242, 254, 0.50)",  # Svijetlo staklo, otvor ostaje proziran i vidljiv!
-                    line=dict(color="#64748b", width=1.0, dash="solid"),
+                    fillcolor=void_fill,
+                    line=dict(color="#64748b", width=1.0, dash="dot"),
                     mode="lines",
                     name="Prozorski otvor",
                     hovertext=(
-                        f"<b>🪟 Prozorski otvor {w['name']}</b><br>"
+                        f"<b>Prozorski otvor {w['name']}</b><br>"
                         f"Širina otvora: {L:.2f} m<br>"
                         f"Debljina zida: {thick_m*1000:.0f} mm<br>"
                         f"Položaj: ({x1:.2f}, {y1:.2f}) → ({x2:.2f}, {y2:.2f})"
@@ -499,30 +519,32 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
                     nx = -dy / L
                     ny = dx / L
                     ht = max(thick_m / 2.0, 0.12)
-                    # Špaleta lijevo (rub punog zida)
+                    # Crisp wall jambs (špalete) at both ends of the window
+                    for jx, jy in ((x1, y1), (x2, y2)):
+                        fig.add_trace(go.Scatter(
+                            x=[jx - nx*ht, jx + nx*ht],
+                            y=[jy - ny*ht, jy + ny*ht],
+                            mode="lines",
+                            line=dict(color="#991b1b", width=3.0),
+                            hoverinfo="skip",
+                            showlegend=False,
+                        ))
+                    # Double glazing lines (two thin panes) spanning the opening
+                    off = ht * 0.30
                     fig.add_trace(go.Scatter(
-                        x=[x1 - nx*ht, x1 + nx*ht],
-                        y=[y1 - ny*ht, y1 + ny*ht],
+                        x=[x1 + nx*off, x2 + nx*off],
+                        y=[y1 + ny*off, y2 + ny*off],
                         mode="lines",
-                        line=dict(color="#991b1b", width=2.5),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    ))
-                    # Špaleta desno (rub punog zida)
-                    fig.add_trace(go.Scatter(
-                        x=[x2 - nx*ht, x2 + nx*ht],
-                        y=[y2 - ny*ht, y2 + ny*ht],
-                        mode="lines",
-                        line=dict(color="#991b1b", width=2.5),
-                        hoverinfo="skip",
-                        showlegend=False,
-                    ))
-                    # Staklo prozora po sredini
-                    fig.add_trace(go.Scatter(
-                        x=[x1, x2], y=[y1, y2],
-                        mode="lines",
-                        line=dict(color="#0284c7", width=2.2),
+                        line=dict(color="#0284c7", width=1.4),
                         name="Staklo prozora",
+                        hoverinfo="skip",
+                        showlegend=False,
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=[x1 - nx*off, x2 - nx*off],
+                        y=[y1 - ny*off, y2 - ny*off],
+                        mode="lines",
+                        line=dict(color="#0284c7", width=1.4),
                         hoverinfo="skip",
                         showlegend=False,
                     ))
@@ -848,21 +870,26 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
                     continue
                 drawn_walls_3d.add(loc_key)
 
+            story_h = max(z_top - z_bot, 0.1)
             if is_opening:
                 if is_door:
-                    # Doorway: open cutout from z_bot to z_bot + 2.20, lintel above
-                    z_l = min(z_bot + 2.20, z_top - 0.20)
+                    # Doorway: open cutout from floor to door head (~2.10 m),
+                    # only a lintel band remains above. Scale head to story height.
+                    z_head = z_bot + min(2.10, story_h * 0.85)
+                    z_l = min(z_head, z_top - 0.10)
                     sub_panels = [
                         [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel
                     ]
                 else:
-                    # 3D Window cutout: parapet at bottom + open hole in middle + lintel at top!
-                    if min(y1, y2) < 0.5:
-                        z_p = z_bot + 0.85
-                        z_l = min(z_bot + 2.30, z_top - 0.20)
-                    else:
-                        z_p = z_bot + 1.10
-                        z_l = min(z_bot + 2.35, z_top - 0.20)
+                    # Window: parapet (sill) band at bottom + open hole + lintel band
+                    # at top. Standard heights, clamped to the actual story height so
+                    # it works for any model regardless of facade orientation.
+                    z_sill = z_bot + min(0.90, story_h * 0.30)
+                    z_head = z_bot + min(2.20, story_h * 0.75)
+                    if z_head <= z_sill + 0.10:
+                        z_head = min(z_sill + 0.30, z_top - 0.05)
+                    z_p = z_sill
+                    z_l = min(z_head, z_top - 0.05)
                     sub_panels = [
                         [(x1, y1, z_bot), (x2, y2, z_bot), (x2, y2, z_p), (x1, y1, z_p)],  # Parapet panel
                         [(x1, y1, z_l), (x2, y2, z_l), (x2, y2, z_top), (x1, y1, z_top)],  # Lintel panel
@@ -895,20 +922,6 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
                 mesh_k.extend([v_offset + 2, v_offset + 3])
                 v_offset += 4
 
-        # Add entrance portal lintel panel above front doorway (X in [18.10, 20.90], Y=0)
-        has_entrance = any(abs(w.get("y_start", 99)) < 0.1 and abs(w.get("y_end", 99)) < 0.1 for _, w in walls.iterrows())
-        if has_entrance and (not active_story_name or "1" in str(active_story_name) or "prizem" in str(active_story_name).lower()):
-            ent_p = [(18.10, 0.0, 2.40), (20.90, 0.0, 2.40), (20.90, 0.0, 3.50), (18.10, 0.0, 3.50)]
-            for p in ent_p:
-                w_xs.append(p[0]); w_ys.append(p[1]); w_zs.append(p[2])
-            w_xs.append(ent_p[0][0]); w_ys.append(ent_p[0][1]); w_zs.append(ent_p[0][2])
-            w_xs.append(None); w_ys.append(None); w_zs.append(None)
-            for p in ent_p:
-                mesh_x.append(p[0]); mesh_y.append(p[1]); mesh_z.append(p[2])
-            mesh_i.extend([v_offset, v_offset])
-            mesh_j.extend([v_offset + 1, v_offset + 2])
-            mesh_k.extend([v_offset + 2, v_offset + 3])
-            v_offset += 4
 
         if mesh_x:
             fig.add_trace(go.Mesh3d(
