@@ -14,6 +14,36 @@ import plotly.graph_objects as go
 import streamlit as st
 from phase3_validation import Status
 
+
+# ---------------------------------------------------------------------------
+# Cached PDF helpers — a Streamlit rerun happens on every interaction, so
+# re-opening the PDF and re-rendering the page each time makes the drawing
+# viewer feel slow. Cache the page render keyed on (bytes, page, dpi).
+# ---------------------------------------------------------------------------
+@st.cache_data(show_spinner=False, max_entries=64)
+def _pdf_meta(raw: bytes):
+    """Return (num_pages, toc_dict) for a PDF given as raw bytes."""
+    import fitz
+    doc = fitz.open(stream=raw, filetype="pdf")
+    num_pages = len(doc)
+    toc = doc.get_toc()
+    toc_dict = {item[2]: item[1] for item in toc if len(item) >= 3} if toc else {}
+    doc.close()
+    return num_pages, toc_dict
+
+
+@st.cache_data(show_spinner=False, max_entries=128)
+def _pdf_page_png(raw: bytes, page_idx: int, dpi: int) -> bytes:
+    """Render one PDF page to PNG bytes (cached per page + dpi)."""
+    import fitz
+    doc = fitz.open(stream=raw, filetype="pdf")
+    idx = min(max(int(page_idx), 0), len(doc) - 1)
+    pix = doc[idx].get_pixmap(dpi=int(dpi), alpha=False)
+    png = pix.tobytes("png")
+    doc.close()
+    return png
+
+
 def render_drawing(
     uploaded_drawing,
     active_story_z: float = None,
@@ -45,20 +75,15 @@ def render_drawing(
     try:
         if name_lower.endswith(".pdf"):
             import fitz  # PyMuPDF
-            doc = fitz.open(stream=raw, filetype="pdf")
-            num_pages = len(doc)
+            num_pages, toc_dict = _pdf_meta(raw)  # cached: no re-open per rerun
             if num_pages == 0:
                 st.warning("Priloženi PDF dokument ne sadrži stranice.")
                 return
-
             if st.session_state.get("_active_pdf_filename") != file_name:
                 st.session_state["_active_pdf_filename"] = file_name
                 st.session_state["active_pdf_page"] = 1
                 st.session_state["_last_synced_story"] = None
-
             page_labels_dict = {}
-            toc = doc.get_toc()
-            toc_dict = {item[2]: item[1] for item in toc if len(item) >= 3} if toc else {}
 
             for p in range(1, num_pages + 1):
                 if demo_sheet_map and p in demo_sheet_map:
@@ -162,9 +187,7 @@ def render_drawing(
                     st.button("Sljedeća ▶", key="btn_pdf_next", use_container_width=True, disabled=(cur_p >= num_pages), on_click=_next_pdf_page)
 
             sel_page_idx = min(max(int(st.session_state.get("active_pdf_page", 1)) - 1, 0), num_pages - 1)
-            page = doc[sel_page_idx]
-            pix = page.get_pixmap(dpi=dpi_val, alpha=False)
-            img_bytes = pix.tobytes("png")
+            img_bytes = _pdf_page_png(raw, sel_page_idx, dpi_val)  # cached render
 
             caption_txt = page_labels_dict.get(sel_page_idx + 1, f"Stranica {sel_page_idx + 1}")
             st.image(img_bytes, use_container_width=True, caption=f"{file_name} — {caption_txt}")

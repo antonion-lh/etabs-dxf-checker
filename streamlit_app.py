@@ -117,6 +117,35 @@ def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
     return run_curriculum_audit(_etabs_data, results_data=_results_data)
 
+
+@st.cache_data(show_spinner=False, max_entries=16)
+def _cached_report_bytes(cache_key: str, _df_res, _cfg):
+    """Generate (html, pdf_bytes) once per unique model+config.
+
+    cache_key is a content hash that fully identifies the result set, so the
+    expensive PDF generation (~1.5 s) runs only when the model actually changes
+    instead of on every Streamlit rerun (tab switch, story change, etc.).
+    """
+    try:
+        html = generate_html(_df_res, None, _cfg)
+    except Exception as e:
+        html = f"<p>Greska pri generiranju izvjestaja: {e}</p>"
+    pdf_bytes = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as _tmp:
+            _tmp_path = _tmp.name
+        generate_pdf(_df_res, _tmp_path, _cfg)
+        with open(_tmp_path, "rb") as _f:
+            pdf_bytes = _f.read()
+    except Exception:
+        pdf_bytes = None
+    finally:
+        try:
+            os.unlink(_tmp_path)
+        except Exception:
+            pass
+    return html, pdf_bytes
+
 # ─────────────────────────────────────────────────────────────
 # Sidebar: Minimal, Focused Engineering Controls (Task 1)
 # ─────────────────────────────────────────────────────────────
@@ -1218,10 +1247,13 @@ def main():
             grade_num = score_data.get("grade", 1)
             grade_simple = {5: "Izvrstan", 4: "Vrlo dobar", 3: "Dobar", 2: "Dovoljan", 1: "Nedovoljan"}.get(grade_num, "Dobar")
 
+            # Cache the expensive report generation on a content key so PDF/HTML
+            # is built once per model, not on every rerun.
             try:
-                html_code = generate_html(df_res, None, cfg)
-            except Exception as _e:
-                html_code = f"<p>Greška pri generiranju izvještaja: {_e}</p>"
+                _rep_key = str(len(df_res)) + "|" + str(sorted(df_res.get("status", pd.Series(dtype=str)).astype(str).value_counts().to_dict().items())) + "|" + str(hash(cfg))
+            except Exception:
+                _rep_key = str(len(df_res)) + "|" + str(hash(cfg))
+            html_code, _cached_pdf_bytes = _cached_report_bytes(_rep_key, df_res, cfg)
 
             _model_filename = (
                 os.path.basename(DEMO_SKOLA_E2K)      if (use_demo and demo_choice == "strossmayer") else
@@ -1245,18 +1277,7 @@ def main():
 
                 st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
 
-                pdf_bytes = None
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
-                        tmp_pdf_path = tmp_pdf.name
-                    generate_pdf(df_res, tmp_pdf_path, cfg)
-                    with open(tmp_pdf_path, "rb") as f_pdf:
-                        pdf_bytes = f_pdf.read()
-                except Exception as e:
-                    pdf_bytes = None
-                finally:
-                    try: os.unlink(tmp_pdf_path)
-                    except Exception: pass
+                pdf_bytes = _cached_pdf_bytes  # from cached _cached_report_bytes above
 
                 import zipfile
 
