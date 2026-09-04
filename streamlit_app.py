@@ -1018,6 +1018,7 @@ def main():
             _CONF = "Dimenzija potvrđena na nacrtu"
             _NOTF = "Dimenzija nije nađena na nacrtu"
             _NOD  = "Nema dimenzije u modelu"
+            _PDFONLY = "Kota na nacrtu bez elementa u modelu"
             n_match = len(df_res[df_res["status"] == Status.MATCH]) if "status" in df_res.columns else 0
             n_mis   = len(df_res[df_res["status"] == Status.SECTION_MISMATCH]) if "status" in df_res.columns else 0
             n_etabs = len(df_res[df_res["status"] == Status.ETABS_ONLY]) if "status" in df_res.columns else 0
@@ -1027,10 +1028,12 @@ def main():
                 n_conf = int((df_res["status"] == _CONF).sum()) if "status" in df_res.columns else 0
                 n_notf = int((df_res["status"] == _NOTF).sum()) if "status" in df_res.columns else 0
                 n_nod  = int((df_res["status"] == _NOD).sum()) if "status" in df_res.columns else 0
+                n_pdfonly = int((df_res["status"] == _PDFONLY).sum()) if "status" in df_res.columns else 0
                 pill_opts.extend([
                     f"✓ Potvrđeno na nacrtu ({n_conf})",
                     f"✗ Nije nađeno na nacrtu ({n_notf})",
                     f"— Bez dimenzije ({n_nod})",
+                    f"○ Kota bez elementa ({n_pdfonly})",
                 ])
             elif not is_pdf_mode:
                 pill_opts.extend([
@@ -1041,6 +1044,10 @@ def main():
                 ])
             if _pdf_dim_mode:
                 _ntok = df_res.attrs.get("pdf_dim_tokens", 0)
+                _summary = df_res.attrs.get("pdf_summary", {}) or {}
+                _s_conf = _summary.get("confirmed", 0)
+                _s_notf = _summary.get("not_found", 0)
+                _s_pdfonly = _summary.get("pdf_only", 0)
                 _nb = "#161B22" if is_dark else "#EFF6FF"
                 _nt = "#8B949E" if is_dark else "#1E40AF"
                 st.markdown(
@@ -1049,6 +1056,8 @@ def main():
                     f"font-size:12px; color:{_nt};'>"
                     f"Automatska provjera dimenzija iz kota u PDF-u: pronađeno {_ntok} kota. "
                     f"Presjeci iz ETABS modela uspoređeni su s dimenzijama pročitanim s nacrta."
+                    f"<br>{_s_conf} potvrđenih presjeka · {_s_notf} nije nađeno na nacrtu "
+                    f"· {_s_pdfonly} kota s nacrta bez elementa"
                     f"</div>",
                     unsafe_allow_html=True
                 )
@@ -1116,7 +1125,9 @@ def main():
                     label_visibility="collapsed"
                 ) or "Svi"
 
-            if "Potvrđeno na nacrtu" in sel_pill:
+            if "Kota bez elementa" in sel_pill:
+                dfd = dfd[dfd["status"] == _PDFONLY]
+            elif "Potvrđeno na nacrtu" in sel_pill:
                 dfd = dfd[dfd["status"] == _CONF]
             elif "Nije nađeno na nacrtu" in sel_pill:
                 dfd = dfd[dfd["status"] == _NOTF]
@@ -1159,7 +1170,8 @@ def main():
             # Display table
             vcols = [
                 "element_type", "status", "etabs_name", "story", "etabs_section",
-                "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "xy_dist_m", "notes"
+                "etabs_w_mm", "etabs_h_mm", "dxf_dim_text", "pdf_match_confidence",
+                "xy_dist_m", "notes"
             ]
             vcols = [c for c in vcols if c in dfd.columns]
             tbl = safe_df(dfd[vcols], {
@@ -1179,6 +1191,7 @@ def main():
                     "etabs_w_mm":    st.column_config.TextColumn("b (mm)"),
                     "etabs_h_mm":    st.column_config.TextColumn("h (mm)"),
                     "dxf_dim_text":  st.column_config.TextColumn("CAD oznaka"),
+                    "pdf_match_confidence": st.column_config.TextColumn("Pouzdanost"),
                     "xy_dist_m":     st.column_config.TextColumn("Odmak (m)"),
                     "notes":         st.column_config.TextColumn("Napomena"),
                 }

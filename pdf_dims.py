@@ -29,11 +29,14 @@ log = logging.getLogger(__name__)
 # Dimension token patterns (all normalised to mm)
 # ---------------------------------------------------------------------------
 # Rectangular section: 40/40, 40x40, 30/50, 300x500, 30×50
-_RE_RECT = re.compile(r"\b(\d{2,4})\s*[/xX×]\s*(\d{2,4})\b")
+# Digit groups are guarded with (?<!\d) / (?!\d) so a value that is part of a
+# longer number does not falsely match.
+_RE_RECT = re.compile(r"(?<!\d)(\d{2,4})\s*[/xX×]\s*(\d{2,4})(?!\d)")
 # Circular / diameter: d=45, D=450, Ø45, fi45, R45
-_RE_CIRC = re.compile(r"(?:d|D|Ø|ø|fi|FI|φ)\s*[=:]?\s*(\d{2,4})\b")
+_RE_CIRC = re.compile(r"(?:d|D|Ø|ø|fi|FI|φ)\s*[=:]?\s*(?<!\d)(\d{2,4})(?!\d)")
 # Thickness (walls/slabs): t=20, d=25, h=20, 20cm, 30 cm
-_RE_THICK = re.compile(r"(?:t|d|h|e)\s*[=:]\s*(\d{1,3})\b|\b(\d{1,3})\s*cm\b")
+# Negative lookbehind/lookahead keep the number from being a slice of a longer one.
+_RE_THICK = re.compile(r"(?:t|d|h|e)\s*[=:]\s*(?<!\d)(\d{1,3})(?!\d)|(?<!\d)(\d{1,3})\s*cm(?![a-zA-Z])")
 
 
 def _to_mm(value: float, unit_hint: str = "cm") -> float:
@@ -50,6 +53,17 @@ def _to_mm(value: float, unit_hint: str = "cm") -> float:
         return v * 1000.0
     # cm default
     return v * 10.0
+
+
+# A standalone run of 4+ digits (e.g. "1400", "4000") somewhere in a token that
+# is not a recognised rect/circ/thick label. Its presence means the token is a
+# mixed/ambiguous label and a small value extracted from it must not be trusted.
+_RE_BARE_LONG = re.compile(r"(?<!\d)\d{4,}(?!\d)")
+
+
+def _has_bare_long_number(t: str) -> bool:
+    """Return True if the token contains a bare number of 4+ digits."""
+    return _RE_BARE_LONG.search(t) is not None
 
 
 def _classify_dim_token(text: str) -> Optional[dict]:
@@ -74,6 +88,13 @@ def _classify_dim_token(text: str) -> Optional[dict]:
             return x if x >= 1000 else (x * 10.0 if x <= 200 else x)
         d1, d2 = norm(a), norm(b)
         return {"kind": "rect", "d1_mm": min(d1, d2), "d2_mm": max(d1, d2), "raw": t}
+
+    # For single-value labels (circ / thick) a bare long number elsewhere in the
+    # same token means the token is mixed / ambiguous (e.g. "kota1400 t=40").
+    # In that case the small extracted value is not trustworthy: respect the
+    # word boundary and reject rather than confirm a false section.
+    if _has_bare_long_number(t):
+        return None
 
     m = _RE_CIRC.search(t)
     if m:
@@ -147,9 +168,24 @@ def extract_pdf_dimensions(raw: bytes) -> dict:
             words = page.get_text("words")  # (x0,y0,x1,y1, "word", block, line, wno)
         except Exception:
             continue
+        # Word boundary safety: PyMuPDF splits on whitespace, so a mixed label
+        # like "kota1400 t=40" becomes two words on the same block+line. A bare
+        # long number ("1400") sitting on the same line makes a small single-
+        # value token ("t=40") on that line untrustworthy, so suppress it.
+        lines_with_long = set()
+        for w in words:
+            if len(w) >= 7 and _has_bare_long_number(w[4]):
+                lines_with_long.add((w[5], w[6]))
         for w in words:
             parsed = _classify_dim_token(w[4])
             if parsed:
+                line_key = (w[5], w[6]) if len(w) >= 7 else None
+                if (
+                    parsed["kind"] in ("thick", "circ")
+                    and line_key is not None
+                    and line_key in lines_with_long
+                ):
+                    continue
                 cx = (w[0] + w[2]) / 2.0
                 cy = (w[1] + w[3]) / 2.0
                 tokens.append({
@@ -194,6 +230,43 @@ def _section_matches_token(ew, eh, tok: dict, tol_mm: float) -> bool:
     return _dims_close(e_lo, t_lo, tol_mm) and _dims_close(e_hi, t_hi, tol_mm)
 
 
+def _section_match_delta(ew, eh, tok: dict) -> Optional[float]:
+    """Return the deviation (mm) between an ETABS element and a PDF token, or
+    None if they cannot be compared. Smaller is a cleaner match; 0 is exact."""
+    d1, d2 = tok.get("d1_mm"), tok.get("d2_mm")
+    if tok["kind"] in ("circ", "thick"):
+        target = d1
+        if target is None:
+            return None
+        deltas = [abs(float(e) - float(target)) for e in (ew, eh) if e is not None]
+        return min(deltas) if deltas else None
+    # rectangular: compare unordered pair
+    if ew is None or eh is None or d1 is None or d2 is None:
+        return None
+    e_lo, e_hi = min(ew, eh), max(ew, eh)
+    t_lo, t_hi = min(d1, d2), max(d1, d2)
+    return max(abs(e_lo - t_lo), abs(e_hi - t_hi))
+
+
+def _match_confidence(match_count: int, exactness: str) -> str:
+    """Map (number of occurrences x match clarity) to a Croatian confidence
+    level: "visoka" / "srednja" / "niska".
+
+    exactness is "exact" when the best deviation is within the tight section
+    tolerance, or "loose" when it only matches within the looser PDF tolerance.
+
+    - visoka: >= 2 occurrences AND an exact match.
+    - srednja: exactly 1 exact match, OR >= 2 loose (borderline) matches.
+    - niska: a single borderline match.
+    """
+    exact = (exactness == "exact")
+    if match_count >= 2 and exact:
+        return "visoka"
+    if (match_count == 1 and exact) or (match_count >= 2 and not exact):
+        return "srednja"
+    return "niska"
+
+
 def validate_against_pdf(etabs_data: dict, raw: bytes, cfg=None) -> pd.DataFrame:
     """Cross-reference ETABS element sections with dimensions read from a PDF
     text layer.
@@ -221,7 +294,12 @@ def validate_against_pdf(etabs_data: dict, raw: bytes, cfg=None) -> pd.DataFrame
         "element_type", "status", "etabs_name", "story", "etabs_x", "etabs_y", "etabs_z",
         "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
         "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes",
+        "pdf_match_count", "pdf_match_confidence",
     ]
+
+    # Track which tokens were consumed by at least one element (by index) so
+    # the reverse (drawing -> model) pass can report unused drawing dimensions.
+    used_token_idx = set()
 
     rows = []
     for elem_type, key in [("column", "columns"), ("beam", "beams"), ("wall", "walls"), ("slab", "slabs")]:
@@ -231,24 +309,47 @@ def validate_against_pdf(etabs_data: dict, raw: bytes, cfg=None) -> pd.DataFrame
         for _, r in df_sub.iterrows():
             ew = r.get("width_mm")
             eh = r.get("height_mm", r.get("thickness_mm"))
-            # Find a matching token on the drawing
+            # Aggregate ALL matching tokens on the drawing (no early break).
+            match_idx = [
+                i for i, tok in enumerate(tokens)
+                if _section_matches_token(ew, eh, tok, tol)
+            ]
+            matches = [tokens[i] for i in match_idx]
+            match_count = len(matches)
+            # Representative token: first by page (then original order).
             matched_tok = None
-            for tok in tokens:
-                if _section_matches_token(ew, eh, tok, tol):
-                    matched_tok = tok
-                    break
+            if matches:
+                matched_tok = min(matches, key=lambda t: (t.get("page", 0)))
+                for i in match_idx:
+                    used_token_idx.add(i)
+            confidence = ""
             if ew is None and eh is None:
                 status = "Nema dimenzije u modelu"
                 note = "Presjek elementa nije očitan iz .e2k"
                 dim_text = "—"
+                match_count = 0
             elif matched_tok is not None:
                 status = "Dimenzija potvrđena na nacrtu"
-                note = f"Presjek {matched_tok['raw']} pronađen na str. {matched_tok['page']} nacrta"
+                # Best (smallest) deviation across all matches -> exactness.
+                deltas = [
+                    d for d in (_section_match_delta(ew, eh, t) for t in matches)
+                    if d is not None
+                ]
+                best_delta = min(deltas) if deltas else tol
+                exactness = "exact" if best_delta <= sec_tol else "loose"
+                confidence = _match_confidence(match_count, exactness)
+                pages = sorted({t.get("page") for t in matches if t.get("page") is not None})
+                pages_txt = ", ".join(str(p) for p in pages) if pages else "?"
+                note = (
+                    f"Presjek {matched_tok['raw']} pronađen {match_count}× "
+                    f"(str. {pages_txt}); pouzdanost: {confidence}"
+                )
                 dim_text = matched_tok["raw"]
             else:
                 status = "Dimenzija nije nađena na nacrtu"
                 note = "Nijedna kota na nacrtu ne odgovara ovom presjeku"
                 dim_text = "—"
+                match_count = 0
             rows.append({
                 "element_type": elem_type,
                 "status": status,
@@ -266,9 +367,70 @@ def validate_against_pdf(etabs_data: dict, raw: bytes, cfg=None) -> pd.DataFrame
                 "dxf_dim2_mm": matched_tok["d2_mm"] if matched_tok else None,
                 "xy_dist_m": None,
                 "notes": note,
+                "pdf_match_count": match_count,
+                "pdf_match_confidence": confidence,
             })
 
+    # ------------------------------------------------------------------ #
+    # Reverse comparison (drawing -> model): report drawing dimensions that
+    # were not consumed by any model element. Identical values are grouped
+    # into a single row with the occurrence count / pages in notes.
+    # ------------------------------------------------------------------ #
+    unused = [tokens[i] for i in range(len(tokens)) if i not in used_token_idx]
+    groups = {}
+    for tok in unused:
+        gkey = (tok.get("kind"), tok.get("d1_mm"), tok.get("d2_mm"))
+        g = groups.get(gkey)
+        if g is None:
+            groups[gkey] = {"rep": tok, "count": 1, "pages": {tok.get("page")}}
+        else:
+            g["count"] += 1
+            g["pages"].add(tok.get("page"))
+    for gkey, g in groups.items():
+        rep = g["rep"]
+        pages = sorted(p for p in g["pages"] if p is not None)
+        pages_txt = ", ".join(str(p) for p in pages) if pages else "?"
+        rows.append({
+            "element_type": "pdf_only",
+            "status": "Kota na nacrtu bez elementa u modelu",
+            "etabs_name": "",
+            "story": "",
+            "etabs_x": None,
+            "etabs_y": None,
+            "etabs_z": None,
+            "etabs_section": "",
+            "etabs_w_mm": None,
+            "etabs_h_mm": None,
+            "etabs_material": "",
+            "dxf_dim_text": rep.get("raw", ""),
+            "dxf_dim1_mm": rep.get("d1_mm"),
+            "dxf_dim2_mm": rep.get("d2_mm"),
+            "xy_dist_m": None,
+            "notes": f"Kota {rep.get('raw', '')} na nacrtu ({g['count']}×, str. {pages_txt}) bez elementa u modelu",
+            "pdf_match_count": g["count"],
+            "pdf_match_confidence": "",
+        })
+
     df = pd.DataFrame(rows) if rows else pd.DataFrame(columns=STANDARD_COLS)
+    # Model-level aggregated summary carried to the UI via df.attrs.
+    if not df.empty:
+        status_col = df["status"]
+        conf_col = df["pdf_match_confidence"]
+        summary = {
+            "confirmed": int((status_col == "Dimenzija potvrđena na nacrtu").sum()),
+            "not_found": int((status_col == "Dimenzija nije nađena na nacrtu").sum()),
+            "pdf_only": int((status_col == "Kota na nacrtu bez elementa u modelu").sum()),
+            "no_model_dim": int((status_col == "Nema dimenzije u modelu").sum()),
+            "high_conf": int((conf_col == "visoka").sum()),
+            "medium_conf": int((conf_col == "srednja").sum()),
+            "low_conf": int((conf_col == "niska").sum()),
+        }
+    else:
+        summary = {
+            "confirmed": 0, "not_found": 0, "pdf_only": 0, "no_model_dim": 0,
+            "high_conf": 0, "medium_conf": 0, "low_conf": 0,
+        }
     df.attrs["pdf_dim_tokens"] = len(tokens)
     df.attrs["pdf_has_text_dims"] = has_dims
+    df.attrs["pdf_summary"] = summary
     return df
