@@ -357,8 +357,8 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
                 fig.add_trace(go.Scatter(
                     x=poly_x, y=poly_y,
                     fill="toself",
-                    fillcolor="rgba(241, 245, 249, 0.88)",
-                    line=dict(color="#cbd5e1", width=1.2),
+                    fillcolor="rgba(33, 38, 45, 0.85)" if is_dark else "rgba(241, 245, 249, 0.88)",
+                    line=dict(color="#30363D" if is_dark else "#cbd5e1", width=1.2),
                     mode="lines",
                     name="Ploča / Prostorije",
                     hoverinfo="skip",

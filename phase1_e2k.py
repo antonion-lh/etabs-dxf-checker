@@ -1304,9 +1304,15 @@ def parse_e2k(source: Union[str, Path, TextIO], cfg: Config = DEFAULT_CONFIG) ->
                     "pts_coords": s_pts_3d,
                 })
 
-    # Propagate detailed architectural window panel breakdown to Story 1 if coarse
+    # Propagate detailed architectural window panel breakdown to Story 1 if coarse.
+    # This is a Strossmayer-specific demo refinement (its Story1 panels are coarser
+    # than the upper floors); gated to the masonry "ZID" signature so it never
+    # mutates the geometry of any other uploaded model.
     st1_obj = story_map.get("Story1")
-    if st1_obj and any(w["story"] == "Story2" for w in walls):
+    _walls_are_strossmayer = bool(walls) and all(
+        str(w.get("prop_name", "")).upper().startswith("ZID") for w in walls
+    )
+    if _walls_are_strossmayer and st1_obj and any(w["story"] == "Story2" for w in walls):
         st1_walls = [w for w in walls if w["story"] == "Story1"]
         st2_walls = [w for w in walls if w["story"] == "Story2"]
         if len(st1_walls) < 220 and len(st2_walls) > 300:

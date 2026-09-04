@@ -1020,8 +1020,13 @@ def run_curriculum_audit(etabs_dict: dict, cfg: Any = None, results_data: Any = 
     # ─────────────────────────────────────────────────────────────
     # 31. Omjer površine zidova u odnosu na tlocrt zgrade (%) (NOVO)
     # ─────────────────────────────────────────────────────────────
-    # Typical floor walls (Story 2 or Story 1)
-    w_calc = walls[walls["story"] == "Story2"] if not walls.empty and "story" in walls.columns else walls
+    # Representative single floor: pick the story that carries the most wall
+    # panels (a typical upper floor), independent of any specific story name.
+    if not walls.empty and "story" in walls.columns and walls["story"].notna().any():
+        _rep_story = walls["story"].value_counts().idxmax()
+        w_calc = walls[walls["story"] == _rep_story]
+    else:
+        w_calc = walls
     if w_calc.empty:
         w_calc = walls
 
