@@ -25,6 +25,7 @@ from config import Config
 from phase1_e2k import parse_e2k
 from phase2_dxf import parse_dxf
 from phase3_validation import validate, Status, run_structural_sanity_checks
+from pdf_dims import validate_against_pdf, pdf_has_dimension_text
 from report import generate_pdf, generate_html
 from curriculum_audit import run_curriculum_audit, calculate_audit_score
 from results_parser import parse_etabs_results, create_demo_etabs_results
@@ -112,6 +113,17 @@ def _cached_parse_dxf_bytes(dxf_bytes: bytes, cfg: Config):
 @st.cache_data(show_spinner=False)
 def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
     return validate(_etabs_data, _df_dxf, _cfg)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_validate_pdf(_etabs_data: dict, pdf_bytes: bytes, _cfg: Config):
+    """Cross-reference ETABS sections against a PDF text-layer (cached on bytes)."""
+    return validate_against_pdf(_etabs_data, pdf_bytes, _cfg)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_pdf_has_dims(pdf_bytes: bytes) -> bool:
+    return pdf_has_dimension_text(pdf_bytes)
 
 @st.cache_data(show_spinner=False)
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
@@ -481,42 +493,68 @@ def main():
         try:
             etabs_data = _cached_parse_e2k(e2k_content, cfg)
             if is_pdf_mode or dxf_bytes is None:
-                all_items = []
-                for elem_type, key in [("column", "columns"), ("beam", "beams"), ("wall", "walls"), ("slab", "slabs")]:
-                    df_sub = etabs_data.get(key, pd.DataFrame())
-                    if not df_sub.empty:
-                        for _, row in df_sub.iterrows():
-                            all_items.append({
-                                "element_type": elem_type,
-                                "status": "Za provjeru s PDF-om",
-                                "etabs_name": row.get("name", ""),
-                                "story": row.get("story", ""),
-                                "etabs_x": row.get("x_start", row.get("centroid_x", 0.0)),
-                                "etabs_y": row.get("y_start", row.get("centroid_y", 0.0)),
-                                "etabs_z": row.get("z_end", row.get("centroid_z", row.get("z_start", 0.0))),
-                                "etabs_section": row.get("section", row.get("prop_name", "")),
-                                "etabs_w_mm": row.get("width_mm"),
-                                "etabs_h_mm": row.get("height_mm", row.get("thickness_mm")),
-                                "etabs_material": row.get("material", ""),
-                                "dxf_dim_text": "—",
-                                "dxf_dim1_mm": None,
-                                "dxf_dim2_mm": None,
-                                "xy_dist_m": None,
-                                "notes": "Element u ETABS modelu",
-                            })
-                STANDARD_COLS = [
-                    "element_type", "status", "etabs_name", "story", "etabs_x", "etabs_y", "etabs_z",
-                    "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
-                    "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
-                ]
-                df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame(columns=STANDARD_COLS)
-                df_res.attrs["sanity_alerts"] = run_structural_sanity_checks(etabs_data, cfg)
-                df_res.attrs["materials"] = etabs_data.get("materials", [])
-                df_res.attrs["load_patterns"] = etabs_data.get("load_patterns", pd.DataFrame())
-                df_res.attrs["area_loads"] = etabs_data.get("area_loads", pd.DataFrame())
-                df_res.attrs["frame_loads"] = etabs_data.get("frame_loads", pd.DataFrame())
-                df_res.attrs["restraints"] = etabs_data.get("restraints", pd.DataFrame())
-                df_res.attrs["hinges"] = etabs_data.get("hinges", pd.DataFrame())
+                # Try to read real dimension text from the PDF drawing. If present, do a
+                # genuine section-dimension cross-check; otherwise fall back to a manual
+                # inventory (raster/scanned PDFs have no text layer).
+                _pdf_raw = None
+                if is_pdf_mode and uploaded_drawing is not None:
+                    try:
+                        if isinstance(uploaded_drawing, str):
+                            with open(uploaded_drawing, 'rb') as _pf:
+                                _pdf_raw = _pf.read()
+                        elif str(getattr(uploaded_drawing, 'name', '')).lower().endswith('.pdf'):
+                            _pdf_raw = uploaded_drawing.getvalue()
+                    except Exception:
+                        _pdf_raw = None
+                _used_pdf_dims = False
+                if _pdf_raw is not None and _cached_pdf_has_dims(_pdf_raw):
+                    df_res = _cached_validate_pdf(etabs_data, _pdf_raw, cfg)
+                    df_res.attrs['sanity_alerts'] = run_structural_sanity_checks(etabs_data, cfg)
+                    df_res.attrs['materials'] = etabs_data.get('materials', [])
+                    df_res.attrs['load_patterns'] = etabs_data.get('load_patterns', pd.DataFrame())
+                    df_res.attrs['area_loads'] = etabs_data.get('area_loads', pd.DataFrame())
+                    df_res.attrs['frame_loads'] = etabs_data.get('frame_loads', pd.DataFrame())
+                    df_res.attrs['restraints'] = etabs_data.get('restraints', pd.DataFrame())
+                    df_res.attrs['hinges'] = etabs_data.get('hinges', pd.DataFrame())
+                    df_res.attrs['pdf_dim_mode'] = True
+                    _used_pdf_dims = True
+                if not _used_pdf_dims:
+                    all_items = []
+                    for elem_type, key in [("column", "columns"), ("beam", "beams"), ("wall", "walls"), ("slab", "slabs")]:
+                        df_sub = etabs_data.get(key, pd.DataFrame())
+                        if not df_sub.empty:
+                            for _, row in df_sub.iterrows():
+                                all_items.append({
+                                    "element_type": elem_type,
+                                    "status": "Za provjeru s PDF-om",
+                                    "etabs_name": row.get("name", ""),
+                                    "story": row.get("story", ""),
+                                    "etabs_x": row.get("x_start", row.get("centroid_x", 0.0)),
+                                    "etabs_y": row.get("y_start", row.get("centroid_y", 0.0)),
+                                    "etabs_z": row.get("z_end", row.get("centroid_z", row.get("z_start", 0.0))),
+                                    "etabs_section": row.get("section", row.get("prop_name", "")),
+                                    "etabs_w_mm": row.get("width_mm"),
+                                    "etabs_h_mm": row.get("height_mm", row.get("thickness_mm")),
+                                    "etabs_material": row.get("material", ""),
+                                    "dxf_dim_text": "—",
+                                    "dxf_dim1_mm": None,
+                                    "dxf_dim2_mm": None,
+                                    "xy_dist_m": None,
+                                    "notes": "Element u ETABS modelu",
+                                })
+                    STANDARD_COLS = [
+                        "element_type", "status", "etabs_name", "story", "etabs_x", "etabs_y", "etabs_z",
+                        "etabs_section", "etabs_w_mm", "etabs_h_mm", "etabs_material",
+                        "dxf_dim_text", "dxf_dim1_mm", "dxf_dim2_mm", "xy_dist_m", "notes"
+                    ]
+                    df_res = pd.DataFrame(all_items) if all_items else pd.DataFrame(columns=STANDARD_COLS)
+                    df_res.attrs["sanity_alerts"] = run_structural_sanity_checks(etabs_data, cfg)
+                    df_res.attrs["materials"] = etabs_data.get("materials", [])
+                    df_res.attrs["load_patterns"] = etabs_data.get("load_patterns", pd.DataFrame())
+                    df_res.attrs["area_loads"] = etabs_data.get("area_loads", pd.DataFrame())
+                    df_res.attrs["frame_loads"] = etabs_data.get("frame_loads", pd.DataFrame())
+                    df_res.attrs["restraints"] = etabs_data.get("restraints", pd.DataFrame())
+                    df_res.attrs["hinges"] = etabs_data.get("hinges", pd.DataFrame())
             else:
                 df_dxf = _cached_parse_dxf_bytes(dxf_bytes, cfg)
                 df_res = _cached_validate(etabs_data, df_dxf, cfg)
@@ -976,26 +1014,50 @@ def main():
         ) or "Geometrija i presjeci"
 
         if sub_view == "Geometrija i presjeci":
+            _pdf_dim_mode = bool(df_res.attrs.get("pdf_dim_mode", False))
+            _CONF = "Dimenzija potvrđena na nacrtu"
+            _NOTF = "Dimenzija nije nađena na nacrtu"
+            _NOD  = "Nema dimenzije u modelu"
             n_match = len(df_res[df_res["status"] == Status.MATCH]) if "status" in df_res.columns else 0
             n_mis   = len(df_res[df_res["status"] == Status.SECTION_MISMATCH]) if "status" in df_res.columns else 0
             n_etabs = len(df_res[df_res["status"] == Status.ETABS_ONLY]) if "status" in df_res.columns else 0
             n_dxf   = len(df_res[df_res["status"] == Status.DXF_ONLY]) if "status" in df_res.columns else 0
-
             pill_opts = ["Svi"]
-            if not is_pdf_mode:
+            if _pdf_dim_mode:
+                n_conf = int((df_res["status"] == _CONF).sum()) if "status" in df_res.columns else 0
+                n_notf = int((df_res["status"] == _NOTF).sum()) if "status" in df_res.columns else 0
+                n_nod  = int((df_res["status"] == _NOD).sum()) if "status" in df_res.columns else 0
+                pill_opts.extend([
+                    f"✓ Potvrđeno na nacrtu ({n_conf})",
+                    f"✗ Nije nađeno na nacrtu ({n_notf})",
+                    f"— Bez dimenzije ({n_nod})",
+                ])
+            elif not is_pdf_mode:
                 pill_opts.extend([
                     f"✓ Usklađeno ({n_match})",
                     f"⚠ Odstupanje ({n_mis})",
                     f"✗ Samo ETABS ({n_etabs})",
                     f"○ Samo nacrt ({n_dxf})"
                 ])
-
-            if is_pdf_mode:
-                st.caption(
-                    "PDF mod — prikaz elemenata iz ETABS modela bez "
-                    "geometrijske usporedbe s nacrtom."
+            if _pdf_dim_mode:
+                _ntok = df_res.attrs.get("pdf_dim_tokens", 0)
+                _nb = "#161B22" if is_dark else "#EFF6FF"
+                _nt = "#8B949E" if is_dark else "#1E40AF"
+                st.markdown(
+                    f"<div style='background:{_nb}; border-left:3px solid #2563EB;"
+                    f"border-radius:0 4px 4px 0; padding:8px 12px; margin-bottom:10px;"
+                    f"font-size:12px; color:{_nt};'>"
+                    f"Automatska provjera dimenzija iz kota u PDF-u: pronađeno {_ntok} kota. "
+                    f"Presjeci iz ETABS modela uspoređeni su s dimenzijama pročitanim s nacrta."
+                    f"</div>",
+                    unsafe_allow_html=True
                 )
-
+            elif is_pdf_mode:
+                st.caption(
+                    "PDF nacrt nema tekstualne kote (skenirani crtež) — prikaz elemenata "
+                    "iz ETABS modela bez automatske usporedbe. Za automatsku provjeru "
+                    "priložite vektorski PDF s kotama ili DXF nacrt."
+                )
             else:
                 ref_stories = df_res.attrs.get("reference_stories", {}) or {}
                 if ref_stories:
@@ -1003,13 +1065,12 @@ def main():
                     note_bg = "#161B22" if is_dark else "#EFF6FF"
                     note_txt = "#8B949E" if is_dark else "#1E40AF"
                     st.markdown(
-                        f'<div style="background:{note_bg}; border-left:3px solid #2563EB;'
-                        f'border-radius:0 4px 4px 0; padding:8px 12px; margin-bottom:10px;'
-                        f'font-size:12px; color:{note_txt};">'
-                        f'Nacrt je uspore\u0111en s eta\u017eom <strong>{ref_list}</strong> '
-                        f'(automatski odabrana kao najbolje poklapanje s tlocrtom). '
-                        f'Elementi ostalih eta\u017ea ozna\u010deni su kao samo-ETABS uz napomenu o eta\u017ei.'
-                        f'</div>',
+                        f"<div style='background:{note_bg}; border-left:3px solid #2563EB;"
+                        f"border-radius:0 4px 4px 0; padding:8px 12px; margin-bottom:10px;"
+                        f"font-size:12px; color:{note_txt};'>"
+                        f"Nacrt je uspoređen s etažom <strong>{ref_list}</strong> "
+                        f"(automatski odabrana kao najbolje poklapanje s tlocrtom)."
+                        f"</div>",
                         unsafe_allow_html=True
                     )
             dfd = df_res.copy()
@@ -1055,7 +1116,13 @@ def main():
                     label_visibility="collapsed"
                 ) or "Svi"
 
-            if "Usklađeno" in sel_pill:
+            if "Potvrđeno na nacrtu" in sel_pill:
+                dfd = dfd[dfd["status"] == _CONF]
+            elif "Nije nađeno na nacrtu" in sel_pill:
+                dfd = dfd[dfd["status"] == _NOTF]
+            elif "Bez dimenzije" in sel_pill:
+                dfd = dfd[dfd["status"] == _NOD]
+            elif "Usklađeno" in sel_pill:
                 dfd = dfd[dfd["status"] == Status.MATCH]
             elif "Odstupanje" in sel_pill:
                 dfd = dfd[dfd["status"] == Status.SECTION_MISMATCH]
