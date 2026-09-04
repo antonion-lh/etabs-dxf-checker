@@ -365,8 +365,304 @@ h3 {
 </style>
 """
 
-def inject_app_css():
+DARK_ENGINEERING_CSS = """
+<style>
+/* Dark Mode Theme */
+.stApp, [data-testid="stAppViewContainer"] {
+    background-color: #0B0F19 !important;
+    color: #E2E8F0 !important;
+}
+.block-container {
+    color: #E2E8F0 !important;
+}
+html, body, [class*="css"] {
+    color: #E2E8F0 !important;
+}
+h1, h2, h3 {
+    color: #F8FAFC !important;
+}
+p, span, label {
+    color: #CBD5E1 !important;
+}
+.mono {
+    color: #94A3B8 !important;
+    background-color: rgba(30, 41, 59, 0.6) !important;
+}
+
+/* Sidebar Dark */
+[data-testid="stSidebar"] {
+    background-color: #0F172A !important;
+    border-right: 1px solid #1E293B !important;
+}
+[data-testid="stSidebar"] .sidebar-section-label {
+    color: #94A3B8 !important;
+    border-bottom: 1px solid #1E293B !important;
+}
+[data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
+    color: #CBD5E1 !important;
+}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
+    color: #F8FAFC !important;
+}
+
+/* Header Dark */
+.app-header {
+    border-bottom: 1px solid #1E293B !important;
+}
+.app-header-title {
+    color: #F8FAFC !important;
+}
+.app-header-meta {
+    color: #94A3B8 !important;
+}
+
+/* Tabs Dark */
+[data-baseweb="tab-list"] {
+    border-bottom: 1px solid #1E293B !important;
+}
+[data-baseweb="tab"] {
+    color: #94A3B8 !important;
+    background: transparent !important;
+}
+[data-baseweb="tab"]:hover {
+    color: #F8FAFC !important;
+}
+[aria-selected="true"] {
+    color: #60A5FA !important;
+    border-bottom: 2px solid #60A5FA !important;
+}
+
+/* Segmented Control Dark */
+[data-testid="stSegmentedControl"] {
+    background-color: #1E293B !important;
+}
+[data-testid="stSegmentedControl"] button {
+    color: #94A3B8 !important;
+}
+[data-testid="stSegmentedControl"] button[aria-checked="true"] {
+    background-color: #0F172A !important;
+    color: #F8FAFC !important;
+}
+
+/* Inputs, Selectboxes, Dropdowns */
+div[data-baseweb="select"] > div {
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border-color: #334155 !important;
+}
+div[data-baseweb="select"] span {
+    color: #F8FAFC !important;
+}
+input, textarea {
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border-color: #334155 !important;
+}
+
+/* Cards & Containers Dark */
+.landing-box {
+    background: #131B2E !important;
+    border: 1px solid #1E293B !important;
+}
+.landing-title {
+    color: #F8FAFC !important;
+}
+.landing-subtitle {
+    color: #94A3B8 !important;
+}
+.step-card {
+    background: #131B2E !important;
+    border: 1px solid #1E293B !important;
+}
+.step-num {
+    color: #64748B !important;
+}
+.step-title {
+    color: #F8FAFC !important;
+}
+.step-desc {
+    color: #94A3B8 !important;
+}
+.own-model-card {
+    background: #131B2E !important;
+    border: 1px dashed #334155 !important;
+}
+.own-model-title {
+    color: #F8FAFC !important;
+}
+.own-model-desc {
+    color: #94A3B8 !important;
+}
+.own-model-hint {
+    color: #60A5FA !important;
+}
+[data-testid="stMetric"] {
+    background: #131B2E !important;
+    border: 1px solid #1E293B !important;
+}
+[data-testid="stMetricLabel"] {
+    color: #94A3B8 !important;
+}
+[data-testid="stMetricValue"] {
+    color: #F8FAFC !important;
+}
+[data-testid="stExpander"] {
+    background: #131B2E !important;
+    border: 1px solid #1E293B !important;
+}
+[data-testid="stExpander"] summary {
+    color: #F8FAFC !important;
+}
+[data-testid="stExpander"] summary:hover {
+    background: #1E293B !important;
+}
+
+/* DataFrame Dark */
+[data-testid="stDataFrame"] {
+    background-color: #131B2E !important;
+}
+[data-testid="stDataFrame"] th {
+    background-color: #1E293B !important;
+    color: #94A3B8 !important;
+    border-bottom: 1px solid #334155 !important;
+}
+[data-testid="stDataFrame"] td {
+    background-color: #131B2E !important;
+    color: #E2E8F0 !important;
+    border-bottom: 1px solid #1E293B !important;
+}
+
+/* Buttons Dark */
+[data-testid="stBaseButton-primary"] {
+    background-color: #2563EB !important;
+    color: #FFFFFF !important;
+    border: 1px solid #2563EB !important;
+}
+[data-testid="stBaseButton-primary"]:hover {
+    background-color: #1D4ED8 !important;
+    border-color: #1D4ED8 !important;
+}
+[data-testid="stBaseButton-secondary"] {
+    background-color: #1E293B !important;
+    color: #F8FAFC !important;
+    border: 1px solid #334155 !important;
+}
+[data-testid="stBaseButton-secondary"]:hover {
+    background-color: #334155 !important;
+    border-color: #475569 !important;
+    color: #FFFFFF !important;
+}
+
+/* Triage Items Dark */
+.triage-item {
+    background: #131B2E !important;
+    border-left: 3px solid #334155 !important;
+}
+.triage-title {
+    color: #F8FAFC !important;
+}
+.triage-finding {
+    color: #CBD5E1 !important;
+}
+.triage-fail { background: rgba(225, 29, 72, 0.15) !important; border-left-color: #F43F5E !important; }
+.triage-warn { background: rgba(217, 119, 6, 0.15) !important; border-left-color: #F59E0B !important; }
+.triage-pass { background: rgba(16, 185, 129, 0.15) !important; border-left-color: #10B981 !important; }
+/* Tables and Div inline overrides */
+table { color: #CBD5E1 !important; }
+table td { color: #CBD5E1 !important; }
+div[style*="border-bottom: 1px solid #E5E7EB"] { border-bottom: 1px solid #1E293B !important; }
+div[style*="background:#E2E8F0"] { background: #1E293B !important; }
+span[style*="color: #111827"], strong[style*="color: #111827"], div[style*="color: #111827"] { color: #F8FAFC !important; }
+span[style*="color: #374151"], div[style*="color: #374151"] { color: #CBD5E1 !important; }
+span[style*="color: #6B7280"] { color: #94A3B8 !important; }
+</style>
+"""
+
+LARGE_FONT_CSS = """
+<style>
+/* Large Font Accessibility Mode (+15-20%) */
+html, body, [class*="css"] {
+    font-size: 15px !important;
+}
+h1 {
+    font-size: 21px !important;
+}
+h2 {
+    font-size: 16px !important;
+}
+h3 {
+    font-size: 15px !important;
+}
+.mono {
+    font-size: 13.5px !important;
+}
+.app-header-title {
+    font-size: 18px !important;
+}
+.app-header-meta {
+    font-size: 13.5px !important;
+}
+.step-title {
+    font-size: 14.5px !important;
+}
+.step-desc {
+    font-size: 13px !important;
+}
+.landing-title {
+    font-size: 21px !important;
+}
+.landing-subtitle {
+    font-size: 14.5px !important;
+}
+.own-model-title {
+    font-size: 15px !important;
+}
+.own-model-desc {
+    font-size: 13px !important;
+}
+[data-testid="stMetricLabel"] {
+    font-size: 12px !important;
+}
+[data-testid="stMetricValue"] {
+    font-size: 23px !important;
+}
+[data-testid="stDataFrame"] th {
+    font-size: 12px !important;
+}
+[data-testid="stDataFrame"] td {
+    font-size: 13.5px !important;
+}
+[data-testid="stExpander"] summary {
+    font-size: 14px !important;
+}
+[data-testid="stBaseButton-primary"], [data-testid="stBaseButton-secondary"] {
+    font-size: 14px !important;
+    padding: 10px 18px !important;
+}
+[data-testid="stSidebar"] .sidebar-section-label {
+    font-size: 11px !important;
+}
+.triage-title {
+    font-size: 14px !important;
+}
+.triage-finding {
+    font-size: 13px !important;
+}
+</style>
+"""
+
+def inject_app_css(dark_mode: bool = None, font_scale: str = None):
     st.markdown(MINIMAL_ENGINEERING_CSS, unsafe_allow_html=True)
+    if dark_mode is None and hasattr(st, "session_state"):
+        dark_mode = (st.session_state.get("app_theme") == "Tamna")
+    if font_scale is None and hasattr(st, "session_state"):
+        font_scale = "large" if (st.session_state.get("app_font_scale") == "Veliki") else "normal"
+
+    if dark_mode:
+        st.markdown(DARK_ENGINEERING_CSS, unsafe_allow_html=True)
+    if font_scale == "large":
+        st.markdown(LARGE_FONT_CSS, unsafe_allow_html=True)
 
 def render_header_bar(
     project_name: str = None,

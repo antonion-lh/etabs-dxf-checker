@@ -219,14 +219,16 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
 
     status_map = {str(r.get("etabs_name")): r.get("status") for _, r in df_res.iterrows() if r.get("etabs_name")}
 
+    is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
+
     # 1. Background Slab Polygons
     if not slabs_all.empty or (max_x > min_x and max_y > min_y):
         fig.add_trace(go.Scatter(
             x=[min_x, max_x, max_x, min_x, min_x],
             y=[min_y, min_y, max_y, max_y, min_y],
             fill="toself",
-            fillcolor="rgba(241, 245, 249, 0.7)",
-            line=dict(color="#cbd5e1", width=1, dash="dash"),
+            fillcolor="rgba(30, 41, 59, 0.4)" if is_dark else "rgba(241, 245, 249, 0.7)",
+            line=dict(color="#475569" if is_dark else "#cbd5e1", width=1, dash="dash"),
             name="Ploča konstrukcije",
             hovertext=f"<b>Ploča konstrukcije ({active_story_name or 'Sve etaže'})</b><br>Raspon: {max_x - min_x:.1f} × {max_y - min_y:.1f} m",
             hoverinfo="text",
@@ -633,24 +635,34 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
         if s_disp and s_disp.lower() in ("base", "podnozje", "podnožje"):
             s_disp = "Prizemlje"
 
+    bg_col = "#0B0F19" if is_dark else "#ffffff"
+    title_col = "#F8FAFC" if is_dark else "#0f172a"
+    grid_col = "#1E293B" if is_dark else "#f1f5f9"
+    zero_col = "#334155" if is_dark else "#cbd5e1"
+    tick_col = "#94A3B8" if is_dark else "#64748b"
+    leg_bg = "rgba(19, 27, 46, 0.92)" if is_dark else "rgba(255,255,255,0.9)"
+    leg_border = "#334155" if is_dark else "#e2e8f0"
+    leg_text = "#E2E8F0" if is_dark else "#334155"
+
     fig.update_layout(
         title=dict(
             text=f"<b>📐 Tlocrt: {s_disp}</b>" if s_disp else "<b>📐 Tlocrt numeričkog modela (Sve etaže)</b>",
             x=0.02, y=0.98,
-            font=dict(size=14, color="#0f172a"),
+            font=dict(size=14, color=title_col),
         ),
         margin=dict(l=30, r=20, t=40, b=40),
         height=540,
-        plot_bgcolor="#ffffff",
-        paper_bgcolor="#ffffff",
+        plot_bgcolor=bg_col,
+        paper_bgcolor=bg_col,
         xaxis=dict(
             title="X koordinata (m)",
             range=[min_x - pad_x, max_x + pad_x],
             showgrid=True,
-            gridcolor="#f1f5f9",
+            gridcolor=grid_col,
             zeroline=True,
-            zerolinecolor="#cbd5e1",
-            tickfont=dict(size=11, color="#64748b"),
+            zerolinecolor=zero_col,
+            tickfont=dict(size=11, color=tick_col),
+            titlefont=dict(color=tick_col),
         ),
         yaxis=dict(
             title="Y koordinata (m)",
@@ -658,18 +670,19 @@ def fig_2d(df_res: pd.DataFrame, etabs_data: dict, active_story_name: str = None
             scaleanchor="x",
             scaleratio=1,
             showgrid=True,
-            gridcolor="#f1f5f9",
+            gridcolor=grid_col,
             zeroline=True,
-            zerolinecolor="#cbd5e1",
-            tickfont=dict(size=11, color="#64748b"),
+            zerolinecolor=zero_col,
+            tickfont=dict(size=11, color=tick_col),
+            titlefont=dict(color=tick_col),
         ),
         legend=dict(
             orientation="h",
             x=0, y=-0.14,
-            bgcolor="rgba(255,255,255,0.9)",
-            bordercolor="#e2e8f0",
+            bgcolor=leg_bg,
+            bordercolor=leg_border,
             borderwidth=1,
-            font=dict(size=11, color="#334155"),
+            font=dict(size=11, color=leg_text),
         ),
     )
     return fig
@@ -932,11 +945,14 @@ def fig_3d(df_res: pd.DataFrame, etabs_data: dict, etabs_color_mode: bool = True
                 hoverinfo="skip",
             ))
 
+    is_dark = (st.session_state.get("app_theme") == "Tamna") if hasattr(st, "session_state") else False
+    fig_bg = "#0B0F19" if is_dark else "#ffffff"
+
     fig.update_layout(
         margin=dict(l=0, r=0, t=10, b=0),
         height=580,
-        paper_bgcolor="#ffffff",
-        plot_bgcolor="#ffffff",
+        paper_bgcolor=fig_bg,
+        plot_bgcolor=fig_bg,
         scene=dict(
             aspectmode="data",
             camera=dict(

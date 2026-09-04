@@ -275,6 +275,33 @@ def _sidebar() -> tuple:
             report_hinges=True,
         )
 
+        # Postavke prikaza (Tema i Font)
+        st.markdown("<div class='sidebar-section-label'>Postavke prikaza</div>", unsafe_allow_html=True)
+        col_ui1, col_ui2 = st.columns(2)
+        with col_ui1:
+            theme_mode = st.segmented_control(
+                "Tema:",
+                options=["Svijetla", "Tamna"],
+                default=st.session_state.get("app_theme", "Svijetla"),
+                key="sb_theme_ctrl",
+                label_visibility="collapsed"
+            ) or "Svijetla"
+            if theme_mode != st.session_state.get("app_theme"):
+                st.session_state["app_theme"] = theme_mode
+                st.rerun()
+
+        with col_ui2:
+            font_choice = st.segmented_control(
+                "Font:",
+                options=["Normal", "Veliki"],
+                default=st.session_state.get("app_font_scale", "Normal"),
+                key="sb_font_ctrl",
+                label_visibility="collapsed"
+            ) or "Normal"
+            if font_choice != st.session_state.get("app_font_scale"):
+                st.session_state["app_font_scale"] = font_choice
+                st.rerun()
+
         st.markdown("---")
         if st.session_state.get("use_demo"):
             if st.button("Isključi demo / Učitaj vlastiti projekt", use_container_width=True, key="btn_reset_session"):
@@ -717,13 +744,19 @@ def main():
                         x=0.0050, line_dash="dash", line_color="#DC2626",
                         annotation_text="EC8 ≤ 5.0‰"
                     )
+                    is_dark = (st.session_state.get("app_theme") == "Tamna")
+                    c_bg = "#131B2E" if is_dark else "#FFFFFF"
+                    c_txt = "#F8FAFC" if is_dark else "#111827"
+                    c_grid = "#1E293B" if is_dark else "#F1F5F9"
+
                     fig_drift.update_layout(
-                        title="Katni pomaci (Story Drift)",
-                        xaxis_title="dr [-]", yaxis_title="Etaža",
+                        title=dict(text="Katni pomaci (Story Drift)", font=dict(color=c_txt)),
+                        xaxis=dict(title="dr [-]", gridcolor=c_grid, tickfont=dict(color=c_txt), title_font=dict(color=c_txt)),
+                        yaxis=dict(title="Etaža", gridcolor=c_grid, tickfont=dict(color=c_txt), title_font=dict(color=c_txt)),
                         height=260, margin=dict(l=40, r=20, t=36, b=30),
-                        plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF"
+                        plot_bgcolor=c_bg, paper_bgcolor=c_bg
                     )
-                    st.plotly_chart(fig_drift, use_container_width=True)
+                    st.plotly_chart(fig_drift, use_container_width=True, config={"displaylogo": False})
             with c_g2:
                 if not df_sf.empty:
                     col_v = next((c for c in ["VX", "vx", "Vx"] if c in df_sf.columns), None)
@@ -732,15 +765,16 @@ def main():
                         grp = df_sf.groupby(col_s)[col_v].apply(lambda s: s.abs().max()).reset_index()
                         fig_sf = go.Figure(go.Bar(
                             x=grp[col_s], y=grp[col_v],
-                            marker_color="#374151"
+                            marker_color="#60A5FA" if is_dark else "#374151"
                         ))
                         fig_sf.update_layout(
-                            title="Poprečne sile po etažama (kN)",
-                            xaxis_title="Etaža", yaxis_title="Vx (kN)",
+                            title=dict(text="Poprečne sile po etažama (kN)", font=dict(color=c_txt)),
+                            xaxis=dict(title="Etaža", gridcolor=c_grid, tickfont=dict(color=c_txt), title_font=dict(color=c_txt)),
+                            yaxis=dict(title="Vx (kN)", gridcolor=c_grid, tickfont=dict(color=c_txt), title_font=dict(color=c_txt)),
                             height=260, margin=dict(l=40, r=20, t=36, b=30),
-                            plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF"
+                            plot_bgcolor=c_bg, paper_bgcolor=c_bg
                         )
-                        st.plotly_chart(fig_sf, use_container_width=True)
+                        st.plotly_chart(fig_sf, use_container_width=True, config={"displaylogo": False})
         else:
             st.caption("Opcija — učitajte ETABS tablice u sidebar za prikaz katnih pomaka, poprečnih sila i provjere armature.")
 
