@@ -486,7 +486,7 @@ def _make_overlay(gray: "np.ndarray", segments: List[Segment]) -> bytes:
     """
     from PIL import Image, ImageDraw
 
-    base = Image.fromarray(np.asarray(gray, dtype=np.uint8), mode="L").convert("RGB")
+    base = Image.fromarray(np.asarray(gray, dtype=np.uint8)).convert("L").convert("RGB")
     draw = ImageDraw.Draw(base)
     for (x0, y0), (x1, y1) in segments:
         draw.line([(x0, y0), (x1, y1)], fill=(255, 0, 0), width=2)

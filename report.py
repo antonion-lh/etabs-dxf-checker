@@ -241,7 +241,7 @@ def _data_rows(df: pd.DataFrame, cols: list[str]) -> str:
 
 def _type_breakdown_html(df: pd.DataFrame) -> str:
     cards = []
-    for et, grp in df.groupby("element_type"):
+    for et, grp in (df.groupby("element_type") if "element_type" in df.columns else []):
         color = ELEMENT_COLORS.get(str(et), "#6c757d")
         cards.append(
             f'<div class="type-card" style="background:{color}">'
@@ -358,7 +358,7 @@ def _loads_table_html(df_pats: pd.DataFrame, df_result: pd.DataFrame) -> str:
             f'<tbody>{"".join(rows)}</tbody></table>'
         )
 
-    df_slabs = df_result[df_result["element_type"] == "slab"] if not df_result.empty else pd.DataFrame()
+    df_slabs = df_result[df_result["element_type"] == "slab"] if (not df_result.empty and "element_type" in df_result.columns) else pd.DataFrame()
     if not df_slabs.empty and "etabs_load_g_kpa" in df_slabs.columns:
         s_rows = []
         for _, sr in df_slabs.iterrows():
@@ -905,7 +905,7 @@ def generate_pdf(
             html_content = generate_html(df_target, tmp_h_path, cfg)
         finally:
             try: os.unlink(tmp_h_path)
-            except: pass
+            except Exception: pass
 
     try:
         import weasyprint  # type: ignore

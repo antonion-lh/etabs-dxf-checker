@@ -60,11 +60,24 @@ def run_curriculum_audit(etabs_dict: dict, cfg: Any = None, results_data: Any = 
     beams = etabs_dict.get("beams", pd.DataFrame())
     walls = etabs_dict.get("walls", pd.DataFrame())
     slabs = etabs_dict.get("slabs", pd.DataFrame())
-    mats = etabs_dict.get("materials", pd.DataFrame())
-    pats = etabs_dict.get("load_patterns", pd.DataFrame())
-    rests = etabs_dict.get("restraints", pd.DataFrame())
-    grids = etabs_dict.get("grids", pd.DataFrame())
-    aloads = etabs_dict.get("area_loads", pd.DataFrame())
+    def _as_df(v):
+        # Normaliziraj u DataFrame: neki izvori vracaju liste dictova umjesto
+        # DataFrame-a, a kod nize koristi .empty/.columns. Ovime je audit robustan
+        # bez obzira dolazi li polje kao lista ili kao DataFrame.
+        if isinstance(v, pd.DataFrame):
+            return v
+        if v is None:
+            return pd.DataFrame()
+        try:
+            return pd.DataFrame(v)
+        except Exception:
+            return pd.DataFrame()
+
+    mats = _as_df(etabs_dict.get("materials", pd.DataFrame()))
+    pats = _as_df(etabs_dict.get("load_patterns", pd.DataFrame()))
+    rests = _as_df(etabs_dict.get("restraints", pd.DataFrame()))
+    grids = _as_df(etabs_dict.get("grids", pd.DataFrame()))
+    aloads = _as_df(etabs_dict.get("area_loads", pd.DataFrame()))
     stories = etabs_dict.get("stories", [])
     stories_df = etabs_dict.get("stories_df", pd.DataFrame())
     units = etabs_dict.get("units", {"force": "KN", "length": "M", "temp": "C"})

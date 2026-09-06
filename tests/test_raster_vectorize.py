@@ -10,7 +10,7 @@ import raster_vectorize as r
 
 def _png_bytes(arr):
     from PIL import Image
-    img = Image.fromarray(arr, mode="L")
+    img = Image.fromarray(arr).convert("L")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
