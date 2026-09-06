@@ -127,8 +127,16 @@ def _cached_pdf_has_dims(pdf_bytes: bytes) -> bool:
 
 @st.cache_data(show_spinner=False, max_entries=8)
 def _cached_pdf_pages(pdf_bytes: bytes) -> int:
-    from raster_vectorize import pdf_page_count
-    return pdf_page_count(pdf_bytes)
+    # Defenzivno: ako modul (ili njegova verzija na serveru) nema pdf_page_count,
+    # ne rusi aplikaciju - vrati 0 (tada UI ne nudi odabir stranice).
+    try:
+        import raster_vectorize as _rv
+        fn = getattr(_rv, "pdf_page_count", None)
+        if fn is None:
+            return 0
+        return fn(pdf_bytes)
+    except Exception:
+        return 0
 
 @st.cache_data(show_spinner=False, max_entries=6)
 def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int, page: int = 0):
