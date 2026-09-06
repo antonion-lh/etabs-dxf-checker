@@ -144,6 +144,100 @@ def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len
     params = Params(threshold=threshold, min_len_px=min_len_px, max_gap_px=max_gap_px, denoise_iters=denoise_iters, dpi_cap=dpi_cap, merge_wall_axes=merge_axes)
     return vectorize_floorplan(pdf_or_img_bytes, filename, params, page=page)
 
+
+def _vektor_selected_indices(selection):
+    """Iz Plotly on_select rezultata izvuce skup indeksa linija (curve_number).
+
+    Robusno na razne oblike: None, prazno, dict s "points", ili objekt s
+    atributom points. Svaka tocka nosi curve_number (indeks traga = indeks
+    linije). Vraca set[int]; prazan set ako nema odabira.
+    """
+    if not selection:
+        return set()
+    points = None
+    if isinstance(selection, dict):
+        points = selection.get("points")
+        if points is None and isinstance(selection.get("selection"), dict):
+            points = selection["selection"].get("points")
+    else:
+        points = getattr(selection, "points", None)
+        if points is None:
+            sel = getattr(selection, "selection", None)
+            if sel is not None:
+                points = getattr(sel, "points", None)
+    if not points:
+        return set()
+    out = set()
+    for pt in points:
+        cn = None
+        if isinstance(pt, dict):
+            cn = pt.get("curve_number", pt.get("curveNumber"))
+        else:
+            cn = getattr(pt, "curve_number", getattr(pt, "curveNumber", None))
+        if cn is not None:
+            try:
+                out.add(int(cn))
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def _vektor_active_segments(segments, deleted):
+    """Vraca linije ciji indeks nije u skupu obrisanih (redoslijed ocuvan)."""
+    if not segments:
+        return []
+
+    deleted = deleted or set()
+    return [s for i, s in enumerate(segments) if i not in deleted]
+
+
+def _vektor_build_figure(gray, segments):
+    """Gradi Plotly figuru: pozadinska siva slika + svaka linija kao zaseban trag.
+
+    Pozadinska slika ide u layout.images (NE kao trag), pa je indeks svakog
+    Scatter traga jednak indeksu linije u `segments`. Time curve_number iz
+    on_select odgovara indeksu linije bez pomaka. Y-os je obrnuta da odgovara
+    rasterskoj slici (ishodiste gore-lijevo).
+    """
+    import numpy as _np
+    import plotly.graph_objects as _go
+    from PIL import Image as _Image
+    import base64 as _b64
+    import io as _io
+
+    arr = _np.asarray(gray, dtype=_np.uint8)
+    h, w = arr.shape[:2]
+
+    fig = _go.Figure()
+    # Pozadinska slika kao data URI u layout.images.
+    try:
+        buf = _io.BytesIO()
+        _Image.fromarray(arr).convert("L").save(buf, format="PNG")
+        uri = "data:image/png;base64," + _b64.b64encode(buf.getvalue()).decode("ascii")
+        fig.add_layout_image(dict(
+            source=uri, xref="x", yref="y", x=0, y=0,
+            sizex=w, sizey=h, sizing="stretch", layer="below", opacity=0.55,
+        ))
+    except Exception:
+        pass
+
+    # Svaka linija = zaseban trag (2 tocke). Indeks traga == indeks linije.
+    for (x0, y0), (x1, y1) in segments:
+        fig.add_trace(_go.Scatter(
+            x=[x0, x1], y=[y0, y1],
+            mode="lines", line=dict(color="#e11d48", width=2),
+            hoverinfo="skip", showlegend=False,
+        ))
+
+    fig.update_xaxes(range=[0, w], visible=False, constrain="domain")
+    fig.update_yaxes(range=[h, 0], visible=False, scaleanchor="x", scaleratio=1)
+    fig.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        height=560, dragmode="select",
+        plot_bgcolor="white", paper_bgcolor="white",
+    )
+    return fig
+
 @st.cache_data(show_spinner=False)
 def _cached_curriculum_audit(_etabs_data: dict, _results_data: dict = None):
     return run_curriculum_audit(_etabs_data, results_data=_results_data)
@@ -1516,36 +1610,103 @@ def main():
                     st.error(_res.get("warning") or "Vektorizacija nije uspjela.")
                     st.stop()
 
-                st.metric("Detektirano linija", _res.get("n_segments", 0))
+                _segments_all = _res.get("segments") or []
+                _gray = _res.get("gray")
 
-                _col_l, _col_r = st.columns(2)
-                with _col_l:
-                    if _res.get("gray") is not None:
-                        st.image(_res["gray"], caption="Original (sivo)", clamp=True, use_container_width=True)
-                with _col_r:
-                    if _res.get("overlay_png") is not None:
-                        st.image(_res["overlay_png"], caption="Detektirane linije", use_container_width=True)
+                # Set-potpis: promjena ulaza/parametara gradi novi skup linija pa
+                # ponistava rucna brisanja iz prethodnog skupa.
+                _sig = "|".join(str(x) for x in [
+                    _vf.name, _threshold, _min_len_px, _max_gap_px,
+                    _denoise_iters, _dpi_cap, _page, _merge_axes,
+                    len(_segments_all),
+                ])
+                if st.session_state.get("vektor_sig") != _sig:
+                    st.session_state["vektor_sig"] = _sig
+                    st.session_state["vektor_deleted"] = set()
+                _deleted = st.session_state.get("vektor_deleted", set())
+
+                _active = _vektor_active_segments(_segments_all, _deleted)
+
+                c_a, c_b = st.columns([1, 1])
+                c_a.metric("Detektirano linija", len(_segments_all))
+                c_b.metric("Aktivno (za izvoz)", len(_active))
+
+                # Interaktivni prikaz s odabirom linija (lasso/box) + fallback.
+                _interactive = False
+                if _gray is not None and _segments_all:
+                    try:
+                        _fig = _vektor_build_figure(_gray, _active)
+                        _ev = st.plotly_chart(
+                            _fig, use_container_width=True,
+                            on_select="rerun",
+                            selection_mode=("box", "lasso"),
+                            key="vektor_plot",
+                        )
+                        _interactive = True
+                        _sel = _vektor_selected_indices(_ev)
+                        st.caption(
+                            "Povucite okvir (box) ili lasso preko linija koje su "
+                            "šum (kote, stubište) pa ih obrišite. Napomena: indeksi "
+                            "se odnose na trenutno prikazane linije."
+                        )
+                        b1, b2 = st.columns(2)
+                        with b1:
+                            if st.button("Obriši odabrane linije", key="vektor_del_btn", use_container_width=True):
+                                if _sel:
+                                    # _sel su indeksi u _active; preslikaj na indekse u _segments_all
+                                    _active_idx = [i for i in range(len(_segments_all)) if i not in _deleted]
+                                    _to_del = {_active_idx[i] for i in _sel if 0 <= i < len(_active_idx)}
+                                    st.session_state["vektor_deleted"] = set(_deleted) | _to_del
+                                    st.rerun()
+                                else:
+                                    st.warning("Nije odabrana nijedna linija.")
+                        with b2:
+                            if st.button("Poništi sve (reset)", key="vektor_reset_btn", use_container_width=True):
+                                st.session_state["vektor_deleted"] = set()
+                                st.rerun()
+                    except Exception:
+                        _interactive = False
+
+                if not _interactive:
+                    # Fallback: staticni pregled bez rucnog brisanja.
+                    _col_l, _col_r = st.columns(2)
+                    with _col_l:
+                        if _gray is not None:
+                            st.image(_gray, caption="Original (sivo)", clamp=True, use_container_width=True)
+                    with _col_r:
+                        if _res.get("overlay_png") is not None:
+                            st.image(_res["overlay_png"], caption="Detektirane linije", use_container_width=True)
+                    st.info(
+                        "Interaktivno brisanje linija nije dostupno u ovom okruženju — "
+                        "prikazan je statični pregled. Podešavanje parametara i izvoz DXF-a rade normalno."
+                    )
 
                 st.markdown("---")
                 st.markdown(
-                    "**Kako dalje (uređivanje se radi u CAD-u, ne u ovoj aplikaciji):**\n"
-                    "1. Preuzmite DXF pritiskom na gumb ispod.\n"
-                    "2. Otvorite ga u CAD programu (AutoCAD, DraftSight, LibreCAD i sl.).\n"
-                    "3. Ondje ispravite i zatvorite linije zidova u konačni tlocrt.\n\n"
-                    "Ova aplikacija služi samo za **pregled i izvoz** — prikaz gore je "
-                    "samo kontrolni pregled detekcije, a ne uređivač."
+                    "**Kako dalje:** očistite očiti šum gore (ako je interaktivno dostupno), "
+                    "preuzmite DXF, pa ga otvorite u CAD programu (AutoCAD, DraftSight, LibreCAD) "
+                    "za završnu doradu i zatvaranje zidova. Aplikacija radi grubu pripremu; "
+                    "precizno uređivanje ostaje u CAD-u."
                 )
-                if _res.get("dxf_bytes"):
+
+                # Izvoz: DXF iz AKTIVNIH (nepobrisanih) linija.
+                try:
+                    from raster_vectorize import segments_to_dxf as _seg2dxf
+                    _H = int(_gray.shape[0]) if _gray is not None else None
+                    _dxf_active = _seg2dxf(_active, 1.0, "VEKTOR_ZID", img_height_px=_H)
+                except Exception:
+                    _dxf_active = _res.get("dxf_bytes")
+                if _dxf_active:
                     st.download_button(
-                        "Preuzmi DXF (za uređivanje u CAD-u)",
-                        data=_res["dxf_bytes"],
+                        "Preuzmi DXF (aktivne linije)",
+                        data=_dxf_active,
                         file_name="vektorizirani_tlocrt.dxf",
                         mime="application/dxf",
                         key="vektor_dxf_dl",
                     )
                 st.caption(
-                    "DXF sadrži detektirane linije na sloju **VEKTOR_ZID**. Automatska "
-                    "usporedba s ETABS modelom nije dio ovog koraka."
+                    "DXF sadrži trenutno aktivne linije na sloju **VEKTOR_ZID**. "
+                    "Automatska usporedba s ETABS modelom nije dio ovog koraka."
                 )
         else:
             st.info("Učitaj skenirani tlocrt (PDF/PNG/JPG) za pokretanje vektorizacije.")
