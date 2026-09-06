@@ -501,3 +501,41 @@ def test_vectorize_thick_walls_survive():
     data = _multipage_pdf_bytes()
     res = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50), page=1)
     assert res["n_segments"] >= 4  # bar 4 strane okvira
+
+
+def test_merge_wall_axes_pairs_to_center():
+    # Dvije paralelne H linije (y=100 i y=120, razmak 20) koje se preklapaju po x
+    # -> spajaju se u jednu os na sredini (y=110).
+    segs = [((10, 100), (200, 100)), ((10, 120), (200, 120))]
+    out = r.merge_wall_axes(segs, max_thickness_px=40)
+    assert len(out) == 1
+    (x0, y0), (x1, y1) = out[0]
+    assert y0 == y1 == 110
+    assert (min(x0, x1), max(x0, x1)) == (10, 200)
+
+
+def test_merge_wall_axes_keeps_far_apart():
+    # Dvije H linije predaleko (razmak 100 > max_thickness_px) -> NE spajaju se.
+    segs = [((10, 100), (200, 100)), ((10, 200), (200, 200))]
+    out = r.merge_wall_axes(segs, max_thickness_px=40)
+    assert len(out) == 2
+
+
+def test_merge_wall_axes_vertical():
+    segs = [((100, 10), (100, 200)), ((118, 10), (118, 200))]
+    out = r.merge_wall_axes(segs, max_thickness_px=40)
+    assert len(out) == 1
+    (x0, y0), (x1, y1) = out[0]
+    assert x0 == x1 == 109
+
+
+def test_merge_wall_axes_empty():
+    assert r.merge_wall_axes([]) == []
+
+
+def test_vectorize_merge_axes_reduces_count():
+    # merge_wall_axes=True mora dati manje segmenata nego False na istom nacrtu.
+    data = _multipage_pdf_bytes()
+    on = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50, merge_wall_axes=True), page=1)
+    off = r.vectorize_floorplan(data, "x.pdf", r.Params(min_len_px=50, merge_wall_axes=False), page=1)
+    assert on["n_segments"] <= off["n_segments"]

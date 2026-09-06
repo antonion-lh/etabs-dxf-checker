@@ -32,6 +32,8 @@ class Params:
     max_side_px: int = 6000               # zastita od OOM
     px_to_unit: float = 1.0               # px -> CAD jedinica
     layer_name: str = "VEKTOR_ZID"
+    merge_wall_axes: bool = True          # spoji paralelne parove u os zida
+    wall_thickness_px: int = 40           # max razmak para za osnu redukciju
 
 
 def _otsu_threshold(gray: "np.ndarray") -> int:
@@ -493,6 +495,81 @@ def _make_overlay(gray: "np.ndarray", segments: List[Segment]) -> bytes:
     return buf.getvalue()
 
 
+def merge_wall_axes(
+    segments: List[Segment],
+    max_thickness_px: int = 40,
+    min_overlap_frac: float = 0.4,
+) -> List[Segment]:
+    """Spaja parove bliskih paralelnih segmenata u jednu OS zida.
+
+    Zid na nacrtu je najcesce par bliskih paralelnih linija (dvije strane zida).
+    Ova funkcija za horizontalne i vertikalne segmente trazi takve parove
+    (razmak <= max_thickness_px, uz dovoljno preklapanje po duljini) i zamjenjuje
+    ih jednom linijom na sredini (osi). Time se dobiva cistiji, arhitektonski
+    prikaz. Nesparni segmenti se zadrzavaju nepromijenjeni.
+
+    Ulaz i izlaz su liste segmenata. Kosi segmenti (ni H ni V) prosljedjuju se.
+    """
+    if not segments:
+        return []
+
+    H_ = [s for s in segments if s[0][1] == s[1][1]]
+    V_ = [s for s in segments if s[0][0] == s[1][0]]
+    others = [s for s in segments if s[0][1] != s[1][1] and s[0][0] != s[1][0]]
+
+    out = []  # type: List[Segment]
+
+    def _pair_axis(group, pos_of, span_of, make_seg):
+        # pos_of: okomita koordinata (y za H, x za V); span_of: (lo,hi) po duljini.
+        order = sorted(range(len(group)), key=lambda i: pos_of(group[i]))
+        used = set()
+        for a in range(len(order)):
+            i = order[a]
+            if i in used:
+                continue
+            si = group[i]
+            pi = pos_of(si)
+            lo_i, hi_i = span_of(si)
+            paired = False
+            for b in range(a + 1, len(order)):
+                j = order[b]
+                if j in used:
+                    continue
+                sj = group[j]
+                if pos_of(sj) - pi > max_thickness_px:
+                    break
+                lo_j, hi_j = span_of(sj)
+                ov = min(hi_i, hi_j) - max(lo_i, lo_j)
+                shorter = min(hi_i - lo_i, hi_j - lo_j)
+                if shorter > 0 and ov >= min_overlap_frac * shorter:
+                    mid = (pi + pos_of(sj)) / 2.0
+                    lo = min(lo_i, lo_j)
+                    hi = max(hi_i, hi_j)
+                    out.append(make_seg(mid, lo, hi))
+                    used.add(i)
+                    used.add(j)
+                    paired = True
+                    break
+            if not paired:
+                out.append(si)
+                used.add(i)
+
+    _pair_axis(
+        H_,
+        pos_of=lambda s: s[0][1],
+        span_of=lambda s: (min(s[0][0], s[1][0]), max(s[0][0], s[1][0])),
+        make_seg=lambda y, lo, hi: ((lo, y), (hi, y)),
+    )
+    _pair_axis(
+        V_,
+        pos_of=lambda s: s[0][0],
+        span_of=lambda s: (min(s[0][1], s[1][1]), max(s[0][1], s[1][1])),
+        make_seg=lambda x, lo, hi: ((x, lo), (x, hi)),
+    )
+    out.extend(others)
+    return out
+
+
 def pdf_page_count(raw_bytes: bytes) -> int:
     """Vraca broj stranica PDF-a; 0 ako ulaz nije citljiv PDF."""
     if not raw_bytes:
@@ -589,6 +666,11 @@ def vectorize_floorplan(
 
     merged = merge_collinear(raw_segments, params.max_gap_px, params.angle_tol_deg)
     segments = reduce_noise(merged, params.min_len_px, dense_parallel_thresh=8)
+    if params.merge_wall_axes:
+        # Spoji parove paralelnih linija (dvije strane zida) u jednu os -> cistiji
+        # arhitektonski prikaz. Nakon spajanja jos jednom spoji kolinearne osi.
+        segments = merge_wall_axes(segments, params.wall_thickness_px)
+        segments = merge_collinear(segments, params.max_gap_px, params.angle_tol_deg)
 
     H = gray.shape[0]
     dxf_bytes = segments_to_dxf(

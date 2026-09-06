@@ -139,9 +139,9 @@ def _cached_pdf_pages(pdf_bytes: bytes) -> int:
         return 0
 
 @st.cache_data(show_spinner=False, max_entries=6)
-def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int, page: int = 0):
+def _cached_vectorize(pdf_or_img_bytes: bytes, filename: str, threshold, min_len_px: int, max_gap_px: int, denoise_iters: int, dpi_cap: int, page: int = 0, merge_axes: bool = True):
     from raster_vectorize import vectorize_floorplan, Params
-    params = Params(threshold=threshold, min_len_px=min_len_px, max_gap_px=max_gap_px, denoise_iters=denoise_iters, dpi_cap=dpi_cap)
+    params = Params(threshold=threshold, min_len_px=min_len_px, max_gap_px=max_gap_px, denoise_iters=denoise_iters, dpi_cap=dpi_cap, merge_wall_axes=merge_axes)
     return vectorize_floorplan(pdf_or_img_bytes, filename, params, page=page)
 
 @st.cache_data(show_spinner=False)
@@ -1494,11 +1494,16 @@ def main():
             with _c2:
                 _denoise_iters = st.slider("Uklanjanje šuma (iteracije)", 0, 3, 1, key="vektor_denoise")
                 _dpi_cap = st.slider("DPI (rasterizacija PDF-a)", 100, 300, 200, step=50, key="vektor_dpi")
+            _merge_axes = st.checkbox(
+                "Spoji parove linija u os zida (čišći prikaz)",
+                value=True, key="vektor_merge_axes",
+                help="Zid je par bliskih paralelnih linija; ova opcija ih spaja u jednu os za čitljiviji rezultat.",
+            )
 
         if _vf is not None:
             try:
                 _res = _cached_vectorize(
-                    _raw, _vf.name, _threshold, _min_len_px, _max_gap_px, _denoise_iters, _dpi_cap, _page
+                    _raw, _vf.name, _threshold, _min_len_px, _max_gap_px, _denoise_iters, _dpi_cap, _page, _merge_axes
                 )
             except Exception as _e:
                 _res = None
