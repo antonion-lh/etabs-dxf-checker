@@ -31,6 +31,7 @@ from curriculum_audit import run_curriculum_audit, calculate_audit_score
 from results_parser import parse_etabs_results, create_demo_etabs_results
 import ref_model_ui
 import model_compare
+import wizard_flow
 
 import importlib
 import ui_styles
@@ -463,6 +464,12 @@ def _sidebar() -> tuple:
 # Main Application Flow
 # ─────────────────────────────────────────────────────────────
 def main():
+    # Zaseban vođeni tok (wizard): provjera studentskog modela prema tlocrtu.
+    # Ako je aktivan, prikazuje se umjesto standardnog E2K-first toka.
+    if st.session_state.get("wizard_active"):
+        wizard_flow.render_wizard(st, Config())
+        return
+
     uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results, uploaded_ref_drawing = _sidebar()
 
     # Determine Active Data Source
@@ -609,6 +616,16 @@ def main():
                 st.session_state["use_demo"] = True
                 st.session_state["demo_choice_key"] = "small"
                 st.rerun()
+            st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='margin-bottom: 8px; font-weight:600; color:{lbl_c}; font-size:14px;'>Provjera prema tlocrtu</div>", unsafe_allow_html=True)
+            if st.button("Provjera studentskog modela prema tlocrtu (vođeni tok)",
+                         use_container_width=True):
+                wizard_flow.reset_wizard(st)
+                st.session_state["wizard_active"] = True
+                st.session_state["wizard_step"] = wizard_flow.STEP_UPLOAD_DXF
+                st.rerun()
+            st.caption("Učitaj DXF tlocrt → generiraj referentni model → doradi → "
+                       "potvrdi → učitaj studentski .e2k → usporedi.")
         with c_l2:
             st.markdown("""
             <div class="own-model-card">
