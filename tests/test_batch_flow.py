@@ -117,6 +117,7 @@ class FakeSt:
     def download_button(self, *a, **k): self.calls.append(("download_button", a))
     def bar_chart(self, *a, **k): self.calls.append(("bar_chart", a))
     def caption(self, *a, **k): pass
+    def info(self, *a, **k): self.calls.append(("info", a))
     def success(self, *a, **k): self.calls.append(("success", a))
 
     def progress(self, *a, **k):
@@ -189,3 +190,44 @@ def test_render_batch_histogram():
     st = FakeSt({bf._SS["results"]: df})
     bf.render_batch(st, Config())
     assert any(c[0] == "bar_chart" for c in st.calls)
+
+
+# --------------------------------------------------------------------------
+# UX popravak 2: batch potvrda izlaza (ne briše odmah)
+# --------------------------------------------------------------------------
+def test_batch_exit_needs_confirmation():
+    import batch_flow as bf
+    from config import Config
+
+    class ClickExitSt(FakeSt):
+        def button(self, *a, **k):
+            return k.get("key") == "batch_exit"
+
+    st = ClickExitSt({bf._SS["ref"]: {"meta": {"ok": True, "source": "dxf"}}})
+    bf.render_batch(st, Config())
+    # prvi klik samo postavlja potvrdu, referenca NIJE obrisana
+    assert st.session_state.get("batch_confirm_exit") is True
+    assert bf._SS["ref"] in st.session_state
+
+
+# --------------------------------------------------------------------------
+# UX popravak 3: upozorenje o trajanju za velike batcheve
+# --------------------------------------------------------------------------
+def test_batch_large_upload_warning():
+    import batch_flow as bf
+    from config import Config
+
+    class _Up:
+        def __init__(self, name): self.name = name
+        def getvalue(self): return b"x"
+
+    class ManyUploadsSt(FakeSt):
+        def file_uploader(self, *a, **k):
+            if k.get("key") == "batch_e2k_up":
+                return [_Up("s%d.e2k" % i) for i in range(12)]  # 12 datoteka
+            return None
+
+    st = ManyUploadsSt({bf._SS["ref"]: {"meta": {"ok": True, "source": "dxf"}}})
+    bf.render_batch(st, Config())
+    # info poruka o trajanju prikazana
+    assert any(c[0] == "info" for c in st.calls)

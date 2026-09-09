@@ -68,7 +68,11 @@ def build_ref_model_from_bytes(dxf_bytes: bytes, cfg: Config = DEFAULT_CONFIG,
     try:
         tmp.write(dxf_bytes)
         tmp.close()
-        return dm.build_model_from_dxf(tmp.name, cfg, user_input)
+        model = dm.build_model_from_dxf(tmp.name, cfg, user_input)
+        # eksplicitno označi izvor za pouzdano razlikovanje (npr. u batch ekranu)
+        if isinstance(model.get("meta"), dict):
+            model["meta"]["source"] = "dxf"
+        return model
     finally:
         try:
             os.unlink(tmp.name)
@@ -215,4 +219,5 @@ def model_from_json(text) -> Dict[str, Any]:
     model["stories"] = data.get("stories", [])
     model["meta"] = data.get("meta", {"ok": True})
     model["meta"].setdefault("ok", True)
+    model["meta"]["source"] = "json"   # učitano iz spremljene datoteke
     return model

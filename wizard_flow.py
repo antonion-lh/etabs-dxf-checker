@@ -81,10 +81,31 @@ def can_advance(state: Dict[str, Any]) -> bool:
     if step == STEP_CONFIRM:
         return bool(state.get("ref_confirmed"))
     if step == STEP_UPLOAD_E2K:
-        return bool(state.get("student_e2k"))
+        # treba učitan studentski model koji ima barem jedan element
+        student = state.get("student_e2k")
+        return bool(student) and student_summary(student).get("total", 0) > 0
     if step == STEP_COMPARE:
         return False
     return False
+
+
+def student_summary(e2k: Dict[str, Any]) -> Dict[str, int]:
+    """Kratki sažetak studentskog E2K modela (broj elemenata po tipu + etaže)."""
+    def _n(key):
+        v = (e2k or {}).get(key)
+        try:
+            return len(v) if v is not None else 0
+        except TypeError:
+            return 0
+    n_cols = _n("columns")
+    n_beams = _n("beams")
+    n_walls = _n("walls")
+    n_slabs = _n("slabs")
+    return {
+        "n_columns": n_cols, "n_beams": n_beams, "n_walls": n_walls,
+        "n_slabs": n_slabs, "n_stories": _n("stories"),
+        "total": n_cols + n_beams + n_walls + n_slabs,
+    }
 
 
 def next_step(state: Dict[str, Any]) -> int:
@@ -497,6 +518,21 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
             except Exception as e:  # noqa: BLE001
                 st.error("Učitavanje E2K modela nije uspjelo: %s" % e)
                 st.session_state.pop(_SS["student"], None)
+
+        # Pretpregled parsiranog studentskog modela
+        student = st.session_state.get(_SS["student"])
+        if student is not None:
+            summ = student_summary(student)
+            if summ["total"] > 0:
+                st.markdown("**Prepoznato u studentskom modelu:**")
+                st.markdown(
+                    "- Stupovi: %d, Grede: %d, Zidovi: %d, Ploče: %d, Etaže: %d"
+                    % (summ["n_columns"], summ["n_beams"], summ["n_walls"],
+                       summ["n_slabs"], summ["n_stories"]))
+            else:
+                st.warning("U učitanom modelu nije prepoznat nijedan konstruktivni "
+                           "element. Provjerite je li .e2k datoteka ispravna i "
+                           "sadrži stupove/grede/zidove/ploče.")
 
     # ---- Korak 6: usporedba ----
     elif step == STEP_COMPARE:

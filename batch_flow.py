@@ -123,8 +123,17 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
     _, top_r = st.columns([4, 1])
     with top_r:
         if st.button("Natrag na početak", key="batch_exit", use_container_width=True):
-            reset_batch(st)
-            st.rerun()
+            st.session_state["batch_confirm_exit"] = True
+        if st.session_state.get("batch_confirm_exit"):
+            st.warning("Napuštanje briše referentni model i rezultate.")
+            cc1, cc2 = st.columns(2)
+            if cc1.button("Da, napusti", key="batch_exit_yes", use_container_width=True):
+                st.session_state.pop("batch_confirm_exit", None)
+                reset_batch(st)
+                st.rerun()
+            if cc2.button("Odustani", key="batch_exit_no", use_container_width=True):
+                st.session_state.pop("batch_confirm_exit", None)
+                st.rerun()
 
     st.markdown("---")
     st.markdown("### 1. Referentni model")
@@ -164,8 +173,8 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
 
     ref_model = st.session_state.get(_SS["ref"])
     if ref_model and ref_model.get("meta", {}).get("ok"):
-        src = "JSON" if ref_model.get("meta", {}).get("edited") is None and \
-            "scale_to_m" not in ref_model.get("meta", {}) else "DXF tlocrt"
+        _src_map = {"json": "spremljeni JSON", "dxf": "DXF tlocrt"}
+        src = _src_map.get(ref_model.get("meta", {}).get("source"), "nepoznat")
         st.success("Aktivna referenca (izvor: %s)." % src)
         for line in ref_model_ui.model_summary_text(ref_model):
             st.markdown("- " + line)
@@ -174,6 +183,10 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
     st.markdown("### 2. Studentski modeli (.e2k)")
     ups = st.file_uploader("Više .e2k datoteka", type=["e2k", "$et", "txt"],
                            accept_multiple_files=True, key="batch_e2k_up")
+    if ups and len(ups) >= 10:
+        est = max(1, round(len(ups) * 1.5))
+        st.info("Učitano %d modela. Provjera može potrajati (procjena ~%d s). "
+                "Napredak se prikazuje ispod." % (len(ups), est))
 
     st.markdown("---")
     st.markdown("### 3. Rezultati")

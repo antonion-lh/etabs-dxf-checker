@@ -158,3 +158,23 @@ def test_model_from_json_non_dict():
     import pytest
     with pytest.raises(ValueError):
         ui.model_from_json(b"[1, 2, 3]")   # valjan JSON ali nije dict
+
+
+# --------------------------------------------------------------------------
+# UX popravak 2: eksplicitan meta['source']
+# --------------------------------------------------------------------------
+def test_source_dxf():
+    import ref_model_ui as ui
+    from config import Config
+    m = ui.build_ref_model_from_bytes(_read_bytes(AB_ZGRADA), Config(), {"n_stories": 1})
+    assert m["meta"]["source"] == "dxf"
+
+
+def test_source_json():
+    import ref_model_ui as ui
+    import pandas as pd
+    model = {"columns": pd.DataFrame([{"name": "C1"}]), "beams": None,
+             "walls": None, "slabs": None, "meta": {"ok": True}}
+    text = ui.model_to_json(model)
+    back = ui.model_from_json(text)
+    assert back["meta"]["source"] == "json"

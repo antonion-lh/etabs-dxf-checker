@@ -74,7 +74,7 @@ def test_e2k_step_requires_student_model():
     s = wf.initial_state()
     s["step"] = wf.STEP_UPLOAD_E2K
     assert wf.can_advance(s) is False
-    s["student_e2k"] = {"columns": []}
+    s["student_e2k"] = {"columns": [{"name": "C1"}]}   # ne-prazan model
     assert wf.can_advance(s) is True
     assert wf.next_step(s) == wf.STEP_COMPARE
 
@@ -342,3 +342,42 @@ def test_render_step1_shows_unit_preview():
     wf.render_wizard(st, __import__("config").Config())
     # info poruka s preporukom jedinice (cm) prikazana
     assert any(c[0] == "info" for c in st.calls)
+
+
+# --------------------------------------------------------------------------
+# UX popravak 1: pretpregled studentskog modela + validacija ne-praznog
+# --------------------------------------------------------------------------
+def test_student_summary():
+    import wizard_flow as wf
+    import pandas as pd
+    e2k = {"columns": pd.DataFrame([{"name": "C1"}, {"name": "C2"}]),
+           "beams": pd.DataFrame([{"name": "B1"}]),
+           "walls": pd.DataFrame(), "slabs": pd.DataFrame(),
+           "stories": [{"name": "P"}]}
+    s = wf.student_summary(e2k)
+    assert s["n_columns"] == 2
+    assert s["n_beams"] == 1
+    assert s["total"] == 3
+    assert s["n_stories"] == 1
+
+
+def test_student_summary_empty():
+    import wizard_flow as wf
+    s = wf.student_summary({})
+    assert s["total"] == 0
+    s2 = wf.student_summary(None)
+    assert s2["total"] == 0
+
+
+def test_cannot_advance_with_empty_student():
+    import wizard_flow as wf
+    import pandas as pd
+    s = wf.initial_state()
+    s["step"] = wf.STEP_UPLOAD_E2K
+    # prazan student model -> ne smije naprijed
+    s["student_e2k"] = {"columns": pd.DataFrame(), "beams": pd.DataFrame(),
+                        "walls": pd.DataFrame(), "slabs": pd.DataFrame()}
+    assert wf.can_advance(s) is False
+    # s barem jednim elementom -> smije
+    s["student_e2k"] = {"columns": pd.DataFrame([{"name": "C1"}])}
+    assert wf.can_advance(s) is True
