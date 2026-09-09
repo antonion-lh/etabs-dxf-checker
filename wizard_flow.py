@@ -166,6 +166,15 @@ _SS = {
     "result": "wizard_compare_result",
     "n_stories": "wizard_n_stories",
     "story_h": "wizard_story_h",
+    "unit": "wizard_unit_label",
+}
+
+# Izbor jedinice DXF crteza -> faktor pretvorbe u metre
+UNIT_OPTIONS = {
+    "Automatski (iz DXF zaglavlja)": None,
+    "Milimetri (mm)": 0.001,
+    "Centimetri (cm)": 0.01,
+    "Metri (m)": 1.0,
 }
 
 
@@ -252,15 +261,24 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         st.markdown("### 1. Učitajte DXF tlocrt")
         st.caption("Isti tlocrt koji profesor daje studentima kao referentni primjer.")
         up = st.file_uploader("DXF datoteka tlocrta", type=["dxf"], key="wiz_dxf_up")
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         n_stories = c1.number_input("Broj etaža", min_value=1, max_value=50,
                                     value=int(st.session_state.get(_SS["n_stories"], 1)),
                                     step=1, key="wiz_n_stories_in")
         story_h = c2.number_input("Visina etaže (m)", min_value=2.0, max_value=6.0,
                                   value=float(st.session_state.get(_SS["story_h"], 3.0)),
                                   step=0.1, key="wiz_story_h_in")
+        unit_labels = list(UNIT_OPTIONS.keys())
+        cur_unit = st.session_state.get(_SS["unit"], unit_labels[0])
+        unit_label = c3.selectbox(
+            "Jedinica crteža", unit_labels,
+            index=unit_labels.index(cur_unit) if cur_unit in unit_labels else 0,
+            key="wiz_unit_in",
+            help="Ako model nema elemente ili su dimenzije nerealne, promijenite "
+                 "jedinicu (DXF zaglavlje zna biti pogrešno).")
         st.session_state[_SS["n_stories"]] = n_stories
         st.session_state[_SS["story_h"]] = story_h
+        st.session_state[_SS["unit"]] = unit_label
         if up is not None:
             data = up.getvalue()
             # promjena datoteke -> odbaci prethodni generirani model/potvrdu
@@ -279,6 +297,9 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
                      type="primary", key="wiz_gen_btn"):
             ui = {"n_stories": int(st.session_state.get(_SS["n_stories"], 1)),
                   "story_height": float(st.session_state.get(_SS["story_h"], 3.0))}
+            unit_scale = UNIT_OPTIONS.get(st.session_state.get(_SS["unit"]))
+            if unit_scale is not None:
+                ui["unit_scale"] = unit_scale
             try:
                 rm = build_reference_model(dxf_bytes, cfg, ui)
                 st.session_state[_SS["ref"]] = rm

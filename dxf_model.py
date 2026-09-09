@@ -424,6 +424,18 @@ def build_model_from_dxf(path: str, cfg: Config = DEFAULT_CONFIG,
     warnings_list: List[str] = []
     assumptions: List[str] = []
 
+    # Rucni override jedinice iz unosa (kad su INSUNITS pogresni ili nepouzdani).
+    # unit_scale: faktor pretvorbe DXF jedinica u metre (mm=0.001, cm=0.01, m=1.0).
+    _ui = user_input or {}
+    _override = _ui.get("unit_scale")
+    if _override:
+        try:
+            scale = float(_override)
+            assumptions.append(
+                "Jedinica crteza rucno postavljena (faktor %.4f m po DXF jedinici)." % scale)
+        except (TypeError, ValueError):
+            pass
+
     try:
         msp = doc.modelspace()
     except Exception as e:  # noqa: BLE001
@@ -490,10 +502,16 @@ def build_model_from_dxf(path: str, cfg: Config = DEFAULT_CONFIG,
         tip = classify_by_layer(layer, cfg)
         source = "layer"
         confidence = "visoka"
+        geom_tip, geom_conf = classify_by_geometry(
+            {"area_m2": area_m2, "width_m": w_m, "height_m": h_m}, cfg)
         if tip is None:
-            tip, confidence = classify_by_geometry(
-                {"area_m2": area_m2, "width_m": w_m, "height_m": h_m}, cfg)
+            tip, confidence = geom_tip, geom_conf
             source = "geometry"
+        elif tip == "slab" and geom_tip == "column":
+            # Genericki "podni"/FLOOR sloj cesto drzi mijesane elemente (stupovi,
+            # grede, ploca). Ploca ne moze biti mala kompaktna kontura, pa
+            # geometrija ima prednost kad jasno prepozna stup.
+            tip, confidence, source = "column", geom_conf, "geometry"
         if tip is None:
             continue  # neklasificirano -> preskoci
 

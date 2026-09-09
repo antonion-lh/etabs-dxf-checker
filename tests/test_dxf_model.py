@@ -455,3 +455,36 @@ def test_annotations_materials_extracted():
     r = m.build_model_from_dxf(AB_ZGRADA, Config(), {"n_stories": 1})
     # materials je lista naziva (str), ne rusi se na 3-tuple izlazu
     assert isinstance(r["materials"], list)
+
+
+# --------------------------------------------------------------------------
+# Popravak: rucni override jedinice (unit_scale) + FLOOR sloj -> geometrija
+# --------------------------------------------------------------------------
+def test_unit_scale_override():
+    """Kad DXF ima krive INSUNITS, unit_scale iz unosa ima prednost."""
+    import dxf_model as m
+    from config import Config
+    import os
+    sample = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_building.dxf")
+    if not os.path.exists(sample):
+        import pytest
+        pytest.skip("sample_building.dxf nije dostupan")
+    r = m.build_model_from_dxf(sample, Config(),
+                               {"n_stories": 2, "story_height": 3.0, "unit_scale": 0.01})
+    assert r["meta"]["scale_to_m"] == 0.01
+    # FLOOR_1 sloj drži mješane elemente; geometrija prepoznaje stupove
+    assert len(r["columns"]) >= 3
+    # stupovi imaju realne dimenzije (300-600 mm)
+    for _, c in r["columns"].iterrows():
+        assert 150 <= c["width_mm"] <= 1500
+
+
+def test_floor_layer_column_via_geometry():
+    """Sloj mapiran na 'slab' ali mala kompaktna kontura -> stup (geometrija)."""
+    import dxf_model as m
+    from config import Config
+    # classify_by_layer('FLOOR') = slab, ali geometrija 0.4x0.5 = column
+    assert m.classify_by_layer("FLOOR", Config()) == "slab"
+    tip, conf = m.classify_by_geometry(
+        {"width_m": 0.4, "height_m": 0.5, "area_m2": 0.2}, Config())
+    assert tip == "column"

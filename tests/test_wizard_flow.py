@@ -170,6 +170,10 @@ class _FakeCol:
     def number_input(self, *a, **k):
         return k.get("value", 0)
 
+    def selectbox(self, label, options, **k):
+        idx = k.get("index", 0)
+        return options[idx] if options else None
+
     def metric(self, *a, **k):
         pass
 
@@ -206,6 +210,7 @@ class FakeSt:
     def button(self, *a, **k): return False
     def checkbox(self, *a, **k): return k.get("value", False)
     def number_input(self, *a, **k): return k.get("value", 0)
+    def selectbox(self, label, options, **k): return options[k.get("index", 0)] if options else None
     def file_uploader(self, *a, **k): return None
     def data_editor(self, df, *a, **k): return df
 
