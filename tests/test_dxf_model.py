@@ -428,3 +428,30 @@ def test_integration_unreadable_dxf_graceful(tmp_path):
     assert r["meta"]["ok"] is False
     assert r["meta"]["error"] is not None
     assert r["meta"]["n_elements"] == 0
+
+
+# --------------------------------------------------------------------------
+# Popravak: width_mm/height_mm stupova (geometrijski put, bbox iz poligona)
+# --------------------------------------------------------------------------
+def test_columns_have_real_dimensions():
+    """Stupovi iz ab_zgrada.dxf moraju imati ne-None dimenzije (width/height_mm)."""
+    import dxf_model as m
+    from config import Config
+    r = m.build_model_from_dxf(AB_ZGRADA, Config(), {"n_stories": 1})
+    c = r["columns"]
+    assert len(c) > 0
+    # sve dimenzije popunjene (bbox se ispravno cita iz width_dxf/height_dxf)
+    assert c["width_mm"].notna().all()
+    assert c["height_mm"].notna().all()
+    # realne dimenzije stupa (npr. 400x400 mm) -> integritet cist
+    assert (c["width_mm"] >= 150).all() and (c["width_mm"] <= 1500).all()
+    assert m.check_geometry_integrity(r, Config()) == []
+
+
+def test_annotations_materials_extracted():
+    """extract_drawing_annotations (3-tuple) se ispravno obradjuje -> materijali."""
+    import dxf_model as m
+    from config import Config
+    r = m.build_model_from_dxf(AB_ZGRADA, Config(), {"n_stories": 1})
+    # materials je lista naziva (str), ne rusi se na 3-tuple izlazu
+    assert isinstance(r["materials"], list)

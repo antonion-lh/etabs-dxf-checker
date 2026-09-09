@@ -29,6 +29,8 @@ from pdf_dims import validate_against_pdf, pdf_has_dimension_text
 from report import generate_pdf, generate_html
 from curriculum_audit import run_curriculum_audit, calculate_audit_score
 from results_parser import parse_etabs_results, create_demo_etabs_results
+import ref_model_ui
+import model_compare
 
 import importlib
 import ui_styles
@@ -113,6 +115,24 @@ def _cached_parse_dxf_bytes(dxf_bytes: bytes, cfg: Config):
 @st.cache_data(show_spinner=False)
 def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
     return validate(_etabs_data, _df_dxf, _cfg)
+
+
+@st.cache_data(show_spinner=False, max_entries=8)
+def _cached_build_ref_model(dxf_bytes: bytes, _cfg: Config, sig: str,
+                            n_stories: int, story_height: float):
+    """Referentni model iz DXF tlocrta (keširano na bytes + parametrima etaža).
+
+    sig sudjeluje u ključu keša da promjena unosa etaža ponovno izgradi model.
+    """
+    user_input = {"n_stories": int(n_stories), "story_height": float(story_height)}
+    return ref_model_ui.build_ref_model_from_bytes(dxf_bytes, _cfg, user_input)
+
+
+@st.cache_data(show_spinner=False)
+def _cached_compare_models(_student_e2k: dict, _ref_model: dict, _cfg: Config):
+    df = model_compare.compare_models(_student_e2k, _ref_model, _cfg)
+    summary = model_compare.summarize_differences(df)
+    return df, summary
 
 
 @st.cache_data(show_spinner=False, max_entries=8)
@@ -710,11 +730,12 @@ def main():
         stories = [{"name": "Prizemlje", "display_name": "Prizemlje", "z_bottom": 0.0, "z_top": 4.0, "height": 4.0}]
 
     # ── Main Tabs (4 clean sections, NO EMOJIS) ───────────────
-    t_model, t_audit, t_elements, t_report, t_vektor = st.tabs([
+    t_model, t_audit, t_elements, t_report, t_refmodel, t_vektor = st.tabs([
         "Model",
         "Revizija",
         "Elementi",
         "Izvještaj",
+        "Referentni model",
         "Vektorizacija",
     ])
 
@@ -1543,7 +1564,99 @@ def main():
             with st.expander("Inženjerske upute za pripremu modela i nacrta", expanded=False):
                 render_instructions()
 
-    # -- TAB 5: Vektorizacija (raster -> DXF linije, poluautomatski) --
+    # -- TAB 5: Referentni model iz tlocrta (generiraj -> revidiraj -> usporedi) --
+    with t_refmodel:
+        st.markdown(
+            "### Referentni model iz tlocrta\n"
+            "Aplikacija iz učitanog **DXF tlocrta** (isti koji profesor daje studentima) "
+            "gradi referentni numerički model. Model možete **pregledati i ispraviti** "
+            "prije usporedbe sa studentskim ETABS (.e2k) modelom."
+        )
+
+        if not dxf_bytes:
+            st.info("Učitajte DXF tlocrt u bočnoj traci da biste generirali referentni model.")
+        else:
+            # Parametri etaža (2D tlocrt -> 3D model)
+            with st.expander("Parametri etaža", expanded=False):
+                c1, c2 = st.columns(2)
+                n_stories = c1.number_input("Broj etaža", min_value=1, max_value=50,
+                                            value=int(st.session_state.get("ref_n_stories", 1)),
+                                            step=1, key="ref_n_stories")
+                story_h = c2.number_input("Visina etaže (m)", min_value=2.0, max_value=6.0,
+                                          value=float(st.session_state.get("ref_story_h", 3.0)),
+                                          step=0.1, key="ref_story_h")
+
+            sig = ref_model_ui.input_signature(dxf_bytes, {"n_stories": n_stories,
+                                                           "story_height": story_h})
+            try:
+                ref_model = _cached_build_ref_model(dxf_bytes, cfg, sig, n_stories, story_h)
+            except Exception as e:  # noqa: BLE001
+                st.error("Generiranje referentnog modela nije uspjelo: %s" % e)
+                ref_model = None
+
+            if ref_model is not None:
+                st.session_state["ref_model"] = ref_model
+                # Invalidacija uređivanja pri promjeni ulaza
+                if st.session_state.get("ref_sig") != sig:
+                    st.session_state["ref_sig"] = sig
+                    st.session_state.pop("ref_edited_tables", None)
+
+                if not ref_model["meta"].get("ok", False):
+                    st.error("Greška: %s" % (ref_model["meta"].get("error") or "nepoznata"))
+                else:
+                    # Sažetak modela
+                    st.markdown("#### Sažetak generiranog modela")
+                    for line in ref_model_ui.model_summary_text(ref_model):
+                        st.markdown("- " + line)
+
+                    # Editor za reviziju po tipu elementa
+                    st.markdown("#### Revizija modela")
+                    st.caption("Ispravite dimenzije/pozicije ili obrišite retke. "
+                               "Izmjene se koriste u usporedbi.")
+                    tables = ref_model_ui.editable_tables(ref_model)
+                    edited_tables = dict(st.session_state.get("ref_edited_tables", {}))
+                    for key, df_tab in tables.items():
+                        label = ref_model_ui.TYPE_LABELS_HR.get(key, key)
+                        with st.expander("%s (%d)" % (label, len(df_tab)),
+                                         expanded=(key == "columns")):
+                            edited = st.data_editor(
+                                df_tab, key="ref_editor_%s" % key,
+                                num_rows="dynamic", use_container_width=True)
+                            edited_tables[key] = edited
+                    st.session_state["ref_edited_tables"] = edited_tables
+
+                    # Usporedba sa studentskim E2K modelom
+                    st.markdown("---")
+                    st.markdown("#### Usporedba sa studentskim modelom")
+                    if st.button("Usporedi sa studentskim ETABS modelom",
+                                 type="primary", key="ref_compare_btn"):
+                        edited_model = ref_model_ui.apply_edits(ref_model, edited_tables)
+                        try:
+                            df_cmp, summary = _cached_compare_models(
+                                etabs_data, edited_model, cfg)
+                            st.session_state["ref_compare_result"] = (df_cmp, summary)
+                        except Exception as e:  # noqa: BLE001
+                            st.error("Usporedba nije uspjela: %s" % e)
+
+                    res = st.session_state.get("ref_compare_result")
+                    if res is not None:
+                        df_cmp, summary = res
+                        counts = summary["counts"]
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Podudarni", counts["match"])
+                        m2.metric("Nedostaje", counts["nedostaje"])
+                        m3.metric("Višak", counts["visak"])
+                        m4.metric("Kriva dimenzija", counts["mismatch"])
+                        if summary["ok"]:
+                            st.success("Model se podudara s referentnim tlocrtom.")
+                        else:
+                            for msg in summary["messages"]:
+                                st.warning(msg)
+                        if not df_cmp.empty:
+                            st.dataframe(safe_df(df_cmp), use_container_width=True,
+                                         hide_index=True)
+
+    # -- TAB 6: Vektorizacija (raster -> DXF linije, poluautomatski) --
     with t_vektor:
         st.markdown(
             "### Vektorizacija skeniranog tlocrta\n"

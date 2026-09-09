@@ -462,21 +462,28 @@ def build_model_from_dxf(path: str, cfg: Config = DEFAULT_CONFIG,
     for idx, poly in enumerate(polys):
         layer = poly.get("layer", "")
         verts = poly.get("verts") or poly.get("points") or []
-        # centar i dimenzije (u DXF jedinicama -> skaliraj u m)
+        # centar i dimenzije (u DXF jedinicama -> skaliraj u m).
+        # collect_closed_polylines vraca: centroid_x/y, width_dxf, height_dxf,
+        # area_dxf (sve u DXF jedinicama). Podrzavamo i bbox kao fallback.
         cx = poly.get("centroid_x")
         cy = poly.get("centroid_y")
+        w_dxf = poly.get("width_dxf")
+        h_dxf = poly.get("height_dxf")
+        area_dxf = poly.get("area_dxf")
         bbox = poly.get("bbox")
-        if bbox:
+        if (w_dxf is None or h_dxf is None) and bbox:
             minx, miny, maxx, maxy = bbox
-            w_m = abs(maxx - minx) * scale
-            h_m = abs(maxy - miny) * scale
+            w_dxf = abs(maxx - minx)
+            h_dxf = abs(maxy - miny)
             if cx is None:
                 cx = (minx + maxx) / 2.0
             if cy is None:
                 cy = (miny + maxy) / 2.0
-        else:
-            w_m = h_m = None
+        w_m = (w_dxf * scale) if w_dxf is not None else None
+        h_m = (h_dxf * scale) if h_dxf is not None else None
         area_m2 = poly.get("area")
+        if area_m2 is None and area_dxf is not None:
+            area_m2 = abs(area_dxf)
         if area_m2 is not None:
             area_m2 = abs(area_m2) * scale * scale
 
@@ -576,7 +583,23 @@ def build_model_from_dxf(path: str, cfg: Config = DEFAULT_CONFIG,
     materials, area_loads = [], []
     try:
         ann = p2.extract_drawing_annotations(msp, cfg)
-        if isinstance(ann, dict):
+        # phase2_dxf vraca tuple (ann_mats, ann_loads, doc_mats)
+        if isinstance(ann, tuple) and len(ann) >= 2:
+            ann_mats, ann_loads = ann[0], ann[1]
+            doc_mats = ann[2] if len(ann) >= 3 else {}
+            # jedinstveni materijali (naziv) iz oznaka + dokumentnih zadanih
+            seen_m = set()
+            for m in (ann_mats or []):
+                nm = m.get("mat") if isinstance(m, dict) else m
+                if nm and nm not in seen_m:
+                    seen_m.add(nm)
+                    materials.append(nm)
+            for nm in (doc_mats.values() if isinstance(doc_mats, dict) else []):
+                if nm and nm not in seen_m:
+                    seen_m.add(nm)
+                    materials.append(nm)
+            area_loads = list(ann_loads or [])
+        elif isinstance(ann, dict):
             materials = ann.get("materials", []) or []
             area_loads = ann.get("area_loads", []) or []
     except Exception:
