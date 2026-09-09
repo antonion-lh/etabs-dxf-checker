@@ -213,6 +213,8 @@ class FakeSt:
     def selectbox(self, label, options, **k): return options[k.get("index", 0)] if options else None
     def file_uploader(self, *a, **k): return None
     def data_editor(self, df, *a, **k): return df
+    def download_button(self, *a, **k): self.calls.append(("download_button", a))
+    def plotly_chart(self, *a, **k): self.calls.append(("plotly_chart", a))
 
     def rerun(self): self.calls.append(("rerun", ()))
 
@@ -260,3 +262,27 @@ def test_reset_wizard_clears_state():
     wf.reset_wizard(st)
     for k in wf._SS.values():
         assert k not in st.session_state
+
+
+# --------------------------------------------------------------------------
+# Dorada 4: wizard cfg tolerancije + render koraka usporedbe (ocjena/figura/download)
+# --------------------------------------------------------------------------
+def test_wizard_cfg_from_tolerances():
+    import wizard_flow as wf
+    st = FakeSt({wf._SS["tol_pos"]: 0.10, wf._SS["tol_sec"]: 2.0})
+    cfg = wf._wizard_cfg(st)
+    assert cfg.spatial_tolerance_frame == 0.10
+    assert cfg.section_tolerance_mm == 2.0
+
+
+def test_render_compare_shows_grade_and_figure():
+    import wizard_flow as wf
+    import pandas as pd
+    summary = {"counts": {"match": 3, "mismatch": 0, "nedostaje": 1, "visak": 0,
+                          "ukupno": 4}, "messages": ["Nedostaje 1 stup."], "ok": False}
+    df = pd.DataFrame([{"element_type": "column", "status": "Status.MATCH",
+                        "etabs_name": "C1", "etabs_x": 0.0, "etabs_y": 0.0}])
+    st = _render_at_step(wf.STEP_COMPARE, {wf._SS["result"]: (df, summary)})
+    # figura i download izvještaja prikazani
+    assert any(c[0] == "plotly_chart" for c in st.calls)
+    assert any(c[0] == "download_button" for c in st.calls)

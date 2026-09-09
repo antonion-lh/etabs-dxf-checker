@@ -177,6 +177,8 @@ class Config:
         "wall_thickness_max_m": 0.50,
         "beam_min_len_m": 1.5,          # raspon duljine grede (osi)
         "beam_max_len_m": 15.0,
+        "beam_min_aspect": 4.0,         # izduzena kontura (omjer duga/kratka) -> greda
+        "beam_max_width_m": 0.80,       # maks. sirina (kratka strana) grede
         "join_tol_m": 0.05,             # tolerancija poklapanja cvorova (spoj)
         "dim_min_m": 0.15,              # realnost dimenzija presjeka (min)
         "dim_max_m": 1.50,              # realnost dimenzija presjeka (max)

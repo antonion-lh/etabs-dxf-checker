@@ -174,3 +174,160 @@ def test_summarize_empty_result():
     assert s["ok"] is True
     assert s["counts"]["ukupno"] == 0
     assert s["messages"] == []
+
+
+# --------------------------------------------------------------------------
+# Zadatak (dorade) 1: grade_comparison + comparison_report_html
+# --------------------------------------------------------------------------
+def test_grade_perfect():
+    import model_compare as mc
+    summary = {"counts": {"match": 10, "mismatch": 0, "nedostaje": 0, "visak": 0,
+                          "ukupno": 10}}
+    g = mc.grade_comparison(summary)
+    assert g["grade"] == 5
+    assert g["accuracy"] == 1.0
+
+
+def test_grade_partial():
+    import model_compare as mc
+    # 6 od 10 točno (4 nedostaje) -> 60% -> ocjena 3
+    summary = {"counts": {"match": 6, "mismatch": 0, "nedostaje": 4, "visak": 0}}
+    g = mc.grade_comparison(summary)
+    assert g["grade"] == 3
+    assert g["accuracy_pct"] == 60.0
+
+
+def test_grade_penalizes_surplus():
+    import model_compare as mc
+    # 8 match ali 8 viška -> 8/16 = 50% -> ocjena 2
+    summary = {"counts": {"match": 8, "mismatch": 0, "nedostaje": 0, "visak": 8}}
+    g = mc.grade_comparison(summary)
+    assert g["grade"] == 2
+
+
+def test_grade_nothing_to_compare():
+    import model_compare as mc
+    g = mc.grade_comparison({"counts": {}})
+    assert g["grade"] is None
+
+
+def test_comparison_report_html():
+    import model_compare as mc
+    import pandas as pd
+    summary = {"counts": {"match": 2, "mismatch": 1, "nedostaje": 1, "visak": 0,
+                          "ukupno": 4}, "messages": ["Nedostaje 1 stup."], "ok": False}
+    df = pd.DataFrame([{"element_type": "column", "status": "Status.MATCH",
+                        "etabs_name": "C1", "story": "P", "notes": ""}])
+    html = mc.comparison_report_html(df, summary)
+    assert "<html" in html.lower()
+    assert "Ocjena" in html
+    assert "Nedostaje 1 stup." in html
+    assert "C1" in html
+
+
+# --------------------------------------------------------------------------
+# Dorada 3: compare_figure (vizualni prikaz razlika)
+# --------------------------------------------------------------------------
+def test_compare_figure_builds():
+    import model_compare as mc
+    import pandas as pd
+    df = pd.DataFrame([
+        {"element_type": "column", "status": "Status.MATCH", "etabs_name": "C1",
+         "etabs_x": 0.0, "etabs_y": 0.0, "dxf_x": 0.0, "dxf_y": 0.0},
+        {"element_type": "column", "status": "Status.DXF_ONLY", "etabs_name": "",
+         "etabs_x": None, "etabs_y": None, "dxf_x": 6.0, "dxf_y": 0.0},
+        {"element_type": "column", "status": "Status.ETABS_ONLY", "etabs_name": "C9",
+         "etabs_x": 12.0, "etabs_y": 12.0, "dxf_x": None, "dxf_y": None},
+    ])
+    fig = mc.compare_figure(df)
+    # tri statusa -> tri traga
+    names = {t.name for t in fig.data}
+    assert "Podudarno" in names
+    assert "Nedostaje (samo na tlocrtu)" in names
+    assert "Višak (samo u modelu)" in names
+
+
+def test_compare_figure_empty():
+    import model_compare as mc
+    import pandas as pd
+    fig = mc.compare_figure(pd.DataFrame())
+    assert fig is not None
+    assert len(fig.data) == 0
+
+
+def test_status_key_parsing():
+    import model_compare as mc
+    assert mc._status_key("Status.SECTION_MISMATCH") == "SECTION_MISMATCH"
+    assert mc._status_key("Status.MATCH") == "MATCH"
+    assert mc._status_key("DXF_ONLY") == "DXF_ONLY"
+
+
+# --------------------------------------------------------------------------
+# Dorada 5: compare_batch + compare_grids
+# --------------------------------------------------------------------------
+def test_compare_batch():
+    import model_compare as mc
+    from config import Config
+    ref = _ref_three_columns()
+    student_good = _student([
+        {"name": "SC1", "element_type": "column", "x_match": 0.0, "y_match": 0.0,
+         "centroid_x": 0.0, "centroid_y": 0.0, "width_mm": 400, "height_mm": 400,
+         "story": "PRIZEMLJE", "section": "40/40"},
+        {"name": "SC2", "element_type": "column", "x_match": 6.0, "y_match": 0.0,
+         "centroid_x": 6.0, "centroid_y": 0.0, "width_mm": 400, "height_mm": 400,
+         "story": "PRIZEMLJE", "section": "40/40"},
+        {"name": "SC3", "element_type": "column", "x_match": 6.0, "y_match": 6.0,
+         "centroid_x": 6.0, "centroid_y": 6.0, "width_mm": 400, "height_mm": 400,
+         "story": "PRIZEMLJE", "section": "40/40"}])
+    student_bad = _student([
+        {"name": "SC1", "element_type": "column", "x_match": 0.0, "y_match": 0.0,
+         "centroid_x": 0.0, "centroid_y": 0.0, "width_mm": 400, "height_mm": 400,
+         "story": "PRIZEMLJE", "section": "40/40"}])
+    df = mc.compare_batch([("Student A", student_good), ("Student B", student_bad)],
+                          ref, Config())
+    assert len(df) == 2
+    assert set(["student", "ocjena", "tocnost_%"]).issubset(df.columns)
+    a = df[df["student"] == "Student A"].iloc[0]
+    b = df[df["student"] == "Student B"].iloc[0]
+    assert a["ocjena"] >= b["ocjena"]        # bolji student -> viša ocjena
+
+
+def test_compare_batch_handles_empty_student():
+    """Prazan/None studentski model -> batch ne pada, daje najnižu ocjenu."""
+    import model_compare as mc
+    from config import Config
+    ref = _ref_three_columns()
+    df = mc.compare_batch([("Prazan model", None)], ref, Config())
+    assert len(df) == 1
+    row = df.iloc[0]
+    # None model = ništa modelirano = sve nedostaje = ocjena 1 (ili None ako nema ref)
+    assert row["ocjena"] in (1, None)
+    assert row["visak"] == 0
+
+
+def test_compare_grids_aligned():
+    import model_compare as mc
+    ref = {"x_axes": [0.0, 6.0, 12.0], "y_axes": [0.0, 6.0]}
+    student = {"x_axes": [0.0, 6.0, 12.0], "y_axes": [0.0, 6.0]}
+    r = mc.compare_grids(ref, student)
+    assert r["aligned"] is True
+    assert r["shift_x"] == 0.0
+
+
+def test_compare_grids_shift():
+    import model_compare as mc
+    ref = {"x_axes": [0.0, 6.0, 12.0], "y_axes": [0.0, 6.0]}
+    student = {"x_axes": [0.5, 6.5, 12.5], "y_axes": [0.0, 6.0]}  # pomak X za 0.5
+    r = mc.compare_grids(ref, student)
+    assert r["aligned"] is False
+    assert abs(r["shift_x"] - 0.5) < 1e-9
+    assert any("pomak osi X" in m for m in r["messages"])
+
+
+def test_compare_grids_different_count():
+    import model_compare as mc
+    ref = {"x_axes": [0.0, 6.0, 12.0], "y_axes": [0.0, 6.0]}
+    student = {"x_axes": [0.0, 6.0], "y_axes": [0.0, 6.0]}
+    r = mc.compare_grids(ref, student)
+    assert r["aligned"] is False
+    assert any("Broj osi" in m for m in r["messages"])

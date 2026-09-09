@@ -215,3 +215,321 @@ def summarize_differences(df_res: pd.DataFrame) -> Dict[str, Any]:
         messages.append("Model se u potpunosti podudara s referentnim tlocrtom.")
 
     return {"counts": counts, "by_type": by_type, "messages": messages, "ok": ok}
+
+
+# ---------------------------------------------------------------------------
+# Automatska ocjena studentskog modela
+# ---------------------------------------------------------------------------
+
+def grade_comparison(summary: Dict[str, Any]) -> Dict[str, Any]:
+    """Iz sažetka razlika računa postotak točnosti i prijedlog ocjene (1-5).
+
+    Bodovanje: referentni model ima N_ref = match + mismatch + nedostaje elemenata
+    (elementi koje student TREBA imati). Točni su samo 'match'. Kazna i za višak
+    (student modelirao nepostojeće) jer to je pogreška modeliranja.
+
+    accuracy = match / (N_ref + visak)   (0..1)
+
+    Ocjena (hrvatski sustav 1-5):
+      >= 0.90 -> 5 (Izvrstan)
+      >= 0.75 -> 4 (Vrlo dobar)
+      >= 0.60 -> 3 (Dobar)
+      >= 0.45 -> 2 (Dovoljan)
+      inače   -> 1 (Nedovoljan)
+    """
+    counts = (summary or {}).get("counts", {}) or {}
+    match = int(counts.get("match", 0))
+    mismatch = int(counts.get("mismatch", 0))
+    nedostaje = int(counts.get("nedostaje", 0))
+    visak = int(counts.get("visak", 0))
+
+    n_ref = match + mismatch + nedostaje
+    denom = n_ref + visak
+    if denom <= 0:
+        # nema s čime usporediti -> neodređeno
+        return {"accuracy": None, "grade": None, "grade_label": "Nije moguće ocijeniti",
+                "n_reference": 0, "n_correct": 0}
+
+    accuracy = match / denom
+
+    if accuracy >= 0.90:
+        grade, label = 5, "Izvrstan"
+    elif accuracy >= 0.75:
+        grade, label = 4, "Vrlo dobar"
+    elif accuracy >= 0.60:
+        grade, label = 3, "Dobar"
+    elif accuracy >= 0.45:
+        grade, label = 2, "Dovoljan"
+    else:
+        grade, label = 1, "Nedovoljan"
+
+    return {
+        "accuracy": round(accuracy, 4),
+        "accuracy_pct": round(accuracy * 100, 1),
+        "grade": grade,
+        "grade_label": label,
+        "n_reference": n_ref,
+        "n_correct": match,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Izvještaj o usporedbi (HTML) — za profesora
+# ---------------------------------------------------------------------------
+
+def _esc(s) -> str:
+    import html
+    return html.escape(str(s if s is not None else ""))
+
+
+def comparison_report_html(df_res, summary: Dict[str, Any],
+                           grade: Optional[Dict[str, Any]] = None,
+                           project_name: str = "Provjera modela prema tlocrtu") -> str:
+    """Generira samostalni HTML izvještaj o usporedbi (bez vanjskih ovisnosti)."""
+    from datetime import datetime
+
+    if grade is None:
+        grade = grade_comparison(summary)
+    counts = (summary or {}).get("counts", {}) or {}
+
+    grade_txt = ("%s (%s)" % (grade.get("grade"), grade.get("grade_label"))
+                 if grade.get("grade") is not None else grade.get("grade_label", "—"))
+    acc_txt = ("%.1f %%" % grade["accuracy_pct"]) if grade.get("accuracy_pct") is not None else "—"
+
+    rows_html = ""
+    if df_res is not None and hasattr(df_res, "empty") and not df_res.empty:
+        cols = [c for c in ("element_type", "status", "etabs_name", "story", "notes")
+                if c in df_res.columns]
+        head = "".join("<th>%s</th>" % _esc(c) for c in cols)
+        body = ""
+        for _, r in df_res.iterrows():
+            body += "<tr>" + "".join("<td>%s</td>" % _esc(r.get(c)) for c in cols) + "</tr>"
+        rows_html = "<table><thead><tr>%s</tr></thead><tbody>%s</tbody></table>" % (head, body)
+
+    msgs = "".join("<li>%s</li>" % _esc(m) for m in (summary or {}).get("messages", []))
+
+    return """<!DOCTYPE html><html lang="hr"><head><meta charset="utf-8">
+<title>{title}</title><style>
+body{{font-family:Arial,sans-serif;margin:24px;color:#1e293b}}
+h1{{font-size:20px}} h2{{font-size:15px;margin-top:24px}}
+.cards{{display:flex;gap:12px;margin:16px 0}}
+.card{{border:1px solid #e2e8f0;border-radius:8px;padding:12px 16px;min-width:110px}}
+.card .n{{font-size:22px;font-weight:700}} .card .l{{font-size:12px;color:#64748b}}
+.grade{{font-size:26px;font-weight:800;color:#0f766e}}
+table{{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}}
+th,td{{border:1px solid #e2e8f0;padding:5px 8px;text-align:left}}
+th{{background:#f1f5f9}}
+ul{{font-size:13px}}
+.small{{color:#64748b;font-size:12px}}
+</style></head><body>
+<h1>{title}</h1>
+<div class="small">Generirano: {ts}</div>
+<h2>Ocjena studentskog modela</h2>
+<div class="grade">{grade_txt} &nbsp;·&nbsp; točnost {acc_txt}</div>
+<div class="small">Točno modelirano {n_correct} od {n_ref} referentnih elemenata.</div>
+<div class="cards">
+  <div class="card"><div class="n">{c_match}</div><div class="l">Podudarni</div></div>
+  <div class="card"><div class="n">{c_ned}</div><div class="l">Nedostaje</div></div>
+  <div class="card"><div class="n">{c_vis}</div><div class="l">Višak</div></div>
+  <div class="card"><div class="n">{c_mis}</div><div class="l">Kriva dimenzija</div></div>
+</div>
+<h2>Sažetak razlika</h2>
+<ul>{msgs}</ul>
+<h2>Detaljna tablica</h2>
+{rows}
+</body></html>""".format(
+        title=_esc(project_name), ts=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        grade_txt=_esc(grade_txt), acc_txt=acc_txt,
+        n_correct=grade.get("n_correct", 0), n_ref=grade.get("n_reference", 0),
+        c_match=counts.get("match", 0), c_ned=counts.get("nedostaje", 0),
+        c_vis=counts.get("visak", 0), c_mis=counts.get("mismatch", 0),
+        msgs=msgs or "<li>Nema odstupanja.</li>", rows=rows_html or "<p>Nema podataka.</p>")
+
+
+# ---------------------------------------------------------------------------
+# Vizualni prikaz razlika na tlocrtu (Plotly)
+# ---------------------------------------------------------------------------
+
+# boje i hrvatski naziv po statusu
+_STATUS_STYLE = {
+    "MATCH": ("#16A34A", "Podudarno"),
+    "SECTION_MISMATCH": ("#EAB308", "Kriva dimenzija"),
+    "ETABS_ONLY": ("#EA580C", "Višak (samo u modelu)"),
+    "DXF_ONLY": ("#DC2626", "Nedostaje (samo na tlocrtu)"),
+}
+
+
+def _status_key(status) -> str:
+    s = str(status).upper()
+    for k in ("SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY", "MATCH"):
+        if k in s:
+            return k
+    return "MATCH"
+
+
+def _row_xy(row):
+    """Koordinata elementa za prikaz: preferira postojecu stranu (student ili tlocrt)."""
+    for kx, ky in (("etabs_x", "etabs_y"), ("dxf_x", "dxf_y")):
+        x = row.get(kx)
+        y = row.get(ky)
+        try:
+            if x is not None and y is not None:
+                fx, fy = float(x), float(y)
+                if fx == fx and fy == fy:  # ne-NaN
+                    return fx, fy
+        except (TypeError, ValueError):
+            continue
+    return None, None
+
+
+def compare_figure(df_res):
+    """Gradi Plotly figuru tlocrta s elementima obojanima po statusu usporedbe.
+
+    Zeleno=podudarno, žuto=kriva dimenzija, narančasto=višak, crveno=nedostaje.
+    Vraća plotly.graph_objects.Figure (prazna figura ako nema podataka).
+    """
+    import plotly.graph_objects as go
+
+    fig = go.Figure()
+    if df_res is None or not hasattr(df_res, "empty") or df_res.empty:
+        fig.update_layout(title="Nema podataka za prikaz")
+        return fig
+
+    # grupiraj tocke po statusu -> jedan trag po statusu (za legendu)
+    groups: Dict[str, Dict[str, list]] = {}
+    for _, r in df_res.iterrows():
+        key = _status_key(r.get("status"))
+        x, y = _row_xy(r)
+        if x is None:
+            continue
+        g = groups.setdefault(key, {"x": [], "y": [], "text": []})
+        g["x"].append(x)
+        g["y"].append(y)
+        label = "%s %s" % (r.get("element_type", ""), r.get("etabs_name", "") or "")
+        g["text"].append(label.strip())
+
+    for key in ("MATCH", "SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY"):
+        if key not in groups:
+            continue
+        color, name = _STATUS_STYLE[key]
+        g = groups[key]
+        fig.add_trace(go.Scatter(
+            x=g["x"], y=g["y"], mode="markers", name=name,
+            marker=dict(size=11, color=color, line=dict(width=1, color="#334155")),
+            text=g["text"], hovertemplate="%{text}<br>(%{x:.2f}, %{y:.2f})<extra></extra>",
+        ))
+
+    fig.update_layout(
+        title="Usporedba modela s tlocrtom",
+        xaxis_title="X (m)", yaxis_title="Y (m)",
+        legend_title="Status", height=560,
+    )
+    fig.update_yaxes(scaleanchor="x", scaleratio=1)  # jednako mjerilo osi
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Batch usporedba: vise studentskih modela protiv istog referentnog
+# ---------------------------------------------------------------------------
+
+def compare_batch(students, ref_model: Dict[str, Any],
+                  cfg: Config = DEFAULT_CONFIG):
+    """Uspoređuje više studentskih E2K modela protiv istog referentnog modela.
+
+    students : lista (naziv, student_e2k_dict) parova.
+    Vraća DataFrame s jednim redom po studentu: naziv, ocjena, ocjena_opis,
+    tocnost_%, podudarni, nedostaje, visak, kriva_dimenzija.
+    Model koji padne pri usporedbi dobiva red s greskom (ocjena None).
+    """
+    import pandas as pd
+
+    rows = []
+    for name, student in (students or []):
+        try:
+            df = compare_models(student, ref_model, cfg)
+            summary = summarize_differences(df)
+            grade = grade_comparison(summary)
+            c = summary["counts"]
+            rows.append({
+                "student": name,
+                "ocjena": grade.get("grade"),
+                "ocjena_opis": grade.get("grade_label"),
+                "tocnost_%": grade.get("accuracy_pct"),
+                "podudarni": c.get("match", 0),
+                "nedostaje": c.get("nedostaje", 0),
+                "visak": c.get("visak", 0),
+                "kriva_dimenzija": c.get("mismatch", 0),
+            })
+        except Exception as e:  # noqa: BLE001
+            rows.append({"student": name, "ocjena": None,
+                         "ocjena_opis": "Greška: %s" % e, "tocnost_%": None,
+                         "podudarni": 0, "nedostaje": 0, "visak": 0,
+                         "kriva_dimenzija": 0})
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Usporedba rastera / osi (pomak grida)
+# ---------------------------------------------------------------------------
+
+def _axis_values(grid: Dict[str, Any], key: str) -> List[float]:
+    """Izvlaci sortirane koordinate osi iz grid dicta (x_axes/y_axes ili raw)."""
+    vals = []
+    if not isinstance(grid, dict):
+        return vals
+    raw = grid.get(key)
+    if raw:
+        for a in raw:
+            if isinstance(a, dict):
+                v = a.get("coord", a.get("value", a.get("pos")))
+            else:
+                v = a
+            try:
+                vals.append(float(v))
+            except (TypeError, ValueError):
+                continue
+    return sorted(vals)
+
+
+def compare_grids(ref_grid: Dict[str, Any], student_grid: Dict[str, Any],
+                  tol: float = 0.10) -> Dict[str, Any]:
+    """Usporedjuje rasterske osi dvaju modela i detektira sistematski pomak.
+
+    Vraća dict: {n_ref_x, n_ref_y, n_student_x, n_student_y, shift_x, shift_y,
+    aligned (bool), messages}. Pomak = medijan razlika poravnatih osi (po redu).
+    aligned=True ako je broj osi jednak i pomak unutar tolerancije.
+    """
+    rx = _axis_values(ref_grid, "x_axes")
+    ry = _axis_values(ref_grid, "y_axes")
+    sx = _axis_values(student_grid, "x_axes")
+    sy = _axis_values(student_grid, "y_axes")
+
+    def _shift(a, b):
+        n = min(len(a), len(b))
+        if n == 0:
+            return None
+        diffs = sorted(b[i] - a[i] for i in range(n))
+        return diffs[n // 2]  # medijan
+
+    shift_x = _shift(rx, sx)
+    shift_y = _shift(ry, sy)
+    messages: List[str] = []
+    aligned = True
+
+    if len(rx) != len(sx) or len(ry) != len(sy):
+        aligned = False
+        messages.append("Broj osi se razlikuje (X: ref %d / student %d, "
+                        "Y: ref %d / student %d)." % (len(rx), len(sx), len(ry), len(sy)))
+    for axis, sh in (("X", shift_x), ("Y", shift_y)):
+        if sh is not None and abs(sh) > tol:
+            aligned = False
+            messages.append("Sistematski pomak osi %s za %.3f m." % (axis, sh))
+    if aligned and (rx or ry):
+        messages.append("Raster osi se poklapa s referentnim.")
+
+    return {
+        "n_ref_x": len(rx), "n_ref_y": len(ry),
+        "n_student_x": len(sx), "n_student_y": len(sy),
+        "shift_x": shift_x, "shift_y": shift_y,
+        "aligned": aligned, "messages": messages,
+    }

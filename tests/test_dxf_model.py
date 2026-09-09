@@ -488,3 +488,53 @@ def test_floor_layer_column_via_geometry():
     tip, conf = m.classify_by_geometry(
         {"width_m": 0.4, "height_m": 0.5, "area_m2": 0.2}, Config())
     assert tip == "column"
+
+
+# --------------------------------------------------------------------------
+# Dorade: greda iz geometrije + suggest_unit_scale
+# --------------------------------------------------------------------------
+def test_geometry_detects_beam():
+    import dxf_model as m
+    from config import Config
+    cfg = Config()
+    # izdužena uska kontura -> greda
+    assert m.classify_by_geometry({"width_m": 5.4, "height_m": 0.3}, cfg)[0] == "beam"
+    assert m.classify_by_geometry({"width_m": 2.5, "height_m": 0.24}, cfg)[0] == "beam"
+    # kompaktna -> stup (ne greda)
+    assert m.classify_by_geometry({"width_m": 0.4, "height_m": 0.4}, cfg)[0] == "column"
+    # velika -> ploča
+    assert m.classify_by_geometry({"width_m": 6.0, "height_m": 6.0}, cfg)[0] == "slab"
+
+
+def test_suggest_unit_scale_detects_cm():
+    import dxf_model as m
+    # poligoni s kratkom stranom ~30-40 (u cm), INSUNITS kaže metri (1.0)
+    polys = [{"width_dxf": 40, "height_dxf": 50}, {"width_dxf": 30, "height_dxf": 60},
+             {"width_dxf": 40, "height_dxf": 40}]
+    scale, msg = m.suggest_unit_scale(polys, 1.0)
+    assert scale == 0.01              # predlaže cm
+    assert msg is not None and "cm" in msg
+
+
+def test_suggest_unit_scale_keeps_realistic():
+    import dxf_model as m
+    # već realno (kratka strana 0.4 m pri scale 1.0) -> ne mijenja
+    polys = [{"width_dxf": 0.4, "height_dxf": 0.5}]
+    scale, msg = m.suggest_unit_scale(polys, 1.0)
+    assert scale == 1.0
+    assert msg is None
+
+
+def test_sample_building_full_reconstruction():
+    """sample_building.dxf (FLOOR sloj, cm) -> stupovi + grede + ploča."""
+    import dxf_model as m
+    from config import Config
+    import os
+    sample = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_building.dxf")
+    if not os.path.exists(sample):
+        import pytest
+        pytest.skip("sample_building.dxf nije dostupan")
+    r = m.build_model_from_dxf(sample, Config(),
+                               {"n_stories": 2, "story_height": 3.0, "unit_scale": 0.01})
+    assert len(r["columns"]) >= 3
+    assert len(r["beams"]) >= 1

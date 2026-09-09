@@ -106,3 +106,37 @@ def test_input_signature_changes_with_input():
     s3 = ui.input_signature(b, {"n_stories": 1})
     assert s1 != s2       # promjena unosa -> drugi potpis
     assert s1 == s3       # isti ulaz -> isti potpis
+
+
+# --------------------------------------------------------------------------
+# Dorada: JSON spremanje / učitavanje referentnog modela
+# --------------------------------------------------------------------------
+def test_model_json_roundtrip():
+    import ref_model_ui as ui
+    import pandas as pd
+    model = {
+        "columns": pd.DataFrame([
+            {"name": "C1", "x_start": 0.0, "y_start": 0.0, "width_mm": 400,
+             "height_mm": 400, "story": "P"}]),
+        "beams": pd.DataFrame(),
+        "walls": pd.DataFrame(),
+        "slabs": pd.DataFrame(),
+        "stories": [{"name": "P", "z_bottom": 0.0, "z_top": 3.0, "height": 3.0}],
+        "meta": {"ok": True, "n_elements": 1},
+    }
+    text = ui.model_to_json(model)
+    assert "C1" in text
+    back = ui.model_from_json(text)
+    assert len(back["columns"]) == 1
+    assert back["columns"].iloc[0]["width_mm"] == 400
+    assert back["meta"]["ok"] is True
+    assert len(back["stories"]) == 1
+
+
+def test_model_from_json_bytes():
+    import ref_model_ui as ui
+    model = {"columns": __import__("pandas").DataFrame(), "beams": None,
+             "walls": None, "slabs": None, "meta": {"ok": True}}
+    text = ui.model_to_json(model)
+    back = ui.model_from_json(text.encode("utf-8"))
+    assert back["meta"]["ok"] is True

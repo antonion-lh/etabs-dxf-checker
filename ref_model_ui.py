@@ -158,3 +158,43 @@ def input_signature(dxf_bytes: bytes, user_input: Optional[dict]) -> str:
         for k in sorted(user_input.keys()):
             h.update(("%s=%s;" % (k, user_input[k])).encode("utf-8"))
     return h.hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Spremanje / ucitavanje referentnog modela (JSON)
+# ---------------------------------------------------------------------------
+
+def model_to_json(model: Dict[str, Any]) -> str:
+    """Serijalizira referentni model u JSON string (DataFrame -> records)."""
+    import json
+
+    out: Dict[str, Any] = {}
+    for key in ("columns", "beams", "walls", "slabs"):
+        df = model.get(key)
+        if df is not None and hasattr(df, "to_dict"):
+            out[key] = df.where(df.notna(), None).to_dict(orient="records")
+        else:
+            out[key] = []
+    out["stories"] = model.get("stories", [])
+    # meta bez nezgodnih tipova
+    meta = dict(model.get("meta", {}) or {})
+    out["meta"] = {k: v for k, v in meta.items()
+                   if isinstance(v, (str, int, float, bool, list, dict, type(None)))}
+    return json.dumps(out, ensure_ascii=False, indent=2)
+
+
+def model_from_json(text) -> Dict[str, Any]:
+    """Rekonstruira referentni model iz JSON string/bytes (records -> DataFrame)."""
+    import json
+    import pandas as pd
+
+    if isinstance(text, (bytes, bytearray)):
+        text = text.decode("utf-8", errors="replace")
+    data = json.loads(text)
+    model: Dict[str, Any] = {}
+    for key in ("columns", "beams", "walls", "slabs"):
+        model[key] = pd.DataFrame(data.get(key, []) or [])
+    model["stories"] = data.get("stories", [])
+    model["meta"] = data.get("meta", {"ok": True})
+    model["meta"].setdefault("ok", True)
+    return model

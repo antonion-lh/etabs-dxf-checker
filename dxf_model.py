@@ -63,6 +63,7 @@ def classify_by_geometry(poly: dict, cfg: Config = DEFAULT_CONFIG) -> Tuple[Opti
     (minx,miny,maxx,maxy)). Pravila (pragovi iz cfg.dxf_geom_thresholds):
       - mala kompaktna kontura (area <= column_max_area, aspect <= column_max_aspect,
         maks. stranica <= column_max_dim) -> "column"
+      - izduzena uska kontura (aspect >= beam_min_aspect, kratka strana uska) -> "beam"
       - velika zatvorena kontura (area >= slab_min_area_m2) -> "slab"
       - izmedu -> None (nejasno)
     Pouzdanost: "visoka" ako jasno unutar granica, "srednja" blizu granica,
@@ -72,6 +73,8 @@ def classify_by_geometry(poly: dict, cfg: Config = DEFAULT_CONFIG) -> Tuple[Opti
     col_max_area = th.get("column_max_area_m2", 0.50)
     col_max_aspect = th.get("column_max_aspect", 3.0)
     col_max_dim = th.get("column_max_dim_m", 1.20)
+    beam_min_aspect = th.get("beam_min_aspect", 4.0)
+    beam_max_width = th.get("beam_max_width_m", 0.80)
     slab_min_area = getattr(cfg, "slab_min_area_m2", 4.0)
 
     area = poly.get("area_m2")
@@ -96,6 +99,12 @@ def classify_by_geometry(poly: dict, cfg: Config = DEFAULT_CONFIG) -> Tuple[Opti
         if area <= 0.7 * col_max_area and aspect <= 0.7 * col_max_aspect:
             return "column", "visoka"
         return "column", "srednja"
+
+    # Greda: izduzena uska kontura (visok aspect, uska kratka strana)
+    if aspect >= beam_min_aspect and short_side <= beam_max_width:
+        if aspect >= 1.5 * beam_min_aspect:
+            return "beam", "visoka"
+        return "beam", "srednja"
 
     # Ploca: velika zatvorena kontura
     if area >= slab_min_area:
@@ -190,6 +199,42 @@ def detect_walls_from_lines(lines: List[dict], cfg: Config = DEFAULT_CONFIG) -> 
                 break
 
     return walls
+
+
+def suggest_unit_scale(polys: List[dict], insunits_scale: float) -> Tuple[float, Optional[str]]:
+    """Predlaze faktor jedinice iz razumnosti dimenzija poligona.
+
+    Konstruktivni elementi (stupovi/grede) tipicno imaju kratku stranicu 0.15-1.5 m.
+    Uzima medijan kratke stranice poligona i provjerava koji faktor (mm/cm/m) daje
+    realne dimenzije. Vraca (predlozeni_scale, poruka_ili_None). Ako je insunits
+    vec realan, vraca (insunits_scale, None).
+    """
+    shorts = []
+    for p in polys or []:
+        w = p.get("width_dxf")
+        h = p.get("height_dxf")
+        if w and h:
+            shorts.append(min(abs(w), abs(h)))
+    if not shorts:
+        return insunits_scale, None
+    shorts.sort()
+    med = shorts[len(shorts) // 2]  # medijan kratke stranice (DXF jedinice)
+
+    candidates = [("mm", 0.001), ("cm", 0.01), ("m", 1.0)]
+    # realan raspon kratke stranice konstruktivnog elementa u metrima
+    LO, HI = 0.10, 2.0
+    realistic = [(name, s) for name, s in candidates if LO <= med * s <= HI]
+
+    # ako trenutni insunits daje realnu dimenziju, ne diramo
+    if LO <= med * insunits_scale <= HI:
+        return insunits_scale, None
+
+    if realistic:
+        name, s = realistic[0]
+        return s, ("Dimenzije izgledaju kao %s (medijan kratke stranice %.3f m pri "
+                   "tom mjerilu). Zadano iz DXF zaglavlja dalo bi %.3f m." %
+                   (name, med * s, med * insunits_scale))
+    return insunits_scale, None
 
 
 # ---------------------------------------------------------------------------
@@ -507,11 +552,11 @@ def build_model_from_dxf(path: str, cfg: Config = DEFAULT_CONFIG,
         if tip is None:
             tip, confidence = geom_tip, geom_conf
             source = "geometry"
-        elif tip == "slab" and geom_tip == "column":
+        elif tip == "slab" and geom_tip in ("column", "beam"):
             # Genericki "podni"/FLOOR sloj cesto drzi mijesane elemente (stupovi,
-            # grede, ploca). Ploca ne moze biti mala kompaktna kontura, pa
-            # geometrija ima prednost kad jasno prepozna stup.
-            tip, confidence, source = "column", geom_conf, "geometry"
+            # grede, ploca). Ploca ne moze biti mala kompaktna niti izduzena uska
+            # kontura, pa geometrija ima prednost kad jasno prepozna stup/gredu.
+            tip, confidence, source = geom_tip, geom_conf, "geometry"
         if tip is None:
             continue  # neklasificirano -> preskoci
 

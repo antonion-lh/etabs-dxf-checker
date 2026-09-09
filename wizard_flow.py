@@ -167,7 +167,20 @@ _SS = {
     "n_stories": "wizard_n_stories",
     "story_h": "wizard_story_h",
     "unit": "wizard_unit_label",
+    "tol_pos": "wizard_tol_pos",
+    "tol_sec": "wizard_tol_sec",
 }
+
+
+def _wizard_cfg(st):
+    """Sastavi Config s tolerancijama odabranima u wizardu (default ako nema)."""
+    tol_pos = float(st.session_state.get(_SS["tol_pos"], 0.15))
+    tol_sec = float(st.session_state.get(_SS["tol_sec"], 5.0))
+    return Config(
+        spatial_tolerance_frame=tol_pos,
+        spatial_tolerance_area=max(tol_pos * 2.0, 0.30),
+        section_tolerance_mm=tol_sec,
+    )
 
 # Izbor jedinice DXF crteza -> faktor pretvorbe u metre
 UNIT_OPTIONS = {
@@ -222,23 +235,51 @@ def _nav_buttons(st, state: Dict[str, Any]) -> None:
 
 
 def _render_compare_result(st, df_cmp, summary) -> None:
+    import model_compare
+
     counts = summary["counts"]
+
+    # Automatska ocjena
+    grade = model_compare.grade_comparison(summary)
+    if grade.get("grade") is not None:
+        g1, g2 = st.columns([1, 2])
+        g1.metric("Prijedlog ocjene", "%d — %s" % (grade["grade"], grade["grade_label"]))
+        g2.metric("Točnost", "%.1f %%" % grade["accuracy_pct"])
+
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("Podudarni", counts["match"])
     m2.metric("Nedostaje", counts["nedostaje"])
     m3.metric("Višak", counts["visak"])
     m4.metric("Kriva dimenzija", counts["mismatch"])
+
     if summary["ok"]:
         st.success("Studentski model se u potpunosti podudara s referentnim tlocrtom.")
     else:
         for msg in summary["messages"]:
             st.warning(msg)
+
+    # Vizualni prikaz razlika na tlocrtu
+    try:
+        fig = model_compare.compare_figure(df_cmp)
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception:
+        pass
+
     if df_cmp is not None and hasattr(df_cmp, "empty") and not df_cmp.empty:
         try:
             from ui_views import safe_df
             st.dataframe(safe_df(df_cmp), use_container_width=True, hide_index=True)
         except Exception:
             st.dataframe(df_cmp, use_container_width=True)
+
+    # Preuzimanje izvještaja o usporedbi (HTML) za profesora
+    try:
+        html = model_compare.comparison_report_html(df_cmp, summary, grade)
+        st.download_button("Preuzmi izvještaj o usporedbi (HTML)", data=html,
+                           file_name="izvjestaj_usporedbe.html", mime="text/html",
+                           key="wiz_report_dl")
+    except Exception:
+        pass
 
 
 def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
@@ -279,6 +320,18 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         st.session_state[_SS["n_stories"]] = n_stories
         st.session_state[_SS["story_h"]] = story_h
         st.session_state[_SS["unit"]] = unit_label
+
+        with st.expander("Tolerancije usporedbe (napredno)", expanded=False):
+            tc1, tc2 = st.columns(2)
+            tol_pos = tc1.selectbox(
+                "Tolerancija pozicije (m)", [0.05, 0.10, 0.15, 0.20, 0.30],
+                index=2, key="wiz_tol_pos_in")
+            tol_sec = tc2.selectbox(
+                "Tolerancija presjeka (mm)", [1.0, 2.0, 5.0, 10.0, 20.0],
+                index=2, key="wiz_tol_sec_in")
+            st.session_state[_SS["tol_pos"]] = tol_pos
+            st.session_state[_SS["tol_sec"]] = tol_sec
+
         if up is not None:
             data = up.getvalue()
             # promjena datoteke -> odbaci prethodni generirani model/potvrdu
@@ -313,8 +366,35 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
                 st.success("Model generiran.")
                 for line in ref_model_ui.model_summary_text(rm):
                     st.markdown("- " + line)
+                # ako je model gotovo prazan, ponudi savjet o jedinici
+                if rm["meta"].get("n_elements", 0) == 0:
+                    st.warning("Nije prepoznat nijedan element. Provjerite jedinicu "
+                               "crteža u koraku 1 (mm/cm/m).")
+                # spremanje referentnog modela u JSON (za ponovnu upotrebu)
+                try:
+                    st.download_button(
+                        "Spremi referentni model (JSON)",
+                        data=ref_model_ui.model_to_json(rm),
+                        file_name="referentni_model.json", mime="application/json",
+                        key="wiz_save_json")
+                except Exception:
+                    pass
             else:
                 st.error("Greška: %s" % (rm["meta"].get("error") or "nepoznata"))
+
+        # Ucitavanje ranije spremljenog referentnog modela (preskace generiranje)
+        with st.expander("Učitaj spremljeni referentni model (JSON)", expanded=False):
+            up_json = st.file_uploader("JSON referentnog modela", type=["json"],
+                                       key="wiz_load_json")
+            if up_json is not None:
+                try:
+                    loaded = ref_model_ui.model_from_json(up_json.getvalue())
+                    st.session_state[_SS["ref"]] = loaded
+                    st.session_state.pop(_SS["edited"], None)
+                    st.session_state[_SS["confirmed"]] = False
+                    st.success("Referentni model učitan iz JSON-a.")
+                except Exception as e:  # noqa: BLE001
+                    st.error("Učitavanje JSON-a nije uspjelo: %s" % e)
 
     # ---- Korak 3: dorada / dopuna ----
     elif step == STEP_REFINE:
@@ -376,7 +456,7 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         student = st.session_state.get(_SS["student"]) or {}
         if st.button("Pokreni usporedbu", type="primary", key="wiz_cmp_btn"):
             try:
-                df_cmp, summary = run_comparison(student, rm, cfg)
+                df_cmp, summary = run_comparison(student, rm, _wizard_cfg(st))
                 st.session_state[_SS["result"]] = (df_cmp, summary)
             except Exception as e:  # noqa: BLE001
                 st.error("Usporedba nije uspjela: %s" % e)
