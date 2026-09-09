@@ -45,6 +45,8 @@ class Config:
             self.audit_loads,
             self.audit_restraints,
             self.report_hinges,
+            self.dxf_default_story_height,
+            self.dxf_default_n_stories,
         ))
 
     # ------------------------------------------------------------------ #
@@ -149,6 +151,40 @@ class Config:
 
     # PDF page title / project name shown on cover page
     project_name: str = "Structural Model Validation"
+
+
+    # ------------------------------------------------------------------ #
+    # DXF -> numericki model (Faza B): mapiranje slojeva i heuristike
+    # ------------------------------------------------------------------ #
+    # Mapiranje naziva sloja -> tip elementa. Kljucne rijeci (case-insensitive),
+    # hrvatski + engleski + varijante. Prvi tip cija se kljucna rijec nalazi u
+    # nazivu sloja odreduje klasifikaciju (visoka pouzdanost).
+    dxf_layer_map: dict = field(default_factory=lambda: {
+        "column": ["STUP", "STUPOVI", "COL", "COLUMN", "COLUMNS"],
+        "beam":   ["GREDA", "GREDE", "BEAM", "BEAMS", "NADVOJ"],
+        "wall":   ["ZID", "ZIDOVI", "WALL", "WALLS", "SHEARWALL", "SW"],
+        "slab":   ["PLOCA", "PLOCE", "SLAB", "SLABS", "FLOOR", "DECK", "PLOChA"],
+        "grid":   ["OSI", "OS", "GRID", "AXIS", "RASTER"],
+        "dim":    ["KOTA", "KOTE", "DIM", "DIMENSION"],
+    })
+
+    # Geometrijski pragovi za heuristicku klasifikaciju (nakon skaliranja u metre).
+    dxf_geom_thresholds: dict = field(default_factory=lambda: {
+        "column_max_area_m2": 0.50,     # kompaktna kontura <= ovoga -> kandidat stup
+        "column_max_aspect": 3.0,       # omjer stranica stupa
+        "column_max_dim_m": 1.20,       # maks. stranica stupa
+        "wall_thickness_min_m": 0.10,   # raspon debljine zida
+        "wall_thickness_max_m": 0.50,
+        "beam_min_len_m": 1.5,          # raspon duljine grede (osi)
+        "beam_max_len_m": 15.0,
+        "join_tol_m": 0.05,             # tolerancija poklapanja cvorova (spoj)
+        "dim_min_m": 0.15,              # realnost dimenzija presjeka (min)
+        "dim_max_m": 1.50,              # realnost dimenzija presjeka (max)
+    })
+
+    # 2D -> 3D rekonstrukcija kada podaci o etazama nedostaju u DXF-u
+    dxf_default_story_height: float = 3.0   # m
+    dxf_default_n_stories: int = 1
 
 
 DEFAULT_CONFIG = Config()
