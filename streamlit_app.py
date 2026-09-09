@@ -32,6 +32,7 @@ from results_parser import parse_etabs_results, create_demo_etabs_results
 import ref_model_ui
 import model_compare
 import wizard_flow
+import batch_flow
 
 import importlib
 import ui_styles
@@ -470,6 +471,11 @@ def main():
         wizard_flow.render_wizard(st, Config())
         return
 
+    # Batch provjera vise studentskih modela protiv istog referentnog.
+    if st.session_state.get("batch_active"):
+        batch_flow.render_batch(st, Config())
+        return
+
     uploaded_e2k, uploaded_drawing_file, cfg, uploaded_results, uploaded_ref_drawing = _sidebar()
 
     # Determine Active Data Source
@@ -626,6 +632,12 @@ def main():
                 st.rerun()
             st.caption("Učitaj DXF tlocrt → generiraj referentni model → doradi → "
                        "potvrdi → učitaj studentski .e2k → usporedi.")
+            if st.button("Batch provjera više modela odjednom",
+                         use_container_width=True):
+                batch_flow.reset_batch(st)
+                st.session_state["batch_active"] = True
+                st.rerun()
+            st.caption("Jedan referentni model → više studentskih .e2k → tablica ocjena.")
         with c_l2:
             st.markdown("""
             <div class="own-model-card">
