@@ -382,10 +382,38 @@ def _row_xy(row):
     return None, None
 
 
-def compare_figure(df_res):
+def _beam_segments_from_ref(ref_model):
+    """Indeks linijskih segmenata greda/zidova iz ref modela po zaokruženom centru.
+
+    Vraća {(tip, round(cx,2), round(cy,2)): (x1,y1,x2,y2)} samo za elemente koji
+    imaju stvarnu duljinu (x_start != x_end ili y_start != y_end).
+    """
+    idx = {}
+    if not isinstance(ref_model, dict):
+        return idx
+    for key, et in (("beams", "beam"), ("walls", "wall")):
+        df = ref_model.get(key)
+        if df is None or not hasattr(df, "iterrows"):
+            continue
+        for _, r in df.iterrows():
+            try:
+                x1 = float(r.get("x_start")); y1 = float(r.get("y_start"))
+                x2 = float(r.get("x_end")); y2 = float(r.get("y_end"))
+            except (TypeError, ValueError):
+                continue
+            if abs(x1 - x2) < 1e-6 and abs(y1 - y2) < 1e-6:
+                continue  # nema duljine -> ostaje točka
+            cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            idx[(et, round(cx, 2), round(cy, 2))] = (x1, y1, x2, y2)
+    return idx
+
+
+def compare_figure(df_res, ref_model=None):
     """Gradi Plotly figuru tlocrta s elementima obojanima po statusu usporedbe.
 
     Zeleno=podudarno, žuto=kriva dimenzija, narančasto=višak, crveno=nedostaje.
+    Ako je zadan ref_model, linijske grede/zidovi (koji imaju stvarnu duljinu)
+    iscrtavaju se kao linije; ostalo (stupovi/ploče) kao oblici-markeri.
     Vraća plotly.graph_objects.Figure (prazna figura ako nema podataka).
     """
     import plotly.graph_objects as go
@@ -399,22 +427,41 @@ def compare_figure(df_res):
     type_symbol = {"column": "square", "beam": "diamond",
                    "wall": "x", "slab": "circle"}
     type_hr = {"column": "stup", "beam": "greda", "wall": "zid", "slab": "ploča"}
+    seg_idx = _beam_segments_from_ref(ref_model)
 
-    # grupiraj po (status, tip) -> zaseban trag (boja=status, oblik=tip)
+    # grupiraj markere po (status, tip); linije crtamo zasebno da zadrže boju
     groups: Dict[tuple, Dict[str, list]] = {}
+    line_added_legend = set()
+    order = ("MATCH", "SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY")
+
     for _, r in df_res.iterrows():
         key = _status_key(r.get("status"))
         et = str(r.get("element_type", ""))
         x, y = _row_xy(r)
         if x is None:
             continue
-        g = groups.setdefault((key, et), {"x": [], "y": [], "text": []})
-        g["x"].append(x)
-        g["y"].append(y)
-        label = "%s %s" % (type_hr.get(et, et), r.get("etabs_name", "") or "")
-        g["text"].append(label.strip())
+        seg = seg_idx.get((et, round(x, 2), round(y, 2))) if seg_idx else None
+        if seg is not None:
+            # linijski element (greda/zid s duljinom) -> linija u boji statusa
+            color, status_name = _STATUS_STYLE.get(key, ("#64748b", key))
+            legend_key = (key, et)
+            show_legend = legend_key not in line_added_legend
+            line_added_legend.add(legend_key)
+            fig.add_trace(go.Scatter(
+                x=[seg[0], seg[2]], y=[seg[1], seg[3]], mode="lines",
+                name="%s — %s" % (status_name, type_hr.get(et, et)),
+                legendgroup="%s-%s" % (key, et), showlegend=show_legend,
+                line=dict(color=color, width=4),
+                hovertemplate="%s %s<extra></extra>" % (type_hr.get(et, et),
+                                                        r.get("etabs_name", "") or ""),
+            ))
+        else:
+            g = groups.setdefault((key, et), {"x": [], "y": [], "text": []})
+            g["x"].append(x)
+            g["y"].append(y)
+            label = "%s %s" % (type_hr.get(et, et), r.get("etabs_name", "") or "")
+            g["text"].append(label.strip())
 
-    order = ("MATCH", "SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY")
     for (key, et), g in sorted(groups.items(),
                                key=lambda kv: order.index(kv[0][0]) if kv[0][0] in order else 9):
         color, status_name = _STATUS_STYLE.get(key, ("#64748b", key))

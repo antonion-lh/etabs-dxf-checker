@@ -135,6 +135,8 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
                 st.session_state.pop("batch_confirm_exit", None)
                 st.rerun()
 
+    wizard_flow.render_theme_controls(st, "batch")
+
     st.markdown("---")
     st.markdown("### 1. Referentni model")
     st.caption("Učitajte ranije spremljeni referentni model (JSON) ili ga "

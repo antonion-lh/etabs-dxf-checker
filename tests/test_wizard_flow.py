@@ -174,6 +174,9 @@ class _FakeCol:
         idx = k.get("index", 0)
         return options[idx] if options else None
 
+    def segmented_control(self, label, options, **k):
+        return k.get("default", options[0] if options else None)
+
     def metric(self, *a, **k):
         pass
 
@@ -207,6 +210,9 @@ class FakeSt:
     def error(self, *a, **k): self.calls.append(("error", a))
     def dataframe(self, *a, **k): self.calls.append(("dataframe", a))
     def metric(self, *a, **k): pass
+
+    def segmented_control(self, label, options, **k):
+        return k.get("default", options[0] if options else None)
 
     def spinner(self, *a, **k):
         class _Sp:
@@ -381,3 +387,14 @@ def test_cannot_advance_with_empty_student():
     # s barem jednim elementom -> smije
     s["student_e2k"] = {"columns": pd.DataFrame([{"name": "C1"}])}
     assert wf.can_advance(s) is True
+
+
+# --------------------------------------------------------------------------
+# Dorada: render_theme_controls (tema/font traka u wizardu/batchu)
+# --------------------------------------------------------------------------
+def test_render_theme_controls_no_crash():
+    import wizard_flow as wf
+    st = FakeSt({})
+    wf.render_theme_controls(st, "wiz")   # ne smije pasti
+    # bez promjene teme ne poziva rerun
+    assert "app_theme" not in st.session_state or st.session_state.get("app_theme") in (None, "Svijetla")

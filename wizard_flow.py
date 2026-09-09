@@ -218,6 +218,31 @@ def reset_wizard(st) -> None:
         st.session_state.pop(k, None)
 
 
+def render_theme_controls(st, key_prefix: str) -> None:
+    """Kompaktna traka tema/font (da globalne kontrole ostanu dostupne u
+    wizardu/batchu koji nemaju bočni izbornik). key_prefix čini ključeve
+    jedinstvenima po ekranu.
+    """
+    try:
+        _, cth, cfo = st.columns([3, 1, 1])
+        theme = cth.segmented_control(
+            "Tema:", options=["Svijetla", "Tamna"],
+            default=st.session_state.get("app_theme", "Svijetla"),
+            key="%s_theme" % key_prefix, label_visibility="collapsed") or "Svijetla"
+        if theme != st.session_state.get("app_theme"):
+            st.session_state["app_theme"] = theme
+            st.rerun()
+        font = cfo.segmented_control(
+            "Font:", options=["Normal", "Veliki"],
+            default=st.session_state.get("app_font_scale", "Normal"),
+            key="%s_font" % key_prefix, label_visibility="collapsed") or "Normal"
+        if font != st.session_state.get("app_font_scale"):
+            st.session_state["app_font_scale"] = font
+            st.rerun()
+    except Exception:  # noqa: BLE001 - ako segmented_control nije dostupan, preskoči
+        pass
+
+
 def _get_state(st) -> Dict[str, Any]:
     """Sastavi logičko stanje iz session_state za can_advance/next_step."""
     return {
@@ -274,7 +299,7 @@ def _nav_buttons(st, state: Dict[str, Any]) -> None:
             st.rerun()
 
 
-def _render_compare_result(st, df_cmp, summary) -> None:
+def _render_compare_result(st, df_cmp, summary, ref_model=None) -> None:
     import model_compare
 
     counts = summary["counts"]
@@ -298,9 +323,9 @@ def _render_compare_result(st, df_cmp, summary) -> None:
         for msg in summary["messages"]:
             st.warning(msg)
 
-    # Vizualni prikaz razlika na tlocrtu
+    # Vizualni prikaz razlika na tlocrtu (grede/zidovi kao linije ako ref_model dan)
     try:
-        fig = model_compare.compare_figure(df_cmp)
+        fig = model_compare.compare_figure(df_cmp, ref_model=ref_model)
         st.plotly_chart(fig, use_container_width=True)
     except Exception:
         pass
@@ -341,6 +366,8 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
             if cc2.button("Odustani", key="wiz_exit_no", use_container_width=True):
                 st.session_state.pop("wiz_confirm_exit", None)
                 st.rerun()
+
+    render_theme_controls(st, "wiz")
 
     step = st.session_state.get(_SS["step"], STEP_UPLOAD_DXF)
     _render_progress(st, step)
@@ -549,7 +576,8 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         res = st.session_state.get(_SS["result"])
         if res is not None:
             df_cmp, summary = res
-            _render_compare_result(st, df_cmp, summary)
+            _render_compare_result(st, df_cmp, summary,
+                                   ref_model=st.session_state.get(_SS["ref"]))
             st.markdown("---")
             st.caption("Isti referentni model možete iskoristiti za sljedećeg studenta.")
             if st.button("Provjeri novog studenta (isti tlocrt)",

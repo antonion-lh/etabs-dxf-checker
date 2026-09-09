@@ -357,3 +357,34 @@ def test_status_hr():
     assert mc.status_hr("Status.DXF_ONLY") == "Samo na tlocrtu (nedostaje)"
     assert mc.status_hr("Status.ETABS_ONLY") == "Samo u modelu (višak)"
     assert mc.status_hr("Status.SECTION_MISMATCH") == "Razlika u presjeku"
+
+
+# --------------------------------------------------------------------------
+# Dorada: prave linije greda u compare_figure (uz ref_model)
+# --------------------------------------------------------------------------
+def test_compare_figure_beam_lines_with_ref():
+    import model_compare as mc
+    import pandas as pd
+    # ref model s gredom koja ima stvarnu duljinu (0,0)->(6,0), centar (3,0)
+    ref = {
+        "beams": pd.DataFrame([{"x_start": 0.0, "y_start": 0.0,
+                                "x_end": 6.0, "y_end": 0.0}]),
+        "walls": pd.DataFrame(), "columns": pd.DataFrame(), "slabs": pd.DataFrame(),
+    }
+    # df_res greda na centru (3,0)
+    df = pd.DataFrame([{"element_type": "beam", "status": "Status.MATCH",
+                        "etabs_name": "B1", "etabs_x": 3.0, "etabs_y": 0.0}])
+    fig = mc.compare_figure(df, ref_model=ref)
+    # greda iscrtana kao linija (mode sadrži 'lines')
+    modes = [t.mode for t in fig.data]
+    assert any("lines" in (m or "") for m in modes)
+
+
+def test_compare_figure_no_ref_still_markers():
+    import model_compare as mc
+    import pandas as pd
+    df = pd.DataFrame([{"element_type": "beam", "status": "Status.MATCH",
+                        "etabs_name": "B1", "etabs_x": 3.0, "etabs_y": 0.0}])
+    fig = mc.compare_figure(df)   # bez ref_model -> markeri
+    modes = [t.mode for t in fig.data]
+    assert any("markers" in (m or "") for m in modes)

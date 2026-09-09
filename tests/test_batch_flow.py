@@ -90,6 +90,7 @@ class _FakeCol:
     def button(self, *a, **k): return False
     def number_input(self, *a, **k): return k.get("value", a[3] if len(a) > 3 else 1)
     def selectbox(self, label, options, **k): return options[k.get("index", 0)] if options else None
+    def segmented_control(self, label, options, **k): return k.get("default", options[0] if options else None)
     def metric(self, *a, **k): pass
     def file_uploader(self, *a, **k): return None
 
@@ -113,6 +114,7 @@ class FakeSt:
     def button(self, *a, **k): return False
     def number_input(self, *a, **k): return k.get("value", 1)
     def selectbox(self, label, options, **k): return options[k.get("index", 0)] if options else None
+    def segmented_control(self, label, options, **k): return k.get("default", options[0] if options else None)
     def file_uploader(self, *a, **k): return None
     def download_button(self, *a, **k): self.calls.append(("download_button", a))
     def bar_chart(self, *a, **k): self.calls.append(("bar_chart", a))
