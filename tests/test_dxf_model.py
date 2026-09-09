@@ -538,3 +538,33 @@ def test_sample_building_full_reconstruction():
                                {"n_stories": 2, "story_height": 3.0, "unit_scale": 0.01})
     assert len(r["columns"]) >= 3
     assert len(r["beams"]) >= 1
+
+
+# --------------------------------------------------------------------------
+# UX popravak: preview_dxf_extent (pretpregled raspona + preporuka jedinice)
+# --------------------------------------------------------------------------
+def test_preview_dxf_extent():
+    import dxf_model as m
+    from config import Config
+    import os
+    sample = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_building.dxf")
+    if not os.path.exists(sample):
+        import pytest
+        pytest.skip("sample_building.dxf nije dostupan")
+    with open(sample, "rb") as f:
+        data = f.read()
+    res = m.preview_dxf_extent(data, Config())
+    assert res["ok"] is True
+    assert res["n_polys"] > 0
+    # sample_building je u cm ali INSUNITS kaže m -> preporuka cm
+    assert res["suggested_scale"] == 0.01
+    assert "cm" in (res["suggested_label"] or "")
+
+
+def test_preview_dxf_extent_bad():
+    import dxf_model as m
+    from config import Config
+    res = m.preview_dxf_extent(b"", Config())
+    assert res["ok"] is False
+    res2 = m.preview_dxf_extent(b"nije dxf", Config())
+    assert res2["ok"] is False

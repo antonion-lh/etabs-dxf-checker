@@ -395,37 +395,56 @@ def compare_figure(df_res):
         fig.update_layout(title="Nema podataka za prikaz")
         return fig
 
-    # grupiraj tocke po statusu -> jedan trag po statusu (za legendu)
-    groups: Dict[str, Dict[str, list]] = {}
+    # oblik markera po tipu elementa (boja nosi status, oblik nosi tip)
+    type_symbol = {"column": "square", "beam": "diamond",
+                   "wall": "x", "slab": "circle"}
+    type_hr = {"column": "stup", "beam": "greda", "wall": "zid", "slab": "ploča"}
+
+    # grupiraj po (status, tip) -> zaseban trag (boja=status, oblik=tip)
+    groups: Dict[tuple, Dict[str, list]] = {}
     for _, r in df_res.iterrows():
         key = _status_key(r.get("status"))
+        et = str(r.get("element_type", ""))
         x, y = _row_xy(r)
         if x is None:
             continue
-        g = groups.setdefault(key, {"x": [], "y": [], "text": []})
+        g = groups.setdefault((key, et), {"x": [], "y": [], "text": []})
         g["x"].append(x)
         g["y"].append(y)
-        label = "%s %s" % (r.get("element_type", ""), r.get("etabs_name", "") or "")
+        label = "%s %s" % (type_hr.get(et, et), r.get("etabs_name", "") or "")
         g["text"].append(label.strip())
 
-    for key in ("MATCH", "SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY"):
-        if key not in groups:
-            continue
-        color, name = _STATUS_STYLE[key]
-        g = groups[key]
+    order = ("MATCH", "SECTION_MISMATCH", "ETABS_ONLY", "DXF_ONLY")
+    for (key, et), g in sorted(groups.items(),
+                               key=lambda kv: order.index(kv[0][0]) if kv[0][0] in order else 9):
+        color, status_name = _STATUS_STYLE.get(key, ("#64748b", key))
+        trace_name = "%s — %s" % (status_name, type_hr.get(et, et))
         fig.add_trace(go.Scatter(
-            x=g["x"], y=g["y"], mode="markers", name=name,
-            marker=dict(size=11, color=color, line=dict(width=1, color="#334155")),
+            x=g["x"], y=g["y"], mode="markers", name=trace_name,
+            marker=dict(size=12, color=color, symbol=type_symbol.get(et, "circle"),
+                        line=dict(width=1, color="#334155")),
             text=g["text"], hovertemplate="%{text}<br>(%{x:.2f}, %{y:.2f})<extra></extra>",
         ))
 
     fig.update_layout(
-        title="Usporedba modela s tlocrtom",
+        title="Usporedba modela s tlocrtom (boja = status, oblik = vrsta elementa)",
         xaxis_title="X (m)", yaxis_title="Y (m)",
-        legend_title="Status", height=560,
+        legend_title="Status — vrsta", height=560,
     )
     fig.update_yaxes(scaleanchor="x", scaleratio=1)  # jednako mjerilo osi
     return fig
+
+
+def status_hr(status) -> str:
+    """Pretvara Status enum / string u čitljiv hrvatski naziv za prikaz."""
+    key = _status_key(status)
+    names = {
+        "MATCH": "Usklađeno",
+        "SECTION_MISMATCH": "Razlika u presjeku",
+        "ETABS_ONLY": "Samo u modelu (višak)",
+        "DXF_ONLY": "Samo na tlocrtu (nedostaje)",
+    }
+    return names.get(key, str(status))
 
 
 # ---------------------------------------------------------------------------

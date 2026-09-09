@@ -39,6 +39,18 @@ TYPE_LABELS_HR = {
     "columns": "Stupovi", "beams": "Grede", "walls": "Zidovi", "slabs": "Ploče",
 }
 
+# Hrvatski nazivi stupaca (za st.data_editor column_config / st.dataframe)
+COLUMN_LABELS_HR = {
+    "name": "Oznaka", "story": "Etaža",
+    "x_start": "X (m)", "y_start": "Y (m)",
+    "x_end": "X kraj (m)", "y_end": "Y kraj (m)",
+    "centroid_x": "X (m)", "centroid_y": "Y (m)",
+    "width_mm": "Širina b (mm)", "height_mm": "Visina h (mm)",
+    "thickness_mm": "Debljina (mm)", "area_m2": "Površina (m²)",
+    "section": "Presjek", "material": "Materijal", "prop_name": "Svojstvo",
+    "source": "Izvor", "confidence": "Pouzdanost", "layer": "Sloj",
+}
+
 
 def build_ref_model_from_bytes(dxf_bytes: bytes, cfg: Config = DEFAULT_CONFIG,
                                user_input: Optional[dict] = None) -> Dict[str, Any]:
@@ -190,7 +202,13 @@ def model_from_json(text) -> Dict[str, Any]:
 
     if isinstance(text, (bytes, bytearray)):
         text = text.decode("utf-8", errors="replace")
-    data = json.loads(text)
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        raise ValueError("Učitana datoteka nije valjani JSON dokument "
+                         "referentnog modela.")
+    if not isinstance(data, dict):
+        raise ValueError("JSON ne sadrži očekivanu strukturu referentnog modela.")
     model: Dict[str, Any] = {}
     for key in ("columns", "beams", "walls", "slabs"):
         model[key] = pd.DataFrame(data.get(key, []) or [])

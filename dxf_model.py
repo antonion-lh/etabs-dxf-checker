@@ -201,6 +201,63 @@ def detect_walls_from_lines(lines: List[dict], cfg: Config = DEFAULT_CONFIG) -> 
     return walls
 
 
+def preview_dxf_extent(dxf_bytes, cfg: Config = DEFAULT_CONFIG) -> dict:
+    """Brzi pretpregled DXF-a: raspon (bbox) crteža + preporuka jedinice.
+
+    Vraća dict: {ok, width_dxf, height_dxf, n_polys, insunits_scale,
+    suggested_scale, suggested_label, message, error}. Ne baca — na grešci ok=False.
+    """
+    import os
+    import tempfile
+
+    result = {"ok": False, "error": None, "width_dxf": None, "height_dxf": None,
+              "n_polys": 0, "insunits_scale": None, "suggested_scale": None,
+              "suggested_label": None, "message": None}
+    if not dxf_bytes:
+        result["error"] = "Prazan DXF sadržaj."
+        return result
+
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".dxf")
+    try:
+        tmp.write(dxf_bytes)
+        tmp.close()
+        doc, scale, err = _load_dxf(tmp.name, cfg)
+        if err or doc is None:
+            result["error"] = err or "DXF nije čitljiv."
+            return result
+        import phase2_dxf as p2
+        polys = p2.collect_closed_polylines(doc.modelspace(), doc=doc)
+        result["n_polys"] = len(polys)
+        result["insunits_scale"] = scale
+        # ukupni raspon crteza
+        xs, ys = [], []
+        for p in polys:
+            w, h = p.get("width_dxf"), p.get("height_dxf")
+            cx, cy = p.get("centroid_x"), p.get("centroid_y")
+            if w and cx is not None:
+                xs += [cx - w / 2.0, cx + w / 2.0]
+            if h and cy is not None:
+                ys += [cy - h / 2.0, cy + h / 2.0]
+        if xs and ys:
+            result["width_dxf"] = max(xs) - min(xs)
+            result["height_dxf"] = max(ys) - min(ys)
+        sug_scale, sug_msg = suggest_unit_scale(polys, scale)
+        result["suggested_scale"] = sug_scale
+        _labels = {0.001: "Milimetri (mm)", 0.01: "Centimetri (cm)", 1.0: "Metri (m)"}
+        result["suggested_label"] = _labels.get(sug_scale)
+        result["message"] = sug_msg
+        result["ok"] = True
+        return result
+    except Exception as e:  # noqa: BLE001
+        result["error"] = str(e)
+        return result
+    finally:
+        try:
+            os.unlink(tmp.name)
+        except OSError:
+            pass
+
+
 def suggest_unit_scale(polys: List[dict], insunits_scale: float) -> Tuple[float, Optional[str]]:
     """Predlaze faktor jedinice iz razumnosti dimenzija poligona.
 

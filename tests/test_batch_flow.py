@@ -115,6 +115,22 @@ class FakeSt:
     def selectbox(self, label, options, **k): return options[k.get("index", 0)] if options else None
     def file_uploader(self, *a, **k): return None
     def download_button(self, *a, **k): self.calls.append(("download_button", a))
+    def bar_chart(self, *a, **k): self.calls.append(("bar_chart", a))
+    def caption(self, *a, **k): pass
+    def success(self, *a, **k): self.calls.append(("success", a))
+
+    def progress(self, *a, **k):
+        class _P:
+            def progress(self_, *pa, **pk): pass
+        return _P()
+
+    def empty(self):
+        outer = self
+        class _E:
+            def caption(self_, *a, **k): pass
+            def progress(self_, *a, **k): pass
+        return _E()
+
     def rerun(self): pass
 
 
@@ -144,3 +160,32 @@ def test_reset_batch():
     bf.reset_batch(st)
     for k in bf._SS.values():
         assert k not in st.session_state
+
+
+# --------------------------------------------------------------------------
+# UX popravci: progress_cb u run_batch + histogram render
+# --------------------------------------------------------------------------
+def test_run_batch_progress_callback():
+    import batch_flow as bf
+    from config import Config
+    ref = bf.load_reference(dxf_bytes=_read(AB_ZGRADA), cfg=Config(),
+                            user_input={"n_stories": 1})
+    e2k = _read(os.path.join(ROOT, "sample_building.e2k"))
+    calls = []
+    bf.run_batch(ref, [("a.e2k", e2k), ("b.e2k", e2k)], Config(),
+                 progress_cb=lambda i, n, name: calls.append((i, n, name)))
+    assert len(calls) >= 2   # pozvan za svaki student + završni
+
+
+def test_render_batch_histogram():
+    import batch_flow as bf
+    from config import Config
+    df = pd.DataFrame([
+        {"student": "A", "ocjena": 5, "tocnost_%": 95.0, "podudarni": 5,
+         "nedostaje": 0, "visak": 0, "kriva_dimenzija": 0},
+        {"student": "B", "ocjena": 3, "tocnost_%": 65.0, "podudarni": 3,
+         "nedostaje": 1, "visak": 0, "kriva_dimenzija": 0},
+    ])
+    st = FakeSt({bf._SS["results"]: df})
+    bf.render_batch(st, Config())
+    assert any(c[0] == "bar_chart" for c in st.calls)

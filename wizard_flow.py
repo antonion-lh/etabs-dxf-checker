@@ -208,6 +208,20 @@ def _get_state(st) -> Dict[str, Any]:
     }
 
 
+def _hr_column_config(st, columns):
+    """Sastavi column_config s hrvatskim nazivima stupaca za st.data_editor."""
+    import ref_model_ui
+    cfg = {}
+    try:
+        for c in columns:
+            label = ref_model_ui.COLUMN_LABELS_HR.get(c)
+            if label:
+                cfg[c] = st.column_config.Column(label=label)
+    except Exception:  # noqa: BLE001
+        return None
+    return cfg or None
+
+
 def _render_progress(st, step: int) -> None:
     """Progres traka + naslovi koraka."""
     st.progress(progress_fraction(step))
@@ -219,16 +233,21 @@ def _render_progress(st, step: int) -> None:
 
 
 def _nav_buttons(st, state: Dict[str, Any]) -> None:
-    """Gumbi Natrag / Dalje ovisno o mogućnosti prijelaza."""
+    """Gumbi Natrag / Dalje ovisno o mogućnosti prijelaza.
+
+    Ključevi gumba su dinamički po koraku (wiz_next_{step}) da re-render
+    st.data_editor u koracima s tablicama ne proguta prvi klik (bug dvostrukog
+    klika).
+    """
     c1, c2, _ = st.columns([1, 1, 3])
     step = state["step"]
     if STEP_ORDER.index(step) > 0:
-        if c1.button("← Natrag", key="wiz_prev", use_container_width=True):
+        if c1.button("← Natrag", key="wiz_prev_%d" % step, use_container_width=True):
             st.session_state[_SS["step"]] = prev_step(state)
             st.rerun()
     if step != STEP_COMPARE:
         disabled = not can_advance(state)
-        if c2.button("Dalje →", key="wiz_next", type="primary",
+        if c2.button("Dalje →", key="wiz_next_%d" % step, type="primary",
                      use_container_width=True, disabled=disabled):
             st.session_state[_SS["step"]] = next_step(state)
             st.rerun()
@@ -290,8 +309,17 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
     top_l, top_r = st.columns([4, 1])
     with top_r:
         if st.button("Natrag na početak", key="wiz_exit", use_container_width=True):
-            reset_wizard(st)
-            st.rerun()
+            st.session_state["wiz_confirm_exit"] = True
+        if st.session_state.get("wiz_confirm_exit"):
+            st.warning("Napuštanje briše sve unesene podatke i rezultat.")
+            cc1, cc2 = st.columns(2)
+            if cc1.button("Da, napusti", key="wiz_exit_yes", use_container_width=True):
+                st.session_state.pop("wiz_confirm_exit", None)
+                reset_wizard(st)
+                st.rerun()
+            if cc2.button("Odustani", key="wiz_exit_no", use_container_width=True):
+                st.session_state.pop("wiz_confirm_exit", None)
+                st.rerun()
 
     step = st.session_state.get(_SS["step"], STEP_UPLOAD_DXF)
     _render_progress(st, step)
@@ -342,6 +370,24 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
             st.session_state[_SS["dxf"]] = data
             st.success("Učitano: %s (%d bajtova)" % (up.name, len(data)))
 
+            # Pretpregled raspona crteža + preporuka jedinice (A.5)
+            try:
+                import dxf_model
+                prev = dxf_model.preview_dxf_extent(data, cfg)
+                if prev.get("ok"):
+                    if prev.get("width_dxf"):
+                        st.caption("Raspon crteža: %.0f × %.0f (DXF jedinica), "
+                                   "prepoznato %d zatvorenih kontura."
+                                   % (prev["width_dxf"], prev["height_dxf"],
+                                      prev["n_polys"]))
+                    if prev.get("message") and prev.get("suggested_label"):
+                        st.info("Preporuka jedinice: **%s**. %s"
+                                % (prev["suggested_label"], prev["message"]))
+                elif prev.get("error"):
+                    st.warning("Pretpregled nije uspio: %s" % prev["error"])
+            except Exception:  # noqa: BLE001
+                pass
+
     # ---- Korak 2: generiraj model ----
     elif step == STEP_GENERATE:
         st.markdown("### 2. Generirajte numerički model iz tlocrta")
@@ -354,7 +400,8 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
             if unit_scale is not None:
                 ui["unit_scale"] = unit_scale
             try:
-                rm = build_reference_model(dxf_bytes, cfg, ui)
+                with st.spinner("Generiranje modela iz tlocrta u tijeku..."):
+                    rm = build_reference_model(dxf_bytes, cfg, ui)
                 st.session_state[_SS["ref"]] = rm
                 st.session_state.pop(_SS["edited"], None)
                 st.session_state[_SS["confirmed"]] = False
@@ -406,11 +453,13 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         edited = dict(st.session_state.get(_SS["edited"], {}))
         for key, df_tab in tables.items():
             label = ref_model_ui.TYPE_LABELS_HR.get(key, key)
+            col_cfg = _hr_column_config(st, df_tab.columns)
             with st.expander("%s (%d)" % (label, len(df_tab)),
                              expanded=(key == "columns")):
                 edited[key] = st.data_editor(
                     df_tab, key="wiz_editor_%s" % key,
-                    num_rows="dynamic", use_container_width=True)
+                    num_rows="dynamic", use_container_width=True,
+                    column_config=col_cfg)
         st.session_state[_SS["edited"]] = edited
 
     # ---- Korak 4: potvrdi ispravnost ----
@@ -456,7 +505,8 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         student = st.session_state.get(_SS["student"]) or {}
         if st.button("Pokreni usporedbu", type="primary", key="wiz_cmp_btn"):
             try:
-                df_cmp, summary = run_comparison(student, rm, _wizard_cfg(st))
+                with st.spinner("Usporedba modela u tijeku..."):
+                    df_cmp, summary = run_comparison(student, rm, _wizard_cfg(st))
                 st.session_state[_SS["result"]] = (df_cmp, summary)
             except Exception as e:  # noqa: BLE001
                 st.error("Usporedba nije uspjela: %s" % e)
@@ -464,6 +514,15 @@ def render_wizard(st, cfg: Config = DEFAULT_CONFIG) -> None:
         if res is not None:
             df_cmp, summary = res
             _render_compare_result(st, df_cmp, summary)
+            st.markdown("---")
+            st.caption("Isti referentni model možete iskoristiti za sljedećeg studenta.")
+            if st.button("Provjeri novog studenta (isti tlocrt)",
+                         key="wiz_new_student"):
+                # zadrži referentni model, očisti samo studenta i rezultat
+                for k in ("student", "student_name", "result"):
+                    st.session_state.pop(_SS[k], None)
+                st.session_state[_SS["step"]] = STEP_UPLOAD_E2K
+                st.rerun()
 
     st.markdown("---")
     _nav_buttons(st, _get_state(st))

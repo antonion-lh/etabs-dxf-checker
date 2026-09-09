@@ -240,11 +240,11 @@ def test_compare_figure_builds():
          "etabs_x": 12.0, "etabs_y": 12.0, "dxf_x": None, "dxf_y": None},
     ])
     fig = mc.compare_figure(df)
-    # tri statusa -> tri traga
-    names = {t.name for t in fig.data}
+    # nazivi tragova su oblika "Status — vrsta"; provjeri statusni dio
+    names = " | ".join(t.name for t in fig.data)
     assert "Podudarno" in names
-    assert "Nedostaje (samo na tlocrtu)" in names
-    assert "Višak (samo u modelu)" in names
+    assert "Nedostaje" in names
+    assert "Višak" in names
 
 
 def test_compare_figure_empty():
@@ -331,3 +331,29 @@ def test_compare_grids_different_count():
     r = mc.compare_grids(ref, student)
     assert r["aligned"] is False
     assert any("Broj osi" in m for m in r["messages"])
+
+
+# --------------------------------------------------------------------------
+# UX popravci: compare_figure oblici po tipu + status_hr
+# --------------------------------------------------------------------------
+def test_compare_figure_symbols_by_type():
+    import model_compare as mc
+    import pandas as pd
+    df = pd.DataFrame([
+        {"element_type": "column", "status": "Status.MATCH", "etabs_name": "C1",
+         "etabs_x": 0.0, "etabs_y": 0.0},
+        {"element_type": "beam", "status": "Status.MATCH", "etabs_name": "B1",
+         "etabs_x": 1.0, "etabs_y": 0.0},
+    ])
+    fig = mc.compare_figure(df)
+    symbols = {t.marker.symbol for t in fig.data}
+    assert "square" in symbols     # stup
+    assert "diamond" in symbols    # greda
+
+
+def test_status_hr():
+    import model_compare as mc
+    assert mc.status_hr("Status.MATCH") == "Usklađeno"
+    assert mc.status_hr("Status.DXF_ONLY") == "Samo na tlocrtu (nedostaje)"
+    assert mc.status_hr("Status.ETABS_ONLY") == "Samo u modelu (višak)"
+    assert mc.status_hr("Status.SECTION_MISMATCH") == "Razlika u presjeku"

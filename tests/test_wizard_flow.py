@@ -203,9 +203,21 @@ class FakeSt:
     def progress(self, *a, **k): self.calls.append(("progress", a))
     def success(self, *a, **k): self.calls.append(("success", a))
     def warning(self, *a, **k): self.calls.append(("warning", a))
+    def info(self, *a, **k): self.calls.append(("info", a))
     def error(self, *a, **k): self.calls.append(("error", a))
     def dataframe(self, *a, **k): self.calls.append(("dataframe", a))
     def metric(self, *a, **k): pass
+
+    def spinner(self, *a, **k):
+        class _Sp:
+            def __enter__(self_): return self_
+            def __exit__(self_, *e): return False
+        return _Sp()
+
+    class _ColCfg:
+        @staticmethod
+        def Column(*a, **k): return {"label": k.get("label")}
+    column_config = _ColCfg()
 
     def button(self, *a, **k): return False
     def checkbox(self, *a, **k): return k.get("value", False)
@@ -286,3 +298,47 @@ def test_render_compare_shows_grade_and_figure():
     # figura i download izvještaja prikazani
     assert any(c[0] == "plotly_chart" for c in st.calls)
     assert any(c[0] == "download_button" for c in st.calls)
+
+
+# --------------------------------------------------------------------------
+# UX popravci: potvrda izlaza (A.4), spinner/info render bez pada
+# --------------------------------------------------------------------------
+def test_exit_needs_confirmation():
+    """Prvi klik na izlaz postavlja potvrdu, ne briše odmah stanje."""
+    import wizard_flow as wf
+
+    class ClickExitSt(FakeSt):
+        def button(self, *a, **k):
+            return k.get("key") == "wiz_exit"   # samo izlaz "kliknut"
+
+    st = ClickExitSt({wf._SS["step"]: wf.STEP_GENERATE, wf._SS["ref"]: {"meta": {"ok": True}}})
+    wf.render_wizard(st, __import__("config").Config())
+    # nakon prvog klika postavljena je potvrda, model NIJE obrisan
+    assert st.session_state.get("wiz_confirm_exit") is True
+    assert wf._SS["ref"] in st.session_state
+
+
+def test_render_step1_shows_unit_preview():
+    """Korak 1 s učitanim DXF-om prikazuje info o preporučenoj jedinici."""
+    import wizard_flow as wf
+    import os
+    sample = os.path.join(os.path.dirname(os.path.dirname(__file__)), "sample_building.dxf")
+    if not os.path.exists(sample):
+        import pytest
+        pytest.skip("sample_building.dxf nije dostupan")
+    with open(sample, "rb") as f:
+        data = f.read()
+    st = FakeSt({wf._SS["step"]: wf.STEP_UPLOAD_DXF})
+
+    # simuliraj već učitan DXF preko file_uploader koji vraća objekt s getvalue/name
+    class _Up:
+        name = "sample_building.dxf"
+        def getvalue(self_): return data
+
+    class UpSt(FakeSt):
+        def file_uploader(self, *a, **k): return _Up()
+
+    st = UpSt({wf._SS["step"]: wf.STEP_UPLOAD_DXF})
+    wf.render_wizard(st, __import__("config").Config())
+    # info poruka s preporukom jedinice (cm) prikazana
+    assert any(c[0] == "info" for c in st.calls)

@@ -18,22 +18,36 @@ from config import Config, DEFAULT_CONFIG
 
 def run_batch(ref_model: Dict[str, Any],
               students: List[Tuple[str, bytes]],
-              cfg: Config = DEFAULT_CONFIG):
+              cfg: Config = DEFAULT_CONFIG,
+              progress_cb=None):
     """Uspoređuje više studentskih E2K (bytes) protiv referentnog modela.
 
     students : lista (naziv_datoteke, e2k_bytes).
+    progress_cb : opcionalni callback(i, n, naziv) za prikaz napretka.
     Vraća DataFrame ocjena (kao model_compare.compare_batch). Neispravan E2K
     ne ruši batch — dobiva red s greškom.
     """
     import wizard_flow
     import model_compare
 
+    total = len(students or [])
     parsed: List[Tuple[str, Any]] = []
-    for name, data in (students or []):
+    for i, (name, data) in enumerate(students or []):
+        if progress_cb is not None:
+            try:
+                progress_cb(i, total, name)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             parsed.append((name, wizard_flow.parse_e2k_bytes(data, cfg)))
         except Exception as e:  # noqa: BLE001
             parsed.append((name, {"__error__": str(e)}))
+
+    if progress_cb is not None:
+        try:
+            progress_cb(total, total, "")
+        except Exception:  # noqa: BLE001
+            pass
 
     # compare_batch se sam nosi s neispravnim modelima (ocjena None)
     return model_compare.compare_batch(parsed, ref_model, cfg)
@@ -150,6 +164,9 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
 
     ref_model = st.session_state.get(_SS["ref"])
     if ref_model and ref_model.get("meta", {}).get("ok"):
+        src = "JSON" if ref_model.get("meta", {}).get("edited") is None and \
+            "scale_to_m" not in ref_model.get("meta", {}) else "DXF tlocrt"
+        st.success("Aktivna referenca (izvor: %s)." % src)
         for line in ref_model_ui.model_summary_text(ref_model):
             st.markdown("- " + line)
 
@@ -167,9 +184,22 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
             st.error("Učitajte barem jednu studentsku .e2k datoteku.")
         else:
             students = [(f.name, f.getvalue()) for f in ups]
+            prog = st.progress(0.0)
+            status = st.empty()
+
+            def _cb(i, n, name):
+                frac = (i / n) if n else 1.0
+                try:
+                    prog.progress(min(frac, 1.0))
+                    if name:
+                        status.caption("Obrađujem model %d/%d: %s" % (i + 1, n, name))
+                except Exception:  # noqa: BLE001
+                    pass
+
             try:
-                df = run_batch(ref_model, students, cfg)
+                df = run_batch(ref_model, students, cfg, progress_cb=_cb)
                 st.session_state[_SS["results"]] = df
+                status.caption("Gotovo — obrađeno %d modela." % len(students))
             except Exception as e:  # noqa: BLE001
                 st.error("Batch provjera nije uspjela: %s" % e)
 
@@ -181,6 +211,15 @@ def render_batch(st, cfg: Config = DEFAULT_CONFIG) -> None:
         m2.metric("Prosječna ocjena", stats["avg_grade"] if stats["avg_grade"] is not None else "—")
         m3.metric("Prosječna točnost",
                   "%.1f %%" % stats["avg_accuracy"] if stats["avg_accuracy"] is not None else "—")
+        # Histogram raspodjele ocjena (B.3)
+        dist = stats.get("distribution") or {}
+        if dist:
+            import pandas as pd
+            hist_df = pd.DataFrame(
+                {"broj studenata": [dist.get(g, 0) for g in (1, 2, 3, 4, 5)]},
+                index=["1", "2", "3", "4", "5"])
+            st.caption("Raspodjela ocjena")
+            st.bar_chart(hist_df)
         st.dataframe(df, use_container_width=True, hide_index=True)
         try:
             st.download_button("Preuzmi rezultate (CSV)",

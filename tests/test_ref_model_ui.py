@@ -140,3 +140,21 @@ def test_model_from_json_bytes():
     text = ui.model_to_json(model)
     back = ui.model_from_json(text.encode("utf-8"))
     assert back["meta"]["ok"] is True
+
+
+# --------------------------------------------------------------------------
+# UX popravak D.1: prijateljska poruka za neispravan JSON
+# --------------------------------------------------------------------------
+def test_model_from_json_friendly_error():
+    import ref_model_ui as ui
+    import pytest
+    with pytest.raises(ValueError) as exc:
+        ui.model_from_json(b"{ovo nije valjan json:}")
+    assert "nije valjani JSON" in str(exc.value)
+
+
+def test_model_from_json_non_dict():
+    import ref_model_ui as ui
+    import pytest
+    with pytest.raises(ValueError):
+        ui.model_from_json(b"[1, 2, 3]")   # valjan JSON ali nije dict

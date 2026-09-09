@@ -207,6 +207,10 @@ h3 {
     margin: 0 auto 28px auto;
     max-width: 780px;
 }
+/* Responzivnost: na užim prozorima kartice u jedan stupac (izbjegava rezanje teksta) */
+@media (max-width: 900px) {
+    .step-row { grid-template-columns: 1fr; }
+}
 .step-card {
     border: 1px solid #E5E7EB;
     border-radius: 6px;
@@ -490,7 +494,7 @@ p, span, label {
     border-right: 1px solid #30363D !important;
 }
 [data-testid="stSidebar"] .sidebar-section-label {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
     border-bottom: 1px solid #30363D !important;
 }
 [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label {
@@ -513,7 +517,7 @@ p, span, label {
     color: #F0F6FC !important;
 }
 .app-header-meta {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
 }
 .app-header-divider {
     border-bottom: 1px solid #30363D !important;
@@ -525,7 +529,7 @@ p, span, label {
     background-color: transparent !important;
 }
 [data-baseweb="tab"] {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
     background: transparent !important;
 }
 [data-baseweb="tab"]:hover {
@@ -570,7 +574,7 @@ p, span, label {
 [data-testid="stSegmentedControl"] button p,
 [data-testid="stSegmentedControl"] button span,
 [data-testid="stSegmentedControl"] button div {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
     font-size: 12px !important;
     font-weight: 600 !important;
 }
@@ -642,7 +646,7 @@ input:focus, textarea:focus {
     color: #F0F6FC !important;
 }
 .landing-subtitle {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
 }
 .step-card {
     background: #161B22 !important;
@@ -655,7 +659,7 @@ input:focus, textarea:focus {
     color: #F0F6FC !important;
 }
 .step-desc {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
 }
 .own-model-card {
     background: #161B22 !important;
@@ -665,7 +669,7 @@ input:focus, textarea:focus {
     color: #F0F6FC !important;
 }
 .own-model-desc {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
 }
 .own-model-hint {
     color: #58A6FF !important;
@@ -675,7 +679,7 @@ input:focus, textarea:focus {
     border: 1px solid #30363D !important;
 }
 [data-testid="stMetricLabel"] {
-    color: #8B949E !important;
+    color: #B9C2CE !important;
 }
 [data-testid="stMetricValue"] {
     color: #F0F6FC !important;
@@ -697,7 +701,7 @@ input:focus, textarea:focus {
 }
 [data-testid="stDataFrame"] th {
     background-color: #21262D !important;
-    color: #8B949E !important;
+    color: #B9C2CE !important;
     border-bottom: 1px solid #30363D !important;
 }
 [data-testid="stDataFrame"] td {
@@ -762,7 +766,7 @@ input:focus, textarea:focus {
 .triage-fail { background: rgba(248, 81, 73, 0.12) !important; border-left-color: #F85149 !important; }
 .triage-warn { background: rgba(210, 153, 34, 0.12) !important; border-left-color: #D29922 !important; }
 .triage-pass { background: rgba(46, 160, 67, 0.12) !important; border-left-color: #3FB950 !important; }
-.triage-info { background: rgba(110, 118, 129, 0.12) !important; border-left-color: #8B949E !important; }
+.triage-info { background: rgba(110, 118, 129, 0.12) !important; border-left-color: #B9C2CE !important; }
 
 /* 11. Overrides for any inline styles */
 table { color: #C9D1D9 !important; }
@@ -771,7 +775,7 @@ div[style*="border-bottom: 1px solid #E5E7EB"], div[style*="border-bottom:1px so
 div[style*="background:#E2E8F0"], div[style*="background: #E2E8F0"] { background: #21262D !important; }
 span[style*="color: #111827"], span[style*="color:#111827"], strong[style*="color: #111827"], div[style*="color: #111827"], div[style*="color:#111827"] { color: #F0F6FC !important; }
 span[style*="color: #374151"], span[style*="color:#374151"], div[style*="color: #374151"], div[style*="color:#374151"] { color: #C9D1D9 !important; }
-span[style*="color: #6B7280"], span[style*="color:#6B7280"], div[style*="color: #6B7280"] { color: #8B949E !important; }
+span[style*="color: #6B7280"], span[style*="color:#6B7280"], div[style*="color: #6B7280"] { color: #B9C2CE !important; }
 div[style*="background:#FAFAFA"], div[style*="background: #FAFAFA"], div[style*="background:#F9FAFB"] { background: #161B22 !important; border-color: #30363D !important; }
 div[style*="border:1px solid #E5E7EB"] { border-color: #30363D !important; }
 div[style*="background:#FEF2F2"] { background: rgba(248, 81, 73, 0.15) !important; }

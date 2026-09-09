@@ -121,12 +121,15 @@ def _cached_validate(_etabs_data: dict, _df_dxf: pd.DataFrame, _cfg: Config):
 
 @st.cache_data(show_spinner=False, max_entries=8)
 def _cached_build_ref_model(dxf_bytes: bytes, _cfg: Config, sig: str,
-                            n_stories: int, story_height: float):
+                            n_stories: int, story_height: float,
+                            unit_scale=None):
     """Referentni model iz DXF tlocrta (keširano na bytes + parametrima etaža).
 
-    sig sudjeluje u ključu keša da promjena unosa etaža ponovno izgradi model.
+    sig sudjeluje u ključu keša da promjena unosa etaža/jedinice ponovno izgradi model.
     """
     user_input = {"n_stories": int(n_stories), "story_height": float(story_height)}
+    if unit_scale is not None:
+        user_input["unit_scale"] = float(unit_scale)
     return ref_model_ui.build_ref_model_from_bytes(dxf_bytes, _cfg, user_input)
 
 
@@ -513,8 +516,8 @@ def main():
                 is_pdf_mode = False
                 project_label = "Poslovni centar"
                 cfg.extract_elements = ["columns"]
-                if uploaded_ref_drawing:
-                    uploaded_drawing = uploaded_ref_drawing
+                # Prikaži CAD DXF nacrt uz model (split-view), osim ako je priložen PDF.
+                uploaded_drawing = uploaded_ref_drawing or dxf_target
         elif demo_choice == "small":
             dxf_target = SMALL_SAMPLE_DXF
             e2k_target = SMALL_SAMPLE_E2K
@@ -526,8 +529,7 @@ def main():
                 has_data = True
                 is_pdf_mode = False
                 project_label = "Referentni model"
-                if uploaded_ref_drawing:
-                    uploaded_drawing = uploaded_ref_drawing
+                uploaded_drawing = uploaded_ref_drawing or dxf_target
 
     elif uploaded_e2k:
         e2k_content = uploaded_e2k.getvalue().decode("utf-8", errors="replace")
@@ -1606,19 +1608,29 @@ def main():
             st.info("Učitajte DXF tlocrt u bočnoj traci da biste generirali referentni model.")
         else:
             # Parametri etaža (2D tlocrt -> 3D model)
-            with st.expander("Parametri etaža", expanded=False):
-                c1, c2 = st.columns(2)
+            with st.expander("Parametri modela", expanded=False):
+                c1, c2, c3 = st.columns(3)
                 n_stories = c1.number_input("Broj etaža", min_value=1, max_value=50,
                                             value=int(st.session_state.get("ref_n_stories", 1)),
                                             step=1, key="ref_n_stories")
                 story_h = c2.number_input("Visina etaže (m)", min_value=2.0, max_value=6.0,
                                           value=float(st.session_state.get("ref_story_h", 3.0)),
                                           step=0.1, key="ref_story_h")
+                _unit_opts = {"Automatski (iz DXF zaglavlja)": None,
+                              "Milimetri (mm)": 0.001, "Centimetri (cm)": 0.01,
+                              "Metri (m)": 1.0}
+                _unit_lbl = c3.selectbox("Jedinica crteža", list(_unit_opts.keys()),
+                                         index=0, key="ref_unit_label",
+                                         help="Promijenite ako model nema elemente "
+                                              "ili su dimenzije nerealne.")
+                ref_unit_scale = _unit_opts[_unit_lbl]
 
             sig = ref_model_ui.input_signature(dxf_bytes, {"n_stories": n_stories,
-                                                           "story_height": story_h})
+                                                           "story_height": story_h,
+                                                           "unit_scale": ref_unit_scale})
             try:
-                ref_model = _cached_build_ref_model(dxf_bytes, cfg, sig, n_stories, story_h)
+                ref_model = _cached_build_ref_model(dxf_bytes, cfg, sig, n_stories,
+                                                    story_h, ref_unit_scale)
             except Exception as e:  # noqa: BLE001
                 st.error("Generiranje referentnog modela nije uspjelo: %s" % e)
                 ref_model = None
@@ -1682,7 +1694,10 @@ def main():
                             for msg in summary["messages"]:
                                 st.warning(msg)
                         if not df_cmp.empty:
-                            st.dataframe(safe_df(df_cmp), use_container_width=True,
+                            _disp = df_cmp.copy()
+                            if "status" in _disp.columns:
+                                _disp["status"] = _disp["status"].map(model_compare.status_hr)
+                            st.dataframe(safe_df(_disp), use_container_width=True,
                                          hide_index=True)
 
     # -- TAB 6: Vektorizacija (raster -> DXF linije, poluautomatski) --
