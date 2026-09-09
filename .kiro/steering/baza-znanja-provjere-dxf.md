@@ -26,12 +26,13 @@ Grupirano po ozbiljnosti. Svaka stavka: što se provjerava → tipična greška 
    "no mass, no eigen modes", nema modalne analize. (izvor: eng-tips)
 5. **Sudjelujuća modalna masa ≥ 90%** u svakom glavnom smjeru. Greška: premalo modova.
 6. **Slučajni ekscentricitet ±5%** primijenjen.
-7. **Raspucala krutost** (0.5·EI orijentacijski) za AB pri seizmici, ako se traži.
+7. **Raspucala krutost** — 50% krutosti neraspucalih elemenata (savijanje i posmik) za AB/zidano pri seizmici (EN 1998-1 čl. 4.3.1), ako se traži.
 
 ### A3. Dijafragme i put sila
 8. **Dijafragma dodijeljena** svakoj etaži i tipom primjerena ploči (rigid/semi-rigid/flexible).
-   Greška: nema dijafragme ili kruta na fleksibilnoj ploči. Posljedica: krivi put sila,
-   pogrešna torzija. (izvor: civilera)
+   EN 1998-1 (čl. 4.3.1): kruta pretpostavka vrijedi ako pomaci uz stvarnu podatljivost nigdje ne
+   prelaze za >10% pomake krute dijafragme. Greška: nema dijafragme ili kruta na fleksibilnoj
+   ploči. Posljedica: krivi put sila, pogrešna torzija. (izvor: EN 1998-1; civilera)
 9. **Meshiranje** shell elemenata ispravno; membrane NE meshirati.
 
 ### A4. Presjeci, materijali, opterećenja

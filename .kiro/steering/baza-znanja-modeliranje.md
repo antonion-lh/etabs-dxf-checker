@@ -6,7 +6,11 @@ inclusion: manual
 > Namjena: stručni temelj za provjeru (reviziju) numeričkih modela zgrada, prvenstveno
 > armiranobetonskih, u edukacijskom kontekstu (profesor provjerava studentski model iz
 > ETABS-a). Dokument definira što čini kvalitetan numerički model i koje se provjere rade.
-> Izvori su navedeni na dnu. Ovo NIJE zamjena za normu ni za prosudbu ovlaštenog inženjera.
+> Izvori su navedeni na dnu. Referentne norme: **EN 1990:2002** (osnove), **EN 1991**
+> (djelovanja), **EN 1992-1-1:2004** (beton), **EN 1998-1:2004** (potres), sve zajedno s
+> pripadnim hrvatskim nacionalnim dodacima (HRN EN ... /NA). Ovo NIJE zamjena za normu ni za
+> prosudbu ovlaštenog inženjera; brojčane granice i faktori ovise o nacionalnom dodatku i
+> važećoj verziji norme (u tijeku je i druga generacija Eurokodova).
 
 ## 1. Svrha i granice
 
@@ -19,6 +23,11 @@ rezultat posljedica ispravnih pretpostavki.
 Ključno načelo: **ako je geometrija ili rubni uvjet pogrešan, svi rezultati nizvodno su
 pogrešni, bez obzira koliko analiza izgleda čisto.** (izvor: Santiago, 7 ETABS mistakes)
 
+U dokumentu se razlikuju: (1) **normativni zahtjevi** — izravno iz Eurokoda, navedeni s
+člankom; (2) **inženjerske smjernice / dobra praksa** — iz priručnika i literature, mogu
+varirati; (3) **heuristike alata** — pravila prepoznavanja i pretpostavke koje alat koristi i
+koje uvijek treba potvrditi. Tamo gdje je granica bitna, izvor je naznačen uz tvrdnju.
+
 ## 2. Idealizacija konstruktivnih elemenata
 
 ### 2.1 Linijski elementi (frame): stupovi, grede
@@ -26,8 +35,10 @@ pogrešni, bez obzira koliko analiza izgleda čisto.** (izvor: Santiago, 7 ETABS
 - **Rigid end offsets (kruti krajevi):** stvarni elementi imaju konačne dimenzije; u čvoru
   se grede i stupovi preklapaju. Rigid end offset skraćuje deformabilnu duljinu na svijetli
   raspon (clear span) umjesto osnog razmaka (centerline). Zanemarivanje precjenjuje
-  fleksibilnost i pomake. ETABS može automatski računati offset (faktor krutosti tipično
-  0.5–1.0). (izvor: End Length Offsets; SAP2000 tutorial)
+  fleksibilnost i pomake. ETABS može automatski računati offset; faktor krutosti krute zone
+  (rigid-zone factor) kreće se od 0 (bez dodatne krutosti u zoni preklapanja, konzervativno)
+  do 1 (potpuno kruta zona); izbor je inženjerska odluka. (izvor: End Length Offsets; SAP2000
+  tutorial; CSI dokumentacija)
 - **Momentna oslobođenja (releases):** greda uklještena vs. zglobno spojena mijenja
   raspodjelu momenata. Pogrešni release je čest izvor krivih rezultata.
 
@@ -46,9 +57,12 @@ pogrešni, bez obzira koliko analiza izgleda čisto.** (izvor: Santiago, 7 ETABS
 
 ### 2.3 Dijafragme (katne ploče kao horizontalni element)
 - **Kruta (rigid) dijafragma:** nameće jednak bočni pomak svim čvorovima etaže (translacija
-  + rotacija kao kruto tijelo). Primjenjiva kad je ploča dovoljno kruta u svojoj ravnini —
-  orijentacijski span/depth <= 3 i bez izraženih tlocrtnih nepravilnosti. (izvor: Modeling
-  and Analysis on Diaphragms)
+  + rotacija kao kruto tijelo). Prema EN 1998-1 (čl. 4.3.1), dijafragma se smije smatrati krutom
+  ako pri modeliranju s njezinom stvarnom podatljivošću horizontalni pomaci nigdje ne prelaze
+  za više od **10%** pomake dobivene uz pretpostavku krute dijafragme. (Orijentacijski,
+  prema ASCE 7/IBC, dijafragma se smatra fleksibilnom kad je omjer raspon/dubina > 3 —
+  taj kriterij NIJE dio EN 1998-1 nego se navodi kao praktična smjernica.) (izvori: EN 1998-1
+  čl. 4.3.1; Modeling and Analysis on Diaphragms — ASCE 7/IBC)
 - **Fleksibilna / polukruta:** za drvene stropove, tanke metalne limove, otvorene tlocrte,
   velike otvore — kruta pretpostavka daje lažne rezultate (krivi put sila, podcijenjena
   torzija). Tada polukruta (semi-rigid) ili eksplicitno modeliranje krutosti. (izvor:
@@ -67,16 +81,20 @@ pogrešni, bez obzira koliko analiza izgleda čisto.** (izvor: Santiago, 7 ETABS
 
 ## 3. Masa, krutost i dinamika (EN 1998)
 
-- **Efektivna (raspucala) krutost:** za AB elemente pri seizmičkoj analizi uzeti smanjenu
-  krutost napukloga presjeka — orijentacijski 50% krutosti neraspucalog (0.5·Ec·I), osim ako
-  se detaljnijom analizom dokaže drukčije. Korištenje pune (bruto) krutosti podcjenjuje
-  pomake i periode. (izvor: EN 1998-1)
+- **Efektivna (raspucala) krutost:** EN 1998-1 (čl. 4.3.1(6)–(7)) dopušta da se za betonske
+  i zidane elemente krutost na savijanje i posmik uzme kao **50% odgovarajuće krutosti
+  neraspucalih elemenata**, osim ako se detaljnijom analizom odredi drukčije; usvojena krutost
+  treba odražavati stanje pri početku tečenja armature. Korištenje pune (bruto) krutosti
+  podcjenjuje pomake i produljuje/skraćuje periode na nekonzervativan način. (izvor: EN 1998-1
+  čl. 4.3.1)
 - **Masa za seizmičku:** kombinacija G + ψ_E·Q, gdje je ψ_Ei = φ·ψ_2i. Model bez definirane
   mase ne može dati vlastite oblike — ETABS javlja "no mass, no eigen modes". (izvor:
   EN 1998-1; eng-tips)
-- **Modalna analiza:** zbroj efektivnih modalnih masa mora doseći ≥ 90% ukupne mase u svakom
-  glavnom smjeru (ili uključiti sve modove s > 5% efektivne mase). Premalo modova = podcijenjen
-  odziv. (izvor: EN 1998-1)
+- **Modalna analiza:** EN 1998-1 (čl. 4.3.3.3.1) traži da se uzme dovoljan broj vlastitih
+  oblika, i to prema jednom od dva kriterija: (a) zbroj efektivnih modalnih masa iznosi
+  najmanje **90% ukupne mase konstrukcije** u svakom razmatranom smjeru, ILI (b) uzmu se svi
+  oblici s efektivnom modalnom masom većom od **5% ukupne mase**. Premalo obuhvaćenih oblika
+  podcjenjuje odziv. (izvor: EN 1998-1 čl. 4.3.3.3.1)
 - **Slučajni ekscentricitet:** ± 5% dimenzije etaže okomito na smjer potresa, za obuhvat
   nesigurnosti u raspodjeli mase i torzije. (izvor: EN 1998-1)
 
@@ -107,10 +125,12 @@ pogrešni, bez obzira koliko analiza izgleda čisto.** (izvor: Santiago, 7 ETABS
 ---
 
 ## Izvori
-- EN 1990 — Osnove projektiranja konstrukcija (kombinacije). JRC Eurocodes portal:
-  https://eurocodes.jrc.ec.europa.eu/en-eurocodes
-- EN 1998-1 — Projektiranje konstrukcija otpornih na potres (pravilnost, masa, modalna analiza,
-  ekscentricitet, raspucala krutost).
+- EN 1990:2002 — Osnove projektiranja konstrukcija (kombinacije djelovanja). JRC Eurocodes
+  portal: https://eurocodes.jrc.ec.europa.eu/en-eurocodes
+- EN 1991 — Djelovanja na konstrukcije (vlastita težina, uporabno, vjetar, snijeg).
+- EN 1992-1-1:2004 — Betonske konstrukcije (opća pravila).
+- EN 1998-1:2004 — Projektiranje konstrukcija otpornih na potres (čl. 4.3.1 raspucala krutost i
+  kruta dijafragma; čl. 4.3.3.3.1 modalna analiza; čl. 4.2.3 pravilnost; masa i ekscentricitet).
 - Modeling and Analysis on Diaphragms (span/depth ≤ 3, klasifikacija dijafragmi).
 - Diaphragm Considerations for Structural Engineers (ASCE 7 / IBC klasifikacija).
 - End Length Offsets (rigid end offsets, clear span vs centerline).
